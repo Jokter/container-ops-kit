@@ -1,0 +1,610 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Container Ops Kit</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f5f7f8;
+      --surface: #ffffff;
+      --surface-soft: #f8fafb;
+      --ink: #202b33;
+      --muted: #66737d;
+      --faint: #8e99a2;
+      --line: #e1e6e9;
+      --brand: #3563e9;
+      --brand-soft: #edf2ff;
+      --green: #16836e;
+      --green-soft: #e9f5f2;
+      --violet: #5267c7;
+      --violet-soft: #eef1fb;
+      --amber: #a96f16;
+      --amber-soft: #fff4df;
+      --red: #c64c4c;
+      --red-soft: #fff0ef;
+      --shadow: 0 1px 2px rgba(25, 39, 48, .04);
+      --font: "Segoe UI Variable", "Segoe UI", "Microsoft YaHei UI", sans-serif;
+      --mono: "Cascadia Code", Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    html, body { min-height: 100%; }
+    body { margin: 0; color: var(--ink); background: var(--bg); font: 14px/1.55 var(--font); font-weight: 400; }
+    button, input, select { font: inherit; }
+    button { cursor: pointer; }
+    h1, h2, h3, p { margin: 0; }
+    strong, b { font-weight: 600; }
+    h1 { font-size: 26px; line-height: 1.3; font-weight: 600; letter-spacing: -.02em; }
+    h2 { font-size: 16px; line-height: 1.35; font-weight: 600; }
+    h3 { font-size: 14px; font-weight: 600; }
+    .mono { font-family: var(--mono); }
+    .taiji { width: 30px; height: 30px; flex: 0 0 auto; }
+    .taiji svg { display: block; width: 100%; height: 100%; }
+    .status { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
+    .status::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
+    .status.ok { color: var(--green); }
+    .status.ok::before { background: var(--green); }
+    .status.warn { color: var(--amber); }
+    .status.warn::before { background: var(--amber); }
+    .badge { display: inline-flex; align-items: center; padding: 3px 8px; border-radius: 99px; color: var(--muted); background: #eef1f3; font-size: 12px; font-weight: 500; }
+    .badge.brand { color: var(--brand); background: var(--brand-soft); }
+    .badge.green { color: var(--green); background: var(--green-soft); }
+    .badge.violet { color: var(--violet); background: var(--violet-soft); }
+    .badge.amber { color: var(--amber); background: var(--amber-soft); }
+    .badge.red { color: var(--red); background: var(--red-soft); }
+    .button { border: 1px solid var(--line); border-radius: 7px; padding: 7px 11px; color: var(--ink); background: var(--surface); font-weight: 500; }
+    .button:hover { border-color: #b9c3c9; }
+    .button:disabled { cursor: not-allowed; opacity: .45; }
+    .button.primary { color: white; border-color: var(--brand); background: var(--brand); }
+    .button.ghost { color: var(--muted); background: transparent; }
+    .button.small { padding: 6px 9px; font-size: 12px; }
+    .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); }
+    .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 49px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+    .panel-body { padding: 16px; }
+    .page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; margin-bottom: 20px; }
+    .page-head p { margin-top: 4px; color: var(--muted); font-size: 14px; }
+    .head-actions { display: flex; align-items: center; gap: 8px; }
+    .metric-value { font-size: 26px; line-height: 1.1; font-weight: 600; letter-spacing: -.02em; }
+    .metric-label { color: var(--muted); font-size: 12px; }
+    .metric-foot { margin-top: 3px; color: var(--faint); font-size: 12px; }
+    .attention-list, .activity-list { display: grid; }
+    .attention-row, .activity-row { display: grid; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+    .attention-row:last-child, .activity-row:last-child { border-bottom: 0; }
+    .attention-row { grid-template-columns: auto minmax(0,1fr) auto; }
+    .attention-row strong, .activity-row strong { display: block; font-size: 14px; font-weight: 500; }
+    .attention-row p, .activity-row p { margin-top: 2px; color: var(--muted); font-size: 12px; }
+    .activity-row { grid-template-columns: 58px minmax(0,1fr) auto; }
+    .activity-time { color: var(--faint); font: 12px var(--mono); }
+    .workspace-tabs { display: flex; align-items: center; gap: 4px; margin-bottom: 18px; }
+    .workspace-tabs button { border: 0; border-radius: 8px; padding: 8px 12px; color: var(--muted); background: transparent; font-weight: 500; }
+    .workspace-tabs button.active { color: var(--brand); background: var(--brand-soft); }
+    .environment-bar { display: grid; grid-template-columns: minmax(220px,1.2fr) repeat(4,minmax(100px,.7fr)) auto; gap: 16px; align-items: center; margin-bottom: 16px; padding: 15px 17px; border-radius: 10px; color: white; background: #253744; }
+    .environment-bar strong { display: block; }
+    .environment-bar small { display: block; margin-top: 3px; color: #b9c4cb; font-size: 12px; }
+    .environment-bar select { width: 100%; border: 1px solid #50616c; border-radius: 7px; padding: 8px 9px; color: white; background: #314550; font-weight: 500; }
+    .environment-item span { display: block; color: #9baab3; font-size: 12px; }
+    .environment-item b { display: block; margin-top: 3px; font-size: 12px; }
+    .form-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 14px; }
+    .field label { display: block; margin-bottom: 6px; color: var(--muted); font-size: 12px; font-weight: 500; }
+    .field input, .field select { width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; color: var(--ink); background: var(--surface-soft); }
+    .repo-list { display: grid; gap: 9px; margin-top: 15px; }
+    .repo-row { display: grid; grid-template-columns: minmax(190px,1fr) minmax(170px,.8fr) auto; gap: 10px; align-items: end; padding: 12px; border-radius: 9px; background: var(--surface-soft); }
+    .repo-row span { display: block; margin-bottom: 5px; color: var(--muted); font-size: 12px; }
+    .repo-row select { width: 100%; border: 1px solid var(--line); border-radius: 7px; padding: 8px 9px; background: white; }
+    .build-layout { display: grid; grid-template-columns: 390px minmax(0,1fr); gap: 16px; align-items: start; }
+    .summary-stack { display: grid; gap: 14px; }
+    .progress { height: 7px; overflow: hidden; border-radius: 99px; background: #e8ecef; }
+    .progress span { display: block; width: 62%; height: 100%; background: var(--brand); }
+    .terminal { min-height: 210px; padding: 15px; border-radius: 9px; color: #c2ccd2; background: #1d2b34; font: 12px/1.75 var(--mono); }
+    .terminal b { color: #7ed2c3; }
+    .resource-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .resource-card { padding: 19px; }
+    .resource-card-top { display: flex; justify-content: space-between; gap: 12px; }
+    .resource-card p { margin-top: 5px; color: var(--muted); font-size: 12px; }
+    .connection-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 9px; margin-top: 16px; }
+    .connection { padding: 11px; border-radius: 8px; background: var(--surface-soft); }
+    .connection span { color: var(--muted); font-size: 12px; }
+    .connection strong { display: block; margin-top: 4px; font-size: 12px; }
+    .empty { min-height: 420px; display: grid; place-items: center; text-align: center; }
+    .empty-symbol { width: 54px; height: 54px; display: grid; place-items: center; margin: 0 auto 16px; border-radius: 16px; color: var(--violet); background: var(--violet-soft); font-size: 24px; }
+    .empty p { max-width: 470px; margin-top: 7px; color: var(--muted); }
+    .variant-a-shell { min-height: 100vh; }
+    .variant-a-sidebar { position: fixed; inset: 0 auto 0 0; width: 184px; display: flex; flex-direction: column; padding: 18px 12px 14px; background: #f1f4f6; border-right: 1px solid var(--line); }
+    .variant-a-brand { display: flex; align-items: center; gap: 9px; padding: 0 6px 16px; }
+    .variant-a-brand strong { display: block; white-space: nowrap; color: #263740; font-size: 14px; font-weight: 600; letter-spacing: -.01em; }
+    .variant-a-brand span { display: block; margin-top: 1px; color: #7b8891; font-size: 12px; font-weight: 400; }
+    .variant-a-nav { display: grid; gap: 2px; }
+    .variant-a-nav .nav-section { margin: 14px 9px 4px; color: var(--faint); font-size: 12px; font-weight: 500; }
+    .variant-a-nav button { width: 100%; border: 0; border-radius: 7px; padding: 8px 10px; color: #53616b; background: transparent; text-align: left; font-size: 14px; font-weight: 400; }
+    .variant-a-nav button.active { color: var(--ink); background: white; box-shadow: inset 2px 0 var(--brand); font-weight: 600; }
+    .variant-a-user { margin-top: auto; padding: 12px 8px 0; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+    .variant-a-main { min-height: 100vh; margin-left: 184px; padding: 24px; }
+    .variant-a-status-strip { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); margin-bottom: 16px; padding: 14px 0; }
+    .variant-a-status-item { min-width: 0; padding: 0 18px; border-right: 1px solid var(--line); }
+    .variant-a-status-item:first-child { padding-left: 16px; }
+    .variant-a-status-item:last-child { border-right: 0; }
+    .variant-a-status-top { display: flex; align-items: baseline; gap: 9px; }
+    .variant-a-columns { display: grid; grid-template-columns: minmax(0,7fr) minmax(320px,5fr); gap: 16px; }
+    .variant-a-overview { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; margin-top: 16px; }
+    .overview-card { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 14px 16px; }
+    .overview-card p { margin-top: 3px; color: var(--muted); font-size: 12px; }
+    .overview-card-meta { display: flex; align-items: center; gap: 14px; color: var(--muted); font-size: 12px; }
+    .task-table { margin-top: 16px; }
+    .task-row { display: grid; grid-template-columns: minmax(220px,1.4fr) minmax(180px,1fr) minmax(160px,.8fr) 100px 70px; gap: 16px; align-items: center; min-height: 48px; padding: 0 16px; border-bottom: 1px solid var(--line); }
+    .task-row:last-child { border-bottom: 0; }
+    .task-row.head { min-height: 36px; color: var(--faint); background: var(--surface-soft); font-size: 12px; }
+    .task-row strong { font-weight: 500; }
+    .task-row span { color: var(--muted); font-size: 12px; }
+    .resource-workspace { display: grid; gap: 16px; }
+    .version-overview { display: grid; grid-template-columns: minmax(260px,1.4fr) repeat(3,minmax(150px,.6fr)); align-items: stretch; overflow: hidden; }
+    .version-selector { padding: 16px; border-right: 1px solid var(--line); }
+    .version-selector label { display: block; margin-bottom: 7px; color: var(--muted); font-size: 12px; }
+    .version-selector select { width: 100%; border: 1px solid var(--line); border-radius: 7px; padding: 9px 11px; color: var(--ink); background: var(--surface-soft); font-weight: 500; }
+    .version-stat { display: flex; flex-direction: column; justify-content: center; padding: 16px 18px; border-right: 1px solid var(--line); }
+    .version-stat:last-child { border-right: 0; }
+    .version-stat span { color: var(--muted); font-size: 12px; }
+    .version-stat strong { margin-top: 3px; font-size: 20px; }
+    .resource-panel { overflow: hidden; }
+    .resource-tabs { display: flex; gap: 2px; padding: 8px 12px 0; border-bottom: 1px solid var(--line); }
+    .resource-tabs button { position: relative; border: 0; padding: 9px 12px 11px; color: var(--muted); background: transparent; font-weight: 500; }
+    .resource-tabs button.active { color: var(--brand); }
+    .resource-tabs button.active::after { content: ""; position: absolute; right: 10px; bottom: -1px; left: 10px; height: 2px; background: var(--brand); }
+    .resource-tab-count { margin-left: 5px; color: var(--faint); font-size: 12px; }
+    .environment-toolbar { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+    .environment-search { min-width: 240px; border: 1px solid var(--line); border-radius: 7px; padding: 7px 10px; background: var(--surface-soft); }
+    .environment-filter { border: 1px solid var(--line); border-radius: 7px; padding: 7px 10px; color: var(--muted); background: var(--surface); }
+    .environment-toolbar-spacer { flex: 1; }
+    .batch-progress { display: flex; align-items: center; gap: 10px; padding: 9px 16px; color: var(--muted); background: var(--brand-soft); font-size: 12px; }
+    .batch-progress-track { width: 150px; height: 5px; overflow: hidden; border-radius: 99px; background: #d9e2ff; }
+    .batch-progress-track span { display: block; height: 100%; background: var(--brand); transition: width .2s ease; }
+    .environment-table { min-width: 0; }
+    .environment-row { display: grid; grid-template-columns: minmax(210px,1.4fr) minmax(135px,.8fr) 90px 100px minmax(150px,.9fr) minmax(270px,1.2fr); gap: 14px; align-items: center; min-height: 66px; padding: 10px 16px; border-bottom: 1px solid var(--line); }
+    .environment-row:last-child { border-bottom: 0; }
+    .environment-row.head { min-height: 38px; color: var(--faint); background: var(--surface-soft); font-size: 12px; }
+    .environment-row-name { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .environment-kind-icon { display: grid; place-items: center; width: 32px; height: 32px; flex: 0 0 auto; border-radius: 8px; color: var(--brand); background: var(--brand-soft); font-weight: 600; }
+    .environment-row-name strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+    .environment-row-name span, .environment-cell-copy { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; }
+    .environment-actions { display: flex; justify-content: flex-end; gap: 6px; }
+    .environment-actions .button { white-space: nowrap; }
+    .status.testing { color: var(--brand); }
+    .status.testing::before { background: var(--brand); animation: status-pulse 1s infinite; }
+    .status.error { color: var(--red); }
+    .status.error::before { background: var(--red); }
+    .status.disabled { color: var(--faint); }
+    .status.disabled::before { background: var(--faint); }
+    @keyframes status-pulse { 50% { opacity: .35; } }
+    .environment-empty { padding: 54px 20px; color: var(--muted); text-align: center; }
+    .drawer-backdrop { position: fixed; inset: 0; z-index: 90; background: rgba(25,39,48,.28); }
+    .environment-drawer { position: fixed; top: 0; right: 0; z-index: 91; width: min(520px,100vw); height: 100vh; display: flex; flex-direction: column; background: var(--surface); box-shadow: -18px 0 50px rgba(25,39,48,.14); }
+    .drawer-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 20px 22px; border-bottom: 1px solid var(--line); }
+    .drawer-header p { margin-top: 4px; color: var(--muted); font-size: 12px; }
+    .drawer-body { flex: 1; overflow: auto; padding: 20px 22px; }
+    .drawer-section + .drawer-section { margin-top: 22px; padding-top: 20px; border-top: 1px solid var(--line); }
+    .drawer-section-title { margin-bottom: 12px; }
+    .drawer-section-title p { margin-top: 3px; color: var(--muted); font-size: 12px; }
+    .drawer-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 13px; }
+    .drawer-grid .wide { grid-column: 1 / -1; }
+    .drawer-footer { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 22px; border-top: 1px solid var(--line); }
+    .drawer-test-result { display: none; margin-top: 12px; padding: 10px 12px; border-radius: 8px; color: var(--muted); background: var(--surface-soft); font-size: 12px; }
+    .drawer-test-result.visible { display: block; }
+    .drawer-test-result.success { color: var(--green); background: var(--green-soft); }
+    .drawer-test-result.testing { color: var(--brand); background: var(--brand-soft); }
+    .readonly-value { min-height: 40px; display: flex; align-items: center; border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; color: var(--muted); background: var(--surface-soft); }
+    .history-list { display: grid; gap: 10px; }
+    .history-item { display: grid; grid-template-columns: 82px minmax(0,1fr) auto; gap: 12px; align-items: start; padding: 12px; border-radius: 8px; background: var(--surface-soft); }
+    .history-item time { color: var(--faint); font: 12px var(--mono); }
+    .history-item p { margin-top: 3px; color: var(--muted); font-size: 12px; }
+    .toast { position: fixed; right: 24px; bottom: 24px; z-index: 110; max-width: 380px; padding: 11px 14px; border-radius: 8px; color: white; background: #253744; box-shadow: 0 12px 30px rgba(25,39,48,.2); }
+    @media (max-width: 1200px) {
+      .environment-table { overflow-x: auto; }
+      .environment-row { min-width: 1040px; }
+    }
+    @media (max-width: 980px) {
+      .variant-a-sidebar { width: 172px; }
+      .variant-a-main { margin-left: 172px; }
+      .variant-a-columns, .build-layout { grid-template-columns: 1fr; }
+      .environment-bar { grid-template-columns: repeat(2,1fr); }
+      .version-overview { grid-template-columns: repeat(3,1fr); }
+      .version-selector { grid-column: 1 / -1; border-right: 0; border-bottom: 1px solid var(--line); }
+    }
+    @media (max-width: 700px) {
+      .variant-a-sidebar { position: static; width: 100%; height: auto; }
+      .variant-a-nav { display: flex; overflow: auto; }
+      .variant-a-nav .nav-section, .variant-a-user { display: none; }
+      .variant-a-nav button { white-space: nowrap; }
+      .variant-a-main { margin: 0; padding: 20px 16px; }
+      .variant-a-status-strip, .variant-a-overview, .resource-grid, .form-grid, .connection-grid { grid-template-columns: 1fr; }
+      .variant-a-status-item { padding: 10px 16px; border-right: 0; border-bottom: 1px solid var(--line); }
+      .variant-a-status-item:last-child { border-bottom: 0; }
+      .page-head { display: block; }
+      .head-actions { margin-top: 14px; }
+      .repo-row, .environment-bar { grid-template-columns: 1fr; }
+      .task-table { overflow-x: auto; }
+      .task-row { min-width: 820px; }
+      .environment-toolbar { align-items: stretch; flex-wrap: wrap; }
+      .environment-search { min-width: 0; flex: 1 1 100%; }
+      .environment-toolbar-spacer { display: none; }
+      .environment-table { overflow: visible; }
+      .environment-row.head { display: none; }
+      .environment-row { min-width: 0; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; padding: 14px 16px; }
+      .environment-row > :first-child, .environment-actions { grid-column: 1 / -1; }
+      .environment-row > :nth-child(2)::before, .environment-row > :nth-child(3)::before, .environment-row > :nth-child(4)::before, .environment-row > :nth-child(5)::before { display: block; margin-bottom: 4px; color: var(--faint); font-size: 12px; }
+      .environment-row > :nth-child(2)::before { content: "SSH 地址"; }
+      .environment-row > :nth-child(3)::before { content: "系统架构"; }
+      .environment-row > :nth-child(4)::before { content: "连接状态"; }
+      .environment-row > :nth-child(5)::before { content: "最近测试"; }
+      .environment-actions { justify-content: flex-start; flex-wrap: wrap; padding-top: 10px; border-top: 1px solid var(--line); }
+      .drawer-grid { grid-template-columns: 1fr; }
+      .drawer-grid .wide { grid-column: auto; }
+    }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <script>
+    const state = { page: 'dashboard', buildTab: 'single', resourceVersion: 'r27c10', resourceType: 'build', resourceStatus: 'all', resourceQuery: '', resourceDrawer: null, batch: null, selectedBuildEnvironment: 'build-27b-01', selectedContainerEnvironment: 'container-27b-01' };
+
+    const releaseVersions = [
+      { id: 'r27c10', code: 'R27C10', name: '27B', state: '当前版本', locked: false },
+      { id: 'r27c00', code: 'R27C00', name: '27A', state: '稳定版本', locked: false },
+      { id: 'r26c10', code: 'R26C10', name: '26B', state: '历史版本', locked: true }
+    ];
+
+    const environments = [
+      { id: 'build-27b-01', type: 'build', version: 'r27c10', name: '上海构建环境 01', ip: '10.20.12.31', port: '22', user: 'huawei', workdir: '/opt/cok/r27c10', architecture: 'x86_64', sshPasswordConfigured: true, status: 'online', lastTest: '今天 10:42', latency: '86 ms', outcome: 'online', history: [{ time: '10:42', status: 'online', copy: '模拟 SSH 连接成功 · 86 ms' }, { time: '昨天', status: 'online', copy: '模拟 SSH 连接成功 · 92 ms' }] },
+      { id: 'build-27b-02', type: 'build', version: 'r27c10', name: '深圳构建环境 02', ip: '10.20.18.46', port: '22', user: 'huawei', workdir: '/data/cok/r27c10', architecture: 'aarch64', sshPasswordConfigured: true, status: 'error', lastTest: '今天 10:39', latency: '超时', outcome: 'error', history: [{ time: '10:39', status: 'error', copy: '模拟连接超时 · 10 秒' }, { time: '昨天', status: 'online', copy: '模拟 SSH 连接成功 · 118 ms' }] },
+      { id: 'build-27b-03', type: 'build', version: 'r27c10', name: '北京构建环境 03', ip: '10.21.6.18', port: '22', user: 'huawei', workdir: '/opt/cok/r27c10', architecture: 'x86_64', sshPasswordConfigured: true, status: 'untested', lastTest: '尚未测试', latency: '—', outcome: 'online', history: [] },
+      { id: 'container-27b-01', type: 'container', version: 'r27c10', name: '容器环境 01', ip: '10.30.4.21', port: '22', user: 'sopuser', workdir: '/opt/cok/runtime', architecture: 'x86_64', sshPasswordConfigured: true, maePasswordConfigured: true, osmuPasswordConfigured: true, status: 'online', lastTest: '今天 10:35', latency: '73 ms', outcome: 'online', mae: 'mae-prod-01', maeUser: 'maeadmin', osmu: 'osmu-prod-01', osmuUser: 'osmuadmin', history: [{ time: '10:35', status: 'online', copy: '模拟 SSH 连接成功 · 73 ms' }] },
+      { id: 'container-27b-02', type: 'container', version: 'r27c10', name: '容器环境 02', ip: '10.30.4.29', port: '22', user: 'sopuser', workdir: '/srv/cok/runtime', architecture: 'aarch64', sshPasswordConfigured: true, maePasswordConfigured: true, osmuPasswordConfigured: true, status: 'untested', lastTest: '尚未测试', latency: '—', outcome: 'online', mae: 'mae-prod-02', maeUser: 'maeadmin', osmu: 'osmu-prod-02', osmuUser: 'osmuadmin', history: [] },
+      { id: 'build-27a-01', type: 'build', version: 'r27c00', name: '27A 构建环境 01', ip: '10.18.12.20', port: '22', user: 'huawei', workdir: '/opt/cok/r27c00', architecture: 'x86_64', sshPasswordConfigured: true, status: 'online', lastTest: '昨天 16:22', latency: '81 ms', outcome: 'online', history: [{ time: '昨天', status: 'online', copy: '模拟 SSH 连接成功 · 81 ms' }] },
+      { id: 'container-27a-01', type: 'container', version: 'r27c00', name: '27A 容器环境 01', ip: '10.28.4.16', port: '22', user: 'sopuser', workdir: '/opt/cok/runtime', architecture: 'x86_64', sshPasswordConfigured: true, maePasswordConfigured: true, osmuPasswordConfigured: true, status: 'disabled', lastTest: '8 月 20 日', latency: '—', outcome: 'online', mae: 'mae-27a-01', maeUser: 'maeadmin', osmu: 'osmu-27a-01', osmuUser: 'osmuadmin', history: [] },
+      { id: 'build-26b-01', type: 'build', version: 'r26c10', name: '26B 构建环境 01', ip: '10.16.8.12', port: '22', user: 'huawei', workdir: '/archive/cok/r26c10', architecture: 'x86_64', sshPasswordConfigured: true, status: 'disabled', lastTest: '7 月 18 日', latency: '—', outcome: 'online', history: [] }
+    ];
+
+    const statusPresentation = {
+      online: { label: '可连接', className: 'ok' },
+      error: { label: '连接失败', className: 'error' },
+      testing: { label: '测试中', className: 'testing' },
+      untested: { label: '未测试', className: '' },
+      disabled: { label: '已停用', className: 'disabled' }
+    };
+
+    function escapeHtml(value = '') {
+      return String(value).replace(/[&<>'"]/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[character]);
+    }
+
+    function selectedEnvironment(type) {
+      const key = type === 'build' ? 'selectedBuildEnvironment' : 'selectedContainerEnvironment';
+      return environments.find(item => item.id === state[key] && item.status !== 'disabled') || environments.find(item => item.type === type && item.status !== 'disabled');
+    }
+
+    const taiji = `<div class="taiji" aria-hidden="true"><svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="47" fill="#27ad9e" stroke="#ffffff" stroke-width="4"/><path d="M50 3a47 47 0 0 1 0 94 23.5 23.5 0 0 1 0-47 23.5 23.5 0 0 0 0-47Z" fill="#3563e9"/><circle cx="50" cy="26.5" r="7" fill="#27ad9e"/><circle cx="50" cy="73.5" r="7" fill="#3563e9"/></svg></div>`;
+
+    function pageTitle(title, copy, actions = '') {
+      return `<div class="page-head"><div><h1>${title}</h1><p>${copy}</p></div><div class="head-actions">${actions}</div></div>`;
+    }
+
+    function attentionRows() {
+      return `<div class="attention-list"><div class="attention-row"><span class="badge red">失败</span><div><strong>构建任务 build-1048 执行失败</strong><p>swmfrontendservice · master · 上海构建环境</p></div><button class="button small">查看</button></div><div class="attention-row"><span class="badge amber">待确认</span><div><strong>2 个产物等待部署确认</strong><p>生产容器环境 · mae 命名空间</p></div><button class="button small">处理</button></div><div class="attention-row"><span class="badge amber">告警</span><div><strong>production-mae 存在 1 个异常工作负载</strong><p>OSMU 状态已同步 · 3 分钟前</p></div><button class="button small">进入运维</button></div></div>`;
+    }
+
+    function activityRows() {
+      return `<div class="activity-list"><div class="activity-row"><span class="activity-time">10:42</span><div><strong>release-0828 构建完成</strong><p>swmfrontendservice/master、fmemateservice/master</p></div><span class="badge green">成功</span></div><div class="activity-row"><span class="activity-time">10:16</span><div><strong>user-service 部署完成</strong><p>生产容器环境 · OM om-prod-01</p></div><span class="badge green">已部署</span></div><div class="activity-row"><span class="activity-time">09:58</span><div><strong>构建环境连接恢复</strong><p>上海构建环境 · build-01</p></div><span class="badge">资源</span></div></div>`;
+    }
+
+    function recentTasks() {
+      return `<section class="panel task-table"><div class="panel-head"><h2>最近任务</h2><button class="button small ghost">查看全部任务</button></div><div class="task-row head"><span>任务</span><span>输入</span><span>环境</span><span>状态</span><span>更新时间</span></div><div class="task-row"><strong>build-1048</strong><span>swmfrontendservice · master</span><span>上海构建环境</span><span><span class="badge red">失败</span></span><span>2 分钟前</span></div><div class="task-row"><strong>release-0828</strong><span>2 个业务仓 · master</span><span>上海构建环境</span><span><span class="badge green">成功</span></span><span>18 分钟前</span></div><div class="task-row"><strong>deploy-0682</strong><span>user-service · a82f91</span><span>生产容器环境</span><span><span class="badge green">已部署</span></span><span>44 分钟前</span></div></section>`;
+    }
+
+    function environmentBar() {
+      const environment = selectedEnvironment('build');
+      const options = environments.filter(item => item.type === 'build' && item.status !== 'disabled');
+      const version = releaseVersions.find(item => item.id === environment.version);
+      return `<div class="environment-bar"><div><select id="build-environment-selector" aria-label="构建环境">${options.map(item => `<option value="${item.id}" ${item.id === environment.id ? 'selected' : ''}>${escapeHtml(item.name)} · ${releaseVersions.find(versionItem => versionItem.id === item.version)?.name || ''}</option>`).join('')}</select><small>${version.code} · ${version.name} · 构建任务必选</small></div><div class="environment-item"><span>SSH 地址</span><b class="mono">${escapeHtml(environment.ip)}:${escapeHtml(environment.port)}</b></div><div class="environment-item"><span>固定用户</span><b class="mono">${environment.user}</b></div><div class="environment-item"><span>系统架构</span><b>${environment.architecture === 'aarch64' ? 'ARM' : 'x86'}</b></div><div class="environment-item"><span>工作目录</span><b class="mono">${escapeHtml(environment.workdir)}</b></div><button class="button small" data-page="resources">管理环境</button></div>`;
+    }
+
+    function containerEnvironmentBar() {
+      const environment = selectedEnvironment('container');
+      const options = environments.filter(item => item.type === 'container' && item.status !== 'disabled');
+      const version = releaseVersions.find(item => item.id === environment.version);
+      return `<div class="environment-bar"><div><select id="container-environment-selector" aria-label="容器环境">${options.map(item => `<option value="${item.id}" ${item.id === environment.id ? 'selected' : ''}>${escapeHtml(item.name)} · ${releaseVersions.find(versionItem => versionItem.id === item.version)?.name || ''}</option>`).join('')}</select><small>${version.code} · ${version.name} · OM 节点</small></div><div class="environment-item"><span>SSH 地址</span><b class="mono">${escapeHtml(environment.ip)}:${escapeHtml(environment.port)}</b></div><div class="environment-item"><span>固定用户</span><b class="mono">${environment.user}</b></div><div class="environment-item"><span>系统架构</span><b>${environment.architecture === 'aarch64' ? 'ARM' : 'x86'}</b></div><div class="environment-item"><span>工作目录</span><b class="mono">${escapeHtml(environment.workdir)}</b></div><button class="button small" data-page="resources">管理环境</button></div>`;
+    }
+
+    function buildTabs() {
+      return `<div class="workspace-tabs"><button data-build-tab="single" class="${state.buildTab === 'single' ? 'active' : ''}">单分支构建</button><button data-build-tab="compare" class="${state.buildTab === 'compare' ? 'active' : ''}">双分支对比</button><button data-build-tab="config" class="${state.buildTab === 'config' ? 'active' : ''}">构建配置</button></div>`;
+    }
+
+    function businessRepositories() {
+      return `<div class="repo-list"><div class="repo-row"><div><span>业务仓</span><strong>swmfrontendservice</strong></div><div><span>业务分支</span><select><option>默认：master</option><option>feature/mae-adapter</option></select></div><button class="button small ghost">移除</button></div><div class="repo-row"><div><span>业务仓</span><strong>fmemateservice</strong></div><div><span>业务分支</span><select><option>默认：master</option><option>feature/payment</option></select></div><button class="button small ghost">移除</button></div></div>`;
+    }
+
+    function singleBuildForm() {
+      return `<section class="panel"><div class="panel-head"><div><h2>构建输入</h2><p style="color:var(--muted);margin-top:3px;font-size:12px">分支为空时使用 master</p></div><span class="badge green">已校验</span></div><div class="panel-body"><div class="form-grid"><div class="field"><label>Chart 工具分支</label><input value="master"></div><div class="field"><label>ArchDesign 分支</label><input value="master"></div></div>${businessRepositories()}<div style="display:flex;justify-content:space-between;align-items:center;margin-top:15px"><button class="button ghost">＋ 添加业务仓</button><button class="button primary">开始构建</button></div></div></section>`;
+    }
+
+    function compareBuildForm() {
+      return `<div class="resource-grid"><section class="panel"><div class="panel-head"><h2>基准版本 A</h2><span class="badge violet">左侧</span></div><div class="panel-body"><div class="form-grid"><div class="field"><label>Chart 工具分支</label><input value="master"></div><div class="field"><label>ArchDesign 分支</label><input value="master"></div></div>${businessRepositories()}</div></section><section class="panel"><div class="panel-head"><h2>验证版本 B</h2><span class="badge green">右侧</span></div><div class="panel-body"><div class="form-grid"><div class="field"><label>Chart 工具分支</label><input value="feature/cache"></div><div class="field"><label>ArchDesign 分支</label><input value="master"></div></div>${businessRepositories()}</div></section></div><div style="display:flex;justify-content:flex-end;margin-top:14px"><button class="button primary">并发构建并对比</button></div>`;
+    }
+
+    function buildConfig() {
+      const environment = selectedEnvironment('build');
+      const version = releaseVersions.find(item => item.id === environment.version);
+      return `<div class="resource-grid"><section class="panel"><div class="panel-head"><h2>仓库与命令</h2><span class="badge green">已保存</span></div><div class="panel-body"><div class="form-grid"><div class="field"><label>Chart 工具仓</label><input value="git.example.com/chart-tool.git"></div><div class="field"><label>ArchDesign 仓</label><input value="git.example.com/arch-design.git"></div><div class="field"><label>默认分支</label><input value="master"></div><div class="field"><label>构建命令</label><input value="./build_tool build"></div></div></div></section><section class="panel"><div class="panel-head"><h2>当前构建环境</h2><button class="button small" data-page="resources">打开资源中心</button></div><div class="panel-body"><h3>${escapeHtml(environment.name)}</h3><p style="margin-top:6px;color:var(--muted)">${version.code} · ${version.name} · ${escapeHtml(environment.workdir)}</p><div class="connection-grid"><div class="connection"><span>SSH</span><strong class="mono">${environment.user}@${escapeHtml(environment.ip)}</strong></div><div class="connection"><span>系统架构</span><strong>${environment.architecture === 'aarch64' ? 'ARM' : 'x86'}</strong></div><div class="connection"><span>状态</span><strong class="status ${statusPresentation[environment.status].className}">${statusPresentation[environment.status].label}</strong></div></div></div></section></div>`;
+    }
+
+    function buildContent() {
+      const body = state.buildTab === 'single' ? singleBuildForm() : state.buildTab === 'compare' ? compareBuildForm() : buildConfig();
+      const result = `<div class="summary-stack"><section class="panel"><div class="panel-head"><div><h2>执行状态</h2><p style="color:var(--muted);margin-top:3px;font-size:12px">[build_tool] 生成产物</p></div><span class="badge brand">执行中 62%</span></div><div class="panel-body"><div class="progress"><span></span></div></div></section><section class="panel"><div class="panel-head"><h2>实时日志</h2><button class="button small ghost">展开</button></div><div class="panel-body"><div class="terminal"><b>10:42:01</b> [checkout] swmfrontendservice/master<br><b>10:42:04</b> [checkout] fmemateservice/master<br>10:42:18 [build_tool] generating charts<br>10:42:26 [render] validating output</div></div></section></div>`;
+      return `${environmentBar()}${buildTabs()}${state.buildTab === 'single' ? `<div class="build-layout">${body}${result}</div>` : `${body}${state.buildTab !== 'config' ? `<div style="margin-top:16px">${result}</div>` : ''}`}`;
+    }
+
+    function selectedReleaseVersion() {
+      return releaseVersions.find(item => item.id === state.resourceVersion) || releaseVersions[0];
+    }
+
+    function versionEnvironments(type = null) {
+      return environments.filter(item => item.version === state.resourceVersion && (!type || item.type === type));
+    }
+
+    function visibleEnvironments() {
+      const query = state.resourceQuery.trim().toLowerCase();
+      return versionEnvironments(state.resourceType).filter(item => (state.resourceStatus === 'all' || item.status === state.resourceStatus) && (!query || `${item.name} ${item.ip} ${item.workdir}`.toLowerCase().includes(query)));
+    }
+
+    function environmentStatus(environment) {
+      const presentation = statusPresentation[environment.status];
+      return `<span class="status ${presentation.className}">${presentation.label}</span>`;
+    }
+
+    function versionOverview() {
+      const current = selectedReleaseVersion();
+      const items = versionEnvironments(state.resourceType);
+      const online = items.filter(item => item.status === 'online').length;
+      const failed = items.filter(item => item.status === 'error').length;
+      return `<section class="panel version-overview"><div class="version-selector"><label for="release-version">发布版本</label><select id="release-version" ${state.batch || testTokens.size ? 'disabled' : ''}>${releaseVersions.map(item => `<option value="${item.id}" ${item.id === current.id ? 'selected' : ''}>${item.code} · ${item.name} · ${item.state}</option>`).join('')}</select></div><div class="version-stat"><span>环境总数</span><strong>${items.length}</strong></div><div class="version-stat"><span>可连接</span><strong>${online}</strong></div><div class="version-stat"><span>连接失败</span><strong>${failed}</strong></div></section>`;
+    }
+
+    function environmentTable() {
+      const items = visibleEnvironments();
+      const locked = selectedReleaseVersion().locked;
+      if (!items.length) return `<div class="environment-empty"><h2>没有匹配的环境</h2><p style="margin-top:5px">${locked ? '历史版本为只读，可调整筛选条件查看已有环境。' : '调整筛选条件，或在当前发布版本下新增环境。'}</p></div>`;
+      return `<div class="environment-table"><div class="environment-row head"><span>环境</span><span>SSH 地址</span><span>系统架构</span><span>连接状态</span><span>最近测试</span><span style="text-align:right">操作</span></div>${items.map(item => { const unavailable = locked || Boolean(state.batch) || Boolean(testTokens.size) || item.status === 'testing'; return `<div class="environment-row"><div class="environment-row-name"><span class="environment-kind-icon">${item.type === 'build' ? '构' : '容'}</span><div><strong>${escapeHtml(item.name)}</strong><span class="mono">${escapeHtml(item.workdir)}</span></div></div><div><strong class="mono">${escapeHtml(item.ip)}:${escapeHtml(item.port)}</strong><span class="environment-cell-copy">${item.user}</span></div><div><span class="badge ${item.architecture === 'aarch64' ? 'violet' : 'brand'}">${item.architecture === 'aarch64' ? 'ARM' : 'x86'}</span></div><div>${environmentStatus(item)}</div><div><strong>${escapeHtml(item.lastTest)}</strong><span class="environment-cell-copy">${escapeHtml(item.latency)}</span></div><div class="environment-actions"><button class="button small" data-test-environment="${item.id}" ${unavailable || item.status === 'disabled' ? 'disabled' : ''}>测试连接</button><button class="button small ghost" data-edit-environment="${item.id}" ${unavailable ? 'disabled' : ''}>编辑</button><button class="button small ghost" data-history-environment="${item.id}">记录</button><select class="environment-filter" data-more-environment="${item.id}" aria-label="更多操作" ${unavailable ? 'disabled' : ''}><option value="">更多</option><option value="copy">复制 SSH 命令</option><option value="clone">复制为新环境</option><option value="toggle">${item.status === 'disabled' ? '启用环境' : '停用环境'}</option></select></div></div>`; }).join('')}</div>`;
+    }
+
+    function environmentEditor() {
+      if (!state.resourceDrawer) return '';
+      const { mode, id } = state.resourceDrawer;
+      const source = id ? environments.find(item => item.id === id) : null;
+      if (mode === 'history' && source) {
+        const history = source.history.length ? source.history.map(item => `<div class="history-item"><time>${escapeHtml(item.time)}</time><div><strong>${item.status === 'online' ? '连接成功' : '连接失败'}</strong><p>${escapeHtml(item.copy)}</p></div><span class="badge ${item.status === 'online' ? 'green' : 'red'}">${item.status === 'online' ? '成功' : '失败'}</span></div>`).join('') : `<div class="environment-empty">这个环境还没有连接测试记录。</div>`;
+        return `<div class="drawer-backdrop" data-close-drawer></div><aside class="environment-drawer"><div class="drawer-header"><div><h2>连接测试记录</h2><p>${escapeHtml(source.name)} · ssh ${source.user}@${escapeHtml(source.ip)}</p></div><button class="button ghost" data-close-drawer>关闭</button></div><div class="drawer-body"><div class="history-list">${history}</div></div></aside>`;
+      }
+      const editing = mode === 'edit';
+      const type = source?.type || state.resourceDrawer.type || state.resourceType;
+      const version = source?.version || state.resourceVersion;
+      const user = type === 'build' ? 'huawei' : 'sopuser';
+      const title = editing ? `编辑${type === 'build' ? '构建环境' : '容器环境'}` : `${mode === 'clone' ? '复制' : '新增'}${type === 'build' ? '构建环境' : '容器环境'}`;
+      const sshPasswordCopy = editing && source?.sshPasswordConfigured ? '已配置；留空表示不修改' : '请输入独立密码';
+      const containerPasswordCopy = configured => editing && configured ? '已配置；留空表示不修改' : '请输入独立密码';
+      const name = mode === 'clone' ? `${source?.name || ''} 副本` : source?.name || '';
+      const typeField = !editing && mode !== 'clone' ? `<div class="field"><label>环境类型</label><select id="environment-type-selector"><option value="build" ${type === 'build' ? 'selected' : ''}>构建环境</option><option value="container" ${type === 'container' ? 'selected' : ''}>容器环境</option></select></div>` : '';
+      return `<div class="drawer-backdrop" data-close-drawer></div><aside class="environment-drawer"><div class="drawer-header"><div><h2>${title}</h2><p>${editing ? '密码独立维护；已配置密码不会在页面中回显。' : '新环境必须设置独立密码。'}</p></div><button class="button ghost" data-close-drawer>关闭</button></div><form id="environment-form" class="drawer-body" data-environment-id="${editing ? source?.id || '' : ''}" data-environment-type="${type}"><section class="drawer-section"><div class="drawer-section-title"><h3>基本信息</h3></div><div class="drawer-grid">${typeField}<div class="field wide"><label>环境名称</label><input name="name" required value="${escapeHtml(name)}" placeholder="例如：${selectedReleaseVersion().name} ${type === 'build' ? '构建环境 01' : '容器环境 01'}"></div><div class="field"><label>发布版本</label><select name="version">${releaseVersions.map(item => `<option value="${item.id}" ${item.id === version ? 'selected' : ''} ${item.locked ? 'disabled' : ''}>${item.code} · ${item.name}${item.locked ? ' · 只读' : ''}</option>`).join('')}</select></div><div class="field"><label>系统架构</label><select name="architecture"><option value="x86_64" ${source?.architecture !== 'aarch64' ? 'selected' : ''}>x86</option><option value="aarch64" ${source?.architecture === 'aarch64' ? 'selected' : ''}>ARM</option></select></div></div></section><section class="drawer-section"><div class="drawer-section-title"><h3>SSH 连接</h3><p>测试连接只验证 SSH 能否登录。</p></div><div class="drawer-grid"><div class="field"><label>${type === 'container' ? 'OM 节点 IP' : 'IP 地址'}</label><input name="ip" required value="${escapeHtml(source?.ip || '')}" placeholder="10.20.12.31"></div><div class="field"><label>SSH 端口</label><input name="port" required value="${escapeHtml(source?.port || '22')}"></div><div class="field"><label>固定用户</label><div class="readonly-value mono">${user}</div></div><div class="field"><label>密码</label><input name="password" type="password" ${editing ? '' : 'required'} placeholder="${sshPasswordCopy}"></div><div class="field wide"><label>工作目录</label><input name="workdir" required value="${escapeHtml(source?.workdir || '')}" placeholder="/opt/cok"></div></div><div id="drawer-test-result" class="drawer-test-result" aria-live="polite"></div></section>${type === 'container' ? `<section class="drawer-section"><div class="drawer-section-title"><h3>容器连接</h3><p>MAE 与 OSMU 分别维护，不纳入 SSH 连接测试。</p></div><div class="drawer-grid"><div class="field"><label>MAE 地址</label><input name="mae" value="${escapeHtml(source?.mae || '')}" placeholder="mae-prod-01"></div><div class="field"><label>MAE 账号</label><input name="maeUser" value="${escapeHtml(source?.maeUser || '')}" placeholder="请输入账号"></div><div class="field wide"><label>MAE 密码</label><input name="maePassword" type="password" ${editing ? '' : 'required'} placeholder="${containerPasswordCopy(source?.maePasswordConfigured)}"></div><div class="field"><label>OSMU 地址</label><input name="osmu" value="${escapeHtml(source?.osmu || '')}" placeholder="osmu-prod-01"></div><div class="field"><label>OSMU 账号</label><input name="osmuUser" value="${escapeHtml(source?.osmuUser || '')}" placeholder="请输入账号"></div><div class="field wide"><label>OSMU 密码</label><input name="osmuPassword" type="password" ${editing ? '' : 'required'} placeholder="${containerPasswordCopy(source?.osmuPasswordConfigured)}"></div></div></section>` : ''}</form><div class="drawer-footer"><button class="button" data-close-drawer>取消</button><button class="button" data-drawer-test>测试连接</button><button class="button primary" data-save-environment>保存环境</button></div></aside>`;
+    }
+
+    function resourceContent() {
+      const buildCount = versionEnvironments('build').length;
+      const containerCount = versionEnvironments('container').length;
+      const batch = state.batch ? `<div class="batch-progress"><strong>正在测试 ${state.batch.completed}/${state.batch.total}</strong><div class="batch-progress-track"><span style="width:${state.batch.total ? state.batch.completed / state.batch.total * 100 : 0}%"></span></div><span>${state.batch.passed} 成功 · ${state.batch.failed} 失败 · ${state.batch.skipped} 跳过</span></div>` : '';
+      const locked = selectedReleaseVersion().locked;
+      const testing = Boolean(state.batch) || Boolean(testTokens.size);
+      return `<div class="resource-workspace">${versionOverview()}<section class="panel resource-panel"><div class="resource-tabs"><button data-resource-type="build" class="${state.resourceType === 'build' ? 'active' : ''}" ${testing ? 'disabled' : ''}>构建环境<span class="resource-tab-count">${buildCount}</span></button><button data-resource-type="container" class="${state.resourceType === 'container' ? 'active' : ''}" ${testing ? 'disabled' : ''}>容器环境<span class="resource-tab-count">${containerCount}</span></button></div><div class="environment-toolbar"><input id="environment-search" class="environment-search" value="${escapeHtml(state.resourceQuery)}" placeholder="搜索名称、IP 或工作目录" ${testing ? 'disabled' : ''}><select id="environment-status" class="environment-filter" ${testing ? 'disabled' : ''}><option value="all">全部状态</option>${Object.entries(statusPresentation).map(([value,item]) => `<option value="${value}" ${state.resourceStatus === value ? 'selected' : ''}>${item.label}</option>`).join('')}</select><span class="environment-toolbar-spacer"></span><button class="button" data-test-all ${testing || locked ? 'disabled' : ''}>测试全部</button><button class="button primary" data-new-environment ${testing || locked ? 'disabled' : ''}>新增${state.resourceType === 'build' ? '构建环境' : '容器环境'}</button></div>${batch}${environmentTable()}</section></div>${environmentEditor()}`;
+    }
+
+    function commonPage(page) {
+      if (page === 'build') return `${pageTitle('构建', '选择构建环境，配置仓库与分支，然后生成可部署产物。','<button class="button" data-page="resources">查看环境</button>')}${buildContent()}`;
+      if (page === 'resources') return `${pageTitle('资源中心', '按发布版本维护构建环境和容器环境，并验证 SSH 连通性。', '<span class="badge">高保真模拟</span>')}${resourceContent()}`;
+      if (page === 'deploy') return `${pageTitle('部署', '选择成功产物和容器环境，完成校验后部署。')}${containerEnvironmentBar()}<section class="panel empty"><div><div class="empty-symbol">⇧</div><h2>选择待部署产物</h2><p>部署只使用当前容器环境；当前可部署产物 2 个。</p><button class="button primary" style="margin-top:18px">选择产物</button></div></section>`;
+      if (page === 'operations') return `${pageTitle('容器运维', '通过容器环境中的 MAE、OSMU 和唯一 OM 节点执行运维操作。')}${containerEnvironmentBar()}<section class="panel empty"><div><div class="empty-symbol">◇</div><h2>容器运维工作区</h2><p>具体工作负载、日志和操作能力将在后续需求中定义。</p><button class="button" data-page="resources" style="margin-top:18px">查看容器环境</button></div></section>`;
+      return '';
+    }
+
+    function dashboardA() {
+      return `${pageTitle('工作台', '集中查看任务、环境和需要处理的事项。','<button class="button">搜索</button><button class="button primary" data-page="build">新建构建</button>')}<section class="panel variant-a-status-strip"><div class="variant-a-status-item"><div class="variant-a-status-top"><strong class="metric-value">3</strong><span class="metric-label">构建队列</span></div><div class="metric-foot">1 个执行中 · 2 个等待</div></div><div class="variant-a-status-item"><div class="variant-a-status-top"><strong class="metric-value">2</strong><span class="metric-label">待部署产物</span></div><div class="metric-foot">容器环境需要确认</div></div><div class="variant-a-status-item"><div class="variant-a-status-top"><strong class="metric-value">4/4</strong><span class="metric-label">环境在线</span></div><div class="metric-foot">构建与容器环境正常</div></div><div class="variant-a-status-item"><div class="variant-a-status-top"><strong class="metric-value">1</strong><span class="metric-label">容器告警</span></div><div class="metric-foot">production-mae</div></div></section><div class="variant-a-columns"><section class="panel"><div class="panel-head"><h2>需要处理</h2><span class="badge brand">4 项</span></div><div class="panel-body">${attentionRows()}</div></section><section class="panel"><div class="panel-head"><h2>最近活动</h2><button class="button small ghost">查看全部</button></div><div class="panel-body">${activityRows()}</div></section></div><div class="variant-a-overview"><section class="panel overview-card"><div><h2>构建环境</h2><p>上海构建环境 01 · R27C10</p></div><div class="overview-card-meta"><span>x86 · huawei</span><span class="status ok">可连接</span></div></section><section class="panel overview-card"><div><h2>容器环境</h2><p>OM 10.30.4.21 · R27C10</p></div><div class="overview-card-meta"><span>x86 · sopuser</span><span class="status warn">需关注</span></div></section></div>${recentTasks()}`;
+    }
+
+    function variantA() {
+      const nav = `<div class="variant-a-nav"><button data-page="dashboard" class="${state.page === 'dashboard' ? 'active' : ''}">工作台</button><div class="nav-section">工作区</div><button data-page="build" class="${state.page === 'build' ? 'active' : ''}">构建</button><button data-page="deploy" class="${state.page === 'deploy' ? 'active' : ''}">部署</button><button data-page="operations" class="${state.page === 'operations' ? 'active' : ''}">容器运维</button><div class="nav-section">基础能力</div><button data-page="resources" class="${state.page === 'resources' ? 'active' : ''}">资源中心</button></div>`;
+      const content = state.page === 'dashboard' ? dashboardA() : commonPage(state.page);
+      return `<div class="variant-a-shell"><aside class="variant-a-sidebar"><div class="variant-a-brand">${taiji}<div><strong>Container Ops Kit</strong><span>容器运维工作台</span></div></div>${nav}<div class="variant-a-user">林工 · 本地环境</div></aside><main class="variant-a-main">${content}</main></div>`;
+    }
+
+    let toastTimer;
+    let searchTimer;
+    const testTokens = new Map();
+
+    function showToast(copy) {
+      let toast = document.querySelector('#global-toast');
+      if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'global-toast';
+        toast.className = 'toast';
+        document.body.appendChild(toast);
+      }
+      toast.textContent = copy;
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => {
+        toast.remove();
+      }, 2400);
+    }
+
+    function copySshCommand(environment) {
+      const command = `ssh ${environment.user}@${environment.ip} -p ${environment.port}`;
+      const textarea = document.createElement('textarea');
+      textarea.value = command;
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      textarea.remove();
+      showToast(`已复制：${command}`);
+    }
+
+    function finishConnectionTest(environment, token, batchMode = false) {
+      if (testTokens.get(environment.id) !== token || environment.status !== 'testing') return;
+      testTokens.delete(environment.id);
+      const success = environment.outcome === 'online';
+      environment.status = success ? 'online' : 'error';
+      environment.lastTest = '刚刚';
+      environment.latency = success ? `${72 + environments.indexOf(environment) * 7} ms` : '连接超时';
+      environment.history.unshift({ time: '刚刚', status: environment.status, copy: success ? `模拟 SSH 连接成功 · ${environment.latency}` : '模拟连接超时 · 10 秒' });
+      if (batchMode && state.batch && state.batch.targetIds.includes(environment.id)) {
+        state.batch.completed += 1;
+        state.batch[success ? 'passed' : 'failed'] += 1;
+        if (state.batch.completed === state.batch.total) {
+          const summary = `模拟测试完成：${state.batch.passed} 个成功，${state.batch.failed} 个失败，${state.batch.skipped} 个跳过`;
+          state.batch = null;
+          render(false);
+          showToast(summary);
+          return;
+        }
+      }
+      render(false);
+      if (!batchMode) showToast(success ? `${environment.name} 可以连接` : `${environment.name} 连接失败`);
+    }
+
+    function testEnvironment(id) {
+      const environment = environments.find(item => item.id === id);
+      if (!environment || state.batch || environment.status === 'disabled' || environment.status === 'testing') return;
+      const token = Symbol(environment.id);
+      testTokens.set(environment.id, token);
+      environment.status = 'testing';
+      render(false);
+      setTimeout(() => finishConnectionTest(environment, token), 700);
+    }
+
+    function testAllEnvironments() {
+      if (state.batch) return;
+      const scoped = versionEnvironments(state.resourceType);
+      const targets = scoped.filter(item => item.status !== 'disabled' && item.status !== 'testing');
+      if (!targets.length) {
+        showToast('当前范围没有可测试的环境');
+        return;
+      }
+      state.batch = { version: state.resourceVersion, type: state.resourceType, targetIds: targets.map(item => item.id), total: targets.length, completed: 0, passed: 0, failed: 0, skipped: scoped.length - targets.length };
+      state.resourceStatus = 'all';
+      state.resourceQuery = '';
+      targets.forEach(item => {
+        item.status = 'testing';
+        testTokens.set(item.id, Symbol(item.id));
+      });
+      render(false);
+      targets.forEach((item, index) => {
+        const token = testTokens.get(item.id);
+        setTimeout(() => finishConnectionTest(item, token, true), 650 + index * 260);
+      });
+    }
+
+    function saveEnvironment() {
+      const form = document.querySelector('#environment-form');
+      if (!form || !form.reportValidity()) return;
+      const values = Object.fromEntries(new FormData(form));
+      const targetVersion = releaseVersions.find(item => item.id === values.version);
+      if (!targetVersion || targetVersion.locked) {
+        const versionSelect = form.elements.version;
+        versionSelect.setCustomValidity('历史版本为只读，请选择可维护版本');
+        versionSelect.reportValidity();
+        return;
+      }
+      const existing = environments.find(item => item.id === form.dataset.environmentId);
+      const type = form.dataset.environmentType;
+      const record = existing || { id: `${type}-${Date.now()}`, type, user: type === 'build' ? 'huawei' : 'sopuser', sshPasswordConfigured: false, status: 'untested', lastTest: '尚未测试', latency: '—', outcome: 'online', history: [] };
+      Object.assign(record, { name: values.name, version: values.version, ip: values.ip, port: values.port, workdir: values.workdir, architecture: values.architecture, mae: values.mae || '', maeUser: values.maeUser || '', osmu: values.osmu || '', osmuUser: values.osmuUser || '' });
+      if (values.password) record.sshPasswordConfigured = true;
+      if (type === 'container') {
+        if (values.maePassword) record.maePasswordConfigured = true;
+        if (values.osmuPassword) record.osmuPasswordConfigured = true;
+      }
+      if (!existing) environments.push(record);
+      state.resourceVersion = values.version;
+      state.resourceType = type;
+      state.resourceStatus = 'all';
+      state.resourceQuery = '';
+      state.resourceDrawer = null;
+      render(false);
+      showToast(existing ? '环境配置已保存' : '环境已新增');
+    }
+
+    function bindResourceInteractions() {
+      document.querySelector('#release-version')?.addEventListener('change', event => { state.resourceVersion = event.target.value; state.resourceStatus = 'all'; state.resourceQuery = ''; render(); });
+      document.querySelectorAll('[data-resource-type]').forEach(item => item.addEventListener('click', () => { state.resourceType = item.dataset.resourceType; state.resourceStatus = 'all'; state.resourceQuery = ''; render(); }));
+      document.querySelector('#environment-search')?.addEventListener('input', event => {
+        state.resourceQuery = event.target.value;
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(() => {
+          render(false);
+          const search = document.querySelector('#environment-search');
+          search?.focus();
+          search?.setSelectionRange(search.value.length, search.value.length);
+        }, 160);
+      });
+      document.querySelector('#environment-status')?.addEventListener('change', event => { state.resourceStatus = event.target.value; render(); });
+      document.querySelectorAll('[data-test-environment]').forEach(item => item.addEventListener('click', () => testEnvironment(item.dataset.testEnvironment)));
+      document.querySelector('[data-test-all]')?.addEventListener('click', testAllEnvironments);
+      document.querySelectorAll('[data-edit-environment]').forEach(item => item.addEventListener('click', () => { state.resourceDrawer = { mode: 'edit', id: item.dataset.editEnvironment }; render(false); }));
+      document.querySelectorAll('[data-history-environment]').forEach(item => item.addEventListener('click', () => { state.resourceDrawer = { mode: 'history', id: item.dataset.historyEnvironment }; render(false); }));
+      document.querySelector('[data-new-environment]')?.addEventListener('click', () => { state.resourceDrawer = { mode: 'create', type: state.resourceType }; render(false); });
+      document.querySelectorAll('[data-close-drawer]').forEach(item => item.addEventListener('click', () => { state.resourceDrawer = null; render(false); }));
+      document.querySelector('[data-save-environment]')?.addEventListener('click', saveEnvironment);
+      document.querySelector('#environment-type-selector')?.addEventListener('change', event => { state.resourceDrawer.type = event.target.value; render(false); });
+      document.querySelector('[data-drawer-test]')?.addEventListener('click', () => {
+        const form = document.querySelector('#environment-form');
+        if (!form) return;
+        const password = form.elements.password;
+        const fields = [form.elements.ip, form.elements.port];
+        if (password.required) fields.push(password);
+        const invalid = fields.find(field => !field.checkValidity());
+        if (invalid) {
+          invalid.reportValidity();
+          return;
+        }
+        const user = form.dataset.environmentType === 'build' ? 'huawei' : 'sopuser';
+        const result = document.querySelector('#drawer-test-result');
+        const button = document.querySelector('[data-drawer-test]');
+        result.className = 'drawer-test-result visible testing';
+        result.textContent = `正在模拟检查 ssh ${user}@${form.elements.ip.value} 的连通性…`;
+        button.disabled = true;
+        setTimeout(() => {
+          if (!result.isConnected) return;
+          result.className = 'drawer-test-result visible success';
+          result.textContent = '模拟 SSH 连接成功，可以保存当前配置。';
+          button.disabled = false;
+        }, 700);
+      });
+      document.querySelectorAll('[data-more-environment]').forEach(item => item.addEventListener('change', () => {
+        const environment = environments.find(record => record.id === item.dataset.moreEnvironment);
+        if (!environment || !item.value) return;
+        if (item.value === 'copy') copySshCommand(environment);
+        if (item.value === 'clone') { state.resourceDrawer = { mode: 'clone', id: environment.id }; render(false); }
+        if (item.value === 'toggle') { environment.status = environment.status === 'disabled' ? 'untested' : 'disabled'; render(false); showToast(environment.status === 'disabled' ? '环境已停用' : '环境已启用'); }
+      }));
+    }
+
+    function bindInteractions() {
+      document.querySelectorAll('[data-page]').forEach(item => item.addEventListener('click', () => { state.page = item.dataset.page; render(); }));
+      document.querySelectorAll('[data-build-tab]').forEach(item => item.addEventListener('click', () => { state.buildTab = item.dataset.buildTab; render(); }));
+      document.querySelector('#build-environment-selector')?.addEventListener('change', event => { state.selectedBuildEnvironment = event.target.value; render(false); });
+      document.querySelector('#container-environment-selector')?.addEventListener('change', event => { state.selectedContainerEnvironment = event.target.value; render(false); });
+      bindResourceInteractions();
+    }
+
+    function render(resetScroll = true) {
+      const scrollPosition = window.scrollY;
+      document.querySelector('#app').innerHTML = variantA();
+      bindInteractions();
+      window.scrollTo(0, resetScroll ? 0 : scrollPosition);
+    }
+    render();
+  </script>
+</body>
+</html>
