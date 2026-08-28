@@ -89,8 +89,10 @@
     .field label { display: block; margin-bottom: 6px; color: var(--muted); font-size: 12px; font-weight: 500; }
     .field input, .field select { width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; color: var(--ink); background: var(--surface-soft); }
     .repo-list { display: grid; gap: 9px; margin-top: 15px; }
-    .repo-row { display: grid; grid-template-columns: minmax(190px,1fr) minmax(170px,.8fr) auto; gap: 10px; align-items: end; padding: 12px; border-radius: 9px; background: var(--surface-soft); }
+    .repo-row { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,.8fr) auto; gap: 10px; align-items: end; padding: 12px; border-radius: 9px; background: var(--surface-soft); }
     .repo-row span { display: block; margin-bottom: 5px; color: var(--muted); font-size: 12px; }
+    .repo-row > * { min-width: 0; }
+    .repo-row strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .repo-row select { width: 100%; border: 1px solid var(--line); border-radius: 7px; padding: 8px 9px; background: white; }
     .build-layout { display: grid; grid-template-columns: 390px minmax(0,1fr); gap: 16px; align-items: start; }
     .summary-stack { display: grid; gap: 14px; }
@@ -247,9 +249,8 @@
     const state = { page: 'dashboard', buildTab: 'single', resourceVersion: 'r27c10', resourceType: 'build', resourceStatus: 'all', resourceQuery: '', resourceDrawer: null, batch: null, selectedBuildEnvironment: 'build-27b-01', selectedContainerEnvironment: 'container-27b-01' };
 
     const releaseVersions = [
-      { id: 'r27c10', code: 'R27C10', name: '27B', state: '当前版本', locked: false },
-      { id: 'r27c00', code: 'R27C00', name: '27A', state: '稳定版本', locked: false },
-      { id: 'r26c10', code: 'R26C10', name: '26B', state: '历史版本', locked: true }
+      { id: 'r27c10', code: 'R27C10', name: '27B', locked: false },
+      { id: 'r27c00', code: 'R27C00', name: '27A', locked: false }
     ];
 
     const environments = [
@@ -260,7 +261,12 @@
       { id: 'container-27b-02', type: 'container', version: 'r27c10', name: '容器环境 02', ip: '10.30.4.29', port: '22', user: 'sopuser', workdir: '/srv/cok/runtime', architecture: 'aarch64', sshPasswordConfigured: true, maePasswordConfigured: true, osmuPasswordConfigured: true, status: 'untested', lastTest: '尚未测试', latency: '—', outcome: 'online', mae: 'mae-prod-02', maeUser: 'maeadmin', osmu: 'osmu-prod-02', osmuUser: 'osmuadmin', history: [] },
       { id: 'build-27a-01', type: 'build', version: 'r27c00', name: '27A 构建环境 01', ip: '10.18.12.20', port: '22', user: 'huawei', workdir: '/opt/cok/r27c00', architecture: 'x86_64', sshPasswordConfigured: true, status: 'online', lastTest: '昨天 16:22', latency: '81 ms', outcome: 'online', history: [{ time: '昨天', status: 'online', copy: '模拟 SSH 连接成功 · 81 ms' }] },
       { id: 'container-27a-01', type: 'container', version: 'r27c00', name: '27A 容器环境 01', ip: '10.28.4.16', port: '22', user: 'sopuser', workdir: '/opt/cok/runtime', architecture: 'x86_64', sshPasswordConfigured: true, maePasswordConfigured: true, osmuPasswordConfigured: true, status: 'disabled', lastTest: '8 月 20 日', latency: '—', outcome: 'online', mae: 'mae-27a-01', maeUser: 'maeadmin', osmu: 'osmu-27a-01', osmuUser: 'osmuadmin', history: [] },
-      { id: 'build-26b-01', type: 'build', version: 'r26c10', name: '26B 构建环境 01', ip: '10.16.8.12', port: '22', user: 'huawei', workdir: '/archive/cok/r26c10', architecture: 'x86_64', sshPasswordConfigured: true, status: 'disabled', lastTest: '7 月 18 日', latency: '—', outcome: 'online', history: [] }
+    ];
+
+    const tasks = [
+      { id: 'build-1048', kind: 'build', input: 'swmfrontendservice · master', environment: '上海构建环境', status: 'failed', statusLabel: '失败', updated: '2 分钟前' },
+      { id: 'release-0828', kind: 'build', input: '2 个业务仓 · master', environment: '上海构建环境', status: 'success', statusLabel: '成功', updated: '18 分钟前' },
+      { id: 'deploy-0682', kind: 'deploy', input: 'user-service · a82f91', environment: '生产容器环境', status: 'success', statusLabel: '已部署', updated: '44 分钟前' }
     ];
 
     const statusPresentation = {
@@ -294,8 +300,48 @@
       return `<div class="activity-list"><div class="activity-row"><span class="activity-time">10:42</span><div><strong>release-0828 构建完成</strong><p>swmfrontendservice/master、fmemateservice/master</p></div><span class="badge green">成功</span></div><div class="activity-row"><span class="activity-time">10:16</span><div><strong>user-service 部署完成</strong><p>生产容器环境 · OM om-prod-01</p></div><span class="badge green">已部署</span></div><div class="activity-row"><span class="activity-time">09:58</span><div><strong>构建环境连接恢复</strong><p>上海构建环境 · build-01</p></div><span class="badge">资源</span></div></div>`;
     }
 
+    function taskBadge(task) {
+      const className = task.status === 'failed' ? 'red' : task.status === 'running' ? 'brand' : 'green';
+      return `<span class="badge ${className}">${escapeHtml(task.statusLabel)}</span>`;
+    }
+
     function recentTasks() {
-      return `<section class="panel task-table"><div class="panel-head"><h2>最近任务</h2><button class="button small ghost">查看全部任务</button></div><div class="task-row head"><span>任务</span><span>输入</span><span>环境</span><span>状态</span><span>更新时间</span></div><div class="task-row"><strong>build-1048</strong><span>swmfrontendservice · master</span><span>上海构建环境</span><span><span class="badge red">失败</span></span><span>2 分钟前</span></div><div class="task-row"><strong>release-0828</strong><span>2 个业务仓 · master</span><span>上海构建环境</span><span><span class="badge green">成功</span></span><span>18 分钟前</span></div><div class="task-row"><strong>deploy-0682</strong><span>user-service · a82f91</span><span>生产容器环境</span><span><span class="badge green">已部署</span></span><span>44 分钟前</span></div></section>`;
+      const rows = tasks.slice(0, 5).map(task => `<div class="task-row"><strong>${escapeHtml(task.id)}</strong><span>${escapeHtml(task.input)}</span><span>${escapeHtml(task.environment)}</span><span>${taskBadge(task)}</span><span>${escapeHtml(task.updated)}</span></div>`).join('');
+      return `<section class="panel task-table"><div class="panel-head"><h2>最近任务</h2><button class="button small ghost">查看全部任务</button></div><div class="task-row head"><span>任务</span><span>输入</span><span>环境</span><span>状态</span><span>更新时间</span></div>${rows}</section>`;
+    }
+
+    function createTask(kind, input, environment, statusLabel = '执行中') {
+      const id = `${kind}-${Date.now()}`;
+      tasks.unshift({ id, kind, input, environment, status: 'running', statusLabel, updated: '刚刚' });
+      state.page = 'dashboard';
+      render();
+      showToast(`已创建任务 ${id}`);
+      setTimeout(() => {
+        const task = tasks.find(item => item.id === id);
+        if (!task) return;
+        task.status = 'success';
+        task.statusLabel = kind === 'deploy' ? '已部署' : '成功';
+        task.updated = '刚刚';
+        render(false);
+      }, 1800);
+    }
+
+    function createBuildTask(mode = 'single') {
+      const environment = selectedEnvironment('build');
+      if (!environment) {
+        showToast('请先配置构建环境');
+        return;
+      }
+      createTask('build', mode === 'compare' ? '双分支对比构建' : '2 个业务仓 · master', environment.name);
+    }
+
+    function createDeployTask() {
+      const environment = selectedEnvironment('container');
+      if (!environment) {
+        showToast('请先配置容器环境');
+        return;
+      }
+      createTask('deploy', 'user-service · a82f91', environment.name, '部署中');
     }
 
     function environmentBar() {
@@ -321,17 +367,17 @@
     }
 
     function singleBuildForm() {
-      return `<section class="panel"><div class="panel-head"><div><h2>构建输入</h2><p style="color:var(--muted);margin-top:3px;font-size:12px">分支为空时使用 master</p></div><span class="badge green">已校验</span></div><div class="panel-body"><div class="form-grid"><div class="field"><label>Chart 工具分支</label><input value="master"></div><div class="field"><label>ArchDesign 分支</label><input value="master"></div></div>${businessRepositories()}<div style="display:flex;justify-content:space-between;align-items:center;margin-top:15px"><button class="button ghost">＋ 添加业务仓</button><button class="button primary">开始构建</button></div></div></section>`;
+      return `<section class="panel"><div class="panel-head"><div><h2>构建输入</h2><p style="color:var(--muted);margin-top:3px;font-size:12px">分支为空时使用 master</p></div><span class="badge green">已校验</span></div><div class="panel-body"><div class="form-grid"><div class="field"><label>Chart 工具分支</label><input value="master"></div><div class="field"><label>ArchDesign 分支</label><input value="master"></div></div>${businessRepositories()}<div style="display:flex;justify-content:space-between;align-items:center;margin-top:15px"><button class="button ghost">＋ 添加业务仓</button><button class="button primary" data-create-build-task="single">开始构建</button></div></div></section>`;
     }
 
     function compareBuildForm() {
-      return `<div class="resource-grid"><section class="panel"><div class="panel-head"><h2>基准版本 A</h2><span class="badge violet">左侧</span></div><div class="panel-body"><div class="form-grid"><div class="field"><label>Chart 工具分支</label><input value="master"></div><div class="field"><label>ArchDesign 分支</label><input value="master"></div></div>${businessRepositories()}</div></section><section class="panel"><div class="panel-head"><h2>验证版本 B</h2><span class="badge green">右侧</span></div><div class="panel-body"><div class="form-grid"><div class="field"><label>Chart 工具分支</label><input value="feature/cache"></div><div class="field"><label>ArchDesign 分支</label><input value="master"></div></div>${businessRepositories()}</div></section></div><div style="display:flex;justify-content:flex-end;margin-top:14px"><button class="button primary">并发构建并对比</button></div>`;
+      return `<div class="resource-grid"><section class="panel"><div class="panel-head"><h2>基准版本 A</h2><span class="badge violet">左侧</span></div><div class="panel-body"><div class="form-grid"><div class="field"><label>Chart 工具分支</label><input value="master"></div><div class="field"><label>ArchDesign 分支</label><input value="master"></div></div>${businessRepositories()}</div></section><section class="panel"><div class="panel-head"><h2>验证版本 B</h2><span class="badge green">右侧</span></div><div class="panel-body"><div class="form-grid"><div class="field"><label>Chart 工具分支</label><input value="feature/cache"></div><div class="field"><label>ArchDesign 分支</label><input value="master"></div></div>${businessRepositories()}</div></section></div><div style="display:flex;justify-content:flex-end;margin-top:14px"><button class="button primary" data-create-build-task="compare">并发构建并对比</button></div>`;
     }
 
     function buildConfig() {
       const environment = selectedEnvironment('build');
       const version = releaseVersions.find(item => item.id === environment.version);
-      return `<div class="resource-grid"><section class="panel"><div class="panel-head"><h2>仓库与命令</h2><span class="badge green">已保存</span></div><div class="panel-body"><div class="form-grid"><div class="field"><label>Chart 工具仓</label><input value="git.example.com/chart-tool.git"></div><div class="field"><label>ArchDesign 仓</label><input value="git.example.com/arch-design.git"></div><div class="field"><label>默认分支</label><input value="master"></div><div class="field"><label>构建命令</label><input value="./build_tool build"></div></div></div></section><section class="panel"><div class="panel-head"><h2>当前构建环境</h2><button class="button small" data-page="resources">打开资源中心</button></div><div class="panel-body"><h3>${escapeHtml(environment.name)}</h3><p style="margin-top:6px;color:var(--muted)">${version.code} · ${version.name} · ${escapeHtml(environment.workdir)}</p><div class="connection-grid"><div class="connection"><span>SSH</span><strong class="mono">${environment.user}@${escapeHtml(environment.ip)}</strong></div><div class="connection"><span>系统架构</span><strong>${environment.architecture === 'aarch64' ? 'ARM' : 'x86'}</strong></div><div class="connection"><span>状态</span><strong class="status ${statusPresentation[environment.status].className}">${statusPresentation[environment.status].label}</strong></div></div></div></section></div>`;
+      return `<div class="resource-grid"><section class="panel"><div class="panel-head"><h2>仓库与命令</h2><span class="badge green">已保存</span></div><div class="panel-body"><div class="form-grid"><div class="field"><label>Chart 工具仓</label><input value="git.example.com/chart-tool.git"></div><div class="field"><label>Chart 工具分支</label><input value="master"></div><div class="field"><label>ArchDesign 仓</label><input value="git.example.com/arch-design.git"></div><div class="field"><label>ArchDesign 分支</label><input value="master"></div><div class="field"><label>构建命令</label><input value="./build_tool build"></div></div></div></section><section class="panel"><div class="panel-head"><h2>当前构建环境</h2><button class="button small" data-page="resources">打开资源中心</button></div><div class="panel-body"><h3>${escapeHtml(environment.name)}</h3><p style="margin-top:6px;color:var(--muted)">${version.code} · ${version.name} · ${escapeHtml(environment.workdir)}</p><div class="connection-grid"><div class="connection"><span>SSH</span><strong class="mono">${environment.user}@${escapeHtml(environment.ip)}</strong></div><div class="connection"><span>系统架构</span><strong>${environment.architecture === 'aarch64' ? 'ARM' : 'x86'}</strong></div><div class="connection"><span>状态</span><strong class="status ${statusPresentation[environment.status].className}">${statusPresentation[environment.status].label}</strong></div></div></div></section></div>`;
     }
 
     function buildContent() {
@@ -363,14 +409,30 @@
       const items = versionEnvironments(state.resourceType);
       const online = items.filter(item => item.status === 'online').length;
       const failed = items.filter(item => item.status === 'error').length;
-      return `<section class="panel version-overview"><div class="version-selector"><label for="release-version">发布版本</label><select id="release-version" ${state.batch || testTokens.size ? 'disabled' : ''}>${releaseVersions.map(item => `<option value="${item.id}" ${item.id === current.id ? 'selected' : ''}>${item.code} · ${item.name} · ${item.state}</option>`).join('')}</select></div><div class="version-stat"><span>环境总数</span><strong>${items.length}</strong></div><div class="version-stat"><span>可连接</span><strong>${online}</strong></div><div class="version-stat"><span>连接失败</span><strong>${failed}</strong></div></section>`;
+      return `<section class="panel version-overview"><div class="version-selector"><label for="release-version">发布版本</label><select id="release-version" ${state.batch || testTokens.size ? 'disabled' : ''}>${releaseVersions.map(item => `<option value="${item.id}" ${item.id === current.id ? 'selected' : ''}>${item.code}</option>`).join('')}</select></div><div class="version-stat"><span>环境总数</span><strong>${items.length}</strong></div><div class="version-stat"><span>可连接</span><strong>${online}</strong></div><div class="version-stat"><span>连接失败</span><strong>${failed}</strong></div></section>`;
     }
 
     function environmentTable() {
       const items = visibleEnvironments();
       const locked = selectedReleaseVersion().locked;
       if (!items.length) return `<div class="environment-empty"><h2>没有匹配的环境</h2><p style="margin-top:5px">${locked ? '历史版本为只读，可调整筛选条件查看已有环境。' : '调整筛选条件，或在当前发布版本下新增环境。'}</p></div>`;
-      return `<div class="environment-table"><div class="environment-row head"><span>环境</span><span>SSH 地址</span><span>系统架构</span><span>连接状态</span><span>最近测试</span><span style="text-align:right">操作</span></div>${items.map(item => { const unavailable = locked || Boolean(state.batch) || Boolean(testTokens.size) || item.status === 'testing'; return `<div class="environment-row"><div class="environment-row-name"><span class="environment-kind-icon">${item.type === 'build' ? '构' : '容'}</span><div><strong>${escapeHtml(item.name)}</strong><span class="mono">${escapeHtml(item.workdir)}</span></div></div><div><strong class="mono">${escapeHtml(item.ip)}:${escapeHtml(item.port)}</strong><span class="environment-cell-copy">${item.user}</span></div><div><span class="badge ${item.architecture === 'aarch64' ? 'violet' : 'brand'}">${item.architecture === 'aarch64' ? 'ARM' : 'x86'}</span></div><div>${environmentStatus(item)}</div><div><strong>${escapeHtml(item.lastTest)}</strong><span class="environment-cell-copy">${escapeHtml(item.latency)}</span></div><div class="environment-actions"><button class="button small" data-test-environment="${item.id}" ${unavailable || item.status === 'disabled' ? 'disabled' : ''}>测试连接</button><button class="button small ghost" data-edit-environment="${item.id}" ${unavailable ? 'disabled' : ''}>编辑</button><button class="button small ghost" data-history-environment="${item.id}">记录</button><select class="environment-filter" data-more-environment="${item.id}" aria-label="更多操作" ${unavailable ? 'disabled' : ''}><option value="">更多</option><option value="copy">复制 SSH 命令</option><option value="clone">复制为新环境</option><option value="toggle">${item.status === 'disabled' ? '启用环境' : '停用环境'}</option></select></div></div>`; }).join('')}</div>`;
+      return `<div class="environment-table"><div class="environment-row head"><span>环境</span><span>SSH 地址</span><span>系统架构</span><span>连接状态</span><span>最近测试</span><span style="text-align:right">操作</span></div>${items.map(item => { const unavailable = locked || Boolean(state.batch) || Boolean(testTokens.size) || item.status === 'testing'; return `<div class="environment-row"><div class="environment-row-name"><span class="environment-kind-icon">${item.type === 'build' ? '构' : '容'}</span><div><strong>${escapeHtml(item.name)}</strong><span class="mono">${escapeHtml(item.workdir)}</span></div></div><div><strong class="mono">${escapeHtml(item.ip)}:${escapeHtml(item.port)}</strong><span class="environment-cell-copy">${item.user}</span></div><div><span class="badge ${item.architecture === 'aarch64' ? 'violet' : 'brand'}">${item.architecture === 'aarch64' ? 'ARM' : 'x86'}</span></div><div>${environmentStatus(item)}</div><div><strong>${escapeHtml(item.lastTest)}</strong><span class="environment-cell-copy">${escapeHtml(item.latency)}</span></div><div class="environment-actions"><button class="button small" data-test-environment="${item.id}" ${unavailable || item.status === 'disabled' ? 'disabled' : ''}>测试连接</button><button class="button small ghost" data-edit-environment="${item.id}" ${unavailable ? 'disabled' : ''}>编辑</button><button class="button small ghost" data-history-environment="${item.id}">记录</button><select class="environment-filter" data-more-environment="${item.id}" aria-label="更多操作" ${unavailable ? 'disabled' : ''}><option value="">更多</option><option value="copy">复制 SSH 命令</option><option value="clone">复制为新环境</option><option value="toggle">${item.status === 'disabled' ? '启用环境' : '停用环境'}</option><option value="delete">删除环境</option></select></div></div>`; }).join('')}</div>`;
+    }
+
+    function deleteEnvironment(environment) {
+      if (!environment || environment.status === 'testing') return;
+      if (selectedReleaseVersion().locked) {
+        showToast('历史版本环境为只读');
+        return;
+      }
+      if (!confirm(`确定删除“${environment.name}”吗？删除后无法恢复。`)) return;
+      const index = environments.findIndex(item => item.id === environment.id);
+      if (index < 0) return;
+      environments.splice(index, 1);
+      if (state.selectedBuildEnvironment === environment.id) state.selectedBuildEnvironment = '';
+      if (state.selectedContainerEnvironment === environment.id) state.selectedContainerEnvironment = '';
+      render(false);
+      showToast('环境已删除');
     }
 
     function environmentEditor() {
@@ -405,13 +467,20 @@
     function commonPage(page) {
       if (page === 'build') return `${pageTitle('构建', '选择构建环境，配置仓库与分支，然后生成可部署产物。','<button class="button" data-page="resources">查看环境</button>')}${buildContent()}`;
       if (page === 'resources') return `${pageTitle('资源中心', '按发布版本维护构建环境和容器环境，并验证 SSH 连通性。', '<span class="badge">高保真模拟</span>')}${resourceContent()}`;
-      if (page === 'deploy') return `${pageTitle('部署', '选择成功产物和容器环境，完成校验后部署。')}${containerEnvironmentBar()}<section class="panel empty"><div><div class="empty-symbol">⇧</div><h2>选择待部署产物</h2><p>部署只使用当前容器环境；当前可部署产物 2 个。</p><button class="button primary" style="margin-top:18px">选择产物</button></div></section>`;
+      if (page === 'deploy') return `${pageTitle('部署', '选择成功产物和容器环境，完成校验后部署。')}${containerEnvironmentBar()}<section class="panel empty"><div><div class="empty-symbol">⇧</div><h2>选择待部署产物</h2><p>部署只使用当前容器环境；当前可部署产物 2 个。</p><button class="button primary" style="margin-top:18px" data-create-deploy-task>选择产物</button></div></section>`;
       if (page === 'operations') return `${pageTitle('容器运维', '通过容器环境中的 MAE、OSMU 和唯一 OM 节点执行运维操作。')}${containerEnvironmentBar()}<section class="panel empty"><div><div class="empty-symbol">◇</div><h2>容器运维工作区</h2><p>具体工作负载、日志和操作能力将在后续需求中定义。</p><button class="button" data-page="resources" style="margin-top:18px">查看容器环境</button></div></section>`;
       return '';
     }
 
     function dashboardA() {
-      return `${pageTitle('工作台', '集中查看任务、环境和需要处理的事项。','<button class="button">搜索</button><button class="button primary" data-page="build">新建构建</button>')}<section class="panel variant-a-status-strip"><div class="variant-a-status-item"><div class="variant-a-status-top"><strong class="metric-value">3</strong><span class="metric-label">构建队列</span></div><div class="metric-foot">1 个执行中 · 2 个等待</div></div><div class="variant-a-status-item"><div class="variant-a-status-top"><strong class="metric-value">2</strong><span class="metric-label">待部署产物</span></div><div class="metric-foot">容器环境需要确认</div></div><div class="variant-a-status-item"><div class="variant-a-status-top"><strong class="metric-value">4/4</strong><span class="metric-label">环境在线</span></div><div class="metric-foot">构建与容器环境正常</div></div><div class="variant-a-status-item"><div class="variant-a-status-top"><strong class="metric-value">1</strong><span class="metric-label">容器告警</span></div><div class="metric-foot">production-mae</div></div></section><div class="variant-a-columns"><section class="panel"><div class="panel-head"><h2>需要处理</h2><span class="badge brand">4 项</span></div><div class="panel-body">${attentionRows()}</div></section><section class="panel"><div class="panel-head"><h2>最近活动</h2><button class="button small ghost">查看全部</button></div><div class="panel-body">${activityRows()}</div></section></div><div class="variant-a-overview"><section class="panel overview-card"><div><h2>构建环境</h2><p>上海构建环境 01 · R27C10</p></div><div class="overview-card-meta"><span>x86 · huawei</span><span class="status ok">可连接</span></div></section><section class="panel overview-card"><div><h2>容器环境</h2><p>OM 10.30.4.21 · R27C10</p></div><div class="overview-card-meta"><span>x86 · sopuser</span><span class="status warn">需关注</span></div></section></div>${recentTasks()}`;
+      const buildEnvironments = environments.filter(item => item.type === 'build' && item.status !== 'disabled');
+      const containerEnvironments = environments.filter(item => item.type === 'container' && item.status !== 'disabled');
+      const onlineCount = environments.filter(item => item.status === 'online').length;
+      const activeCount = environments.filter(item => item.status !== 'disabled').length;
+      const queuedCount = tasks.filter(item => item.kind === 'build' && item.status === 'running').length;
+      const deployCount = tasks.filter(item => item.kind === 'deploy' && item.status === 'running').length;
+      const failedCount = tasks.filter(item => item.status === 'failed').length;
+      return `${pageTitle('工作台', '集中查看任务、环境和需要处理的事项。','<button class="button">搜索</button><button class="button primary" data-page="build">新建构建</button>')}<section class="panel variant-a-status-strip"><div class="variant-a-status-item"><div class="variant-a-status-top"><strong class="metric-value">${queuedCount}</strong><span class="metric-label">构建队列</span></div><div class="metric-foot">${queuedCount ? '执行中的构建任务' : '当前没有执行中的构建任务'}</div></div><div class="variant-a-status-item"><div class="variant-a-status-top"><strong class="metric-value">${deployCount}</strong><span class="metric-label">部署中</span></div><div class="metric-foot">来自部署任务</div></div><div class="variant-a-status-item"><div class="variant-a-status-top"><strong class="metric-value">${onlineCount}/${activeCount}</strong><span class="metric-label">环境在线</span></div><div class="metric-foot">构建与容器环境实际状态</div></div><div class="variant-a-status-item"><div class="variant-a-status-top"><strong class="metric-value">${failedCount}</strong><span class="metric-label">失败任务</span></div><div class="metric-foot">需要关注的执行结果</div></div></section><div class="variant-a-columns"><section class="panel"><div class="panel-head"><h2>需要处理</h2><span class="badge brand">${failedCount} 项</span></div><div class="panel-body">${attentionRows()}</div></section><section class="panel"><div class="panel-head"><h2>最近活动</h2><button class="button small ghost">查看全部</button></div><div class="panel-body">${activityRows()}</div></section></div><div class="variant-a-overview"><button class="panel overview-card" data-resource-card="build"><div><h2>构建环境</h2><p>${buildEnvironments.length} 个可用环境</p></div><div class="overview-card-meta"><span>共 ${environments.filter(item => item.type === 'build').length} 个</span><span class="status ok">查看详情</span></div></button><button class="panel overview-card" data-resource-card="container"><div><h2>容器环境</h2><p>${containerEnvironments.length} 个可用环境</p></div><div class="overview-card-meta"><span>共 ${environments.filter(item => item.type === 'container').length} 个</span><span class="status warn">查看详情</span></div></button></div>${recentTasks()}`;
     }
 
     function variantA() {
@@ -553,6 +622,9 @@
       document.querySelector('[data-test-all]')?.addEventListener('click', testAllEnvironments);
       document.querySelectorAll('[data-edit-environment]').forEach(item => item.addEventListener('click', () => { state.resourceDrawer = { mode: 'edit', id: item.dataset.editEnvironment }; render(false); }));
       document.querySelectorAll('[data-history-environment]').forEach(item => item.addEventListener('click', () => { state.resourceDrawer = { mode: 'history', id: item.dataset.historyEnvironment }; render(false); }));
+      document.querySelectorAll('[data-resource-card]').forEach(item => item.addEventListener('click', () => { state.page = 'resources'; state.resourceType = item.dataset.resourceCard; state.resourceVersion = releaseVersions[0].id; render(); }));
+      document.querySelector('[data-create-deploy-task]')?.addEventListener('click', createDeployTask);
+      document.querySelectorAll('[data-create-build-task]').forEach(item => item.addEventListener('click', () => createBuildTask(item.dataset.createBuildTask)));
       document.querySelector('[data-new-environment]')?.addEventListener('click', () => { state.resourceDrawer = { mode: 'create', type: state.resourceType }; render(false); });
       document.querySelectorAll('[data-close-drawer]').forEach(item => item.addEventListener('click', () => { state.resourceDrawer = null; render(false); }));
       document.querySelector('[data-save-environment]')?.addEventListener('click', saveEnvironment);
@@ -587,6 +659,7 @@
         if (item.value === 'copy') copySshCommand(environment);
         if (item.value === 'clone') { state.resourceDrawer = { mode: 'clone', id: environment.id }; render(false); }
         if (item.value === 'toggle') { environment.status = environment.status === 'disabled' ? 'untested' : 'disabled'; render(false); showToast(environment.status === 'disabled' ? '环境已停用' : '环境已启用'); }
+        if (item.value === 'delete') deleteEnvironment(environment);
       }));
     }
 
