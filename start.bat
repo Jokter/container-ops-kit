@@ -31,8 +31,7 @@ if errorlevel 1 (
   exit /b 1
 )
 
-if not exist "%ROOT%frontend
-ode_modules" (
+if not exist "%ROOT%frontend\node_modules" (
   echo Installing frontend dependencies...
   call npm install --prefix "%ROOT%frontend"
   if errorlevel 1 (
