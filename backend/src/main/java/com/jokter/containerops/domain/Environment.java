@@ -37,7 +37,9 @@ public class Environment {
         releaseVersion=v; type=t; name=n; host=h; sshPort=p; password=pwd; workDirectory=wd; architecture=arch; this.mae=mae; this.maeUser=maeUser; maePassword=maePwd; this.osmu=osmu; this.osmuUser=osmuUser; osmuPassword=osmuPwd; connectionStatus=ConnectionStatus.UNTESTED; createdAt=Instant.now(); updatedAt=createdAt; version=0L;
     }
     public void update(ReleaseVersion v, EnvironmentType t, String n, String h, Integer p, String pwd, String wd, String arch, String mae, String maeUser, String maePwd, String osmu, String osmuUser, String osmuPwd){
-        boolean changed=!host.equals(h)||!sshPort.equals(p)||!password.equals(pwd); create(v,t,n,h,p,pwd,wd,arch,mae,maeUser,maePwd,osmu,osmuUser,osmuPwd); if(!changed){connectionStatus=connectionStatus;} updatedAt=Instant.now();
+        boolean changed=!host.equals(h)||!sshPort.equals(p)||!password.equals(pwd);
+        releaseVersion=v; type=t; name=n; host=h; sshPort=p; password=pwd; workDirectory=wd; architecture=arch; this.mae=mae; this.maeUser=maeUser; maePassword=maePwd; this.osmu=osmu; this.osmuUser=osmuUser; osmuPassword=osmuPwd; updatedAt=Instant.now();
+        if (changed) { connectionStatus=ConnectionStatus.UNTESTED; lastTestedAt=null; lastTestLatencyMs=null; lastTestError=null; }
     }
     public void markTest(ConnectionStatus s, long latency, String error){connectionStatus=s; lastTestedAt=Instant.now(); lastTestLatencyMs=latency; lastTestError=error; updatedAt=Instant.now();}
 }
