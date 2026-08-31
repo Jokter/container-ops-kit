@@ -1,0 +1,20 @@
+spring:
+  datasource:
+    url: jdbc:h2:file:./data/resource-center;AUTO_SERVER=TRUE;DB_CLOSE_DELAY=-1
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+server:
+  port: 8080
+resource-center:
+  ssh:
+    connect-timeout: 5000
+    auth-timeout: 5000
+    batch-concurrency: 5
