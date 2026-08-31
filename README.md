@@ -2,7 +2,11 @@
 
 资源中心第一阶段包含环境配置持久化和真实 SSH 账号密码测试。
 
-## 启动后端
+## 一键启动
+
+Windows 双击根目录的 `start.cmd`。脚本会检查 Java 17、Maven、Node.js 和 npm，首次运行自动安装前端依赖，随后分别启动后端和前端并打开浏览器。
+
+## 手动启动后端
 
 需要 Java 17 和 Maven：
 
@@ -12,7 +16,7 @@ mvn -pl backend spring-boot:run
 
 H2 文件数据库默认保存在应用目录的 `data/resource-center`。
 
-## 启动前端
+## 手动启动前端
 
 需要 Node.js：
 
