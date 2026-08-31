@@ -5,7 +5,7 @@ cd /d "%ROOT%"
 
 where java >nul 2>nul
 if errorlevel 1 (
-  echo Java 17 is required.
+  echo Java 21 is required.
   pause
   exit /b 1
 )
