@@ -16,6 +16,7 @@ public class EnvironmentService {
         this.environments = environments; this.versions = versions; this.tester = tester;
     }
 
+    public List<ReleaseVersion> versions() { return versions.findAll(); }
     public List<Environment> list() { return environments.findAllByOrderByUpdatedAtDesc(); }
     public Environment get(Long id) { return environments.findById(id).orElseThrow(() -> new IllegalArgumentException("环境不存在")); }
 
@@ -49,9 +50,7 @@ public class EnvironmentService {
     }
 
     @Transactional
-    public List<ConnectionTestResult> testAll() {
-        return list().stream().map(e -> test(e.getId())).toList();
-    }
+    public List<ConnectionTestResult> testAll() { return list().stream().map(e -> test(e.getId())).toList(); }
 
     private ReleaseVersion version(Long id) { return versions.findById(id).orElseThrow(() -> new IllegalArgumentException("发布版本不存在")); }
 }
