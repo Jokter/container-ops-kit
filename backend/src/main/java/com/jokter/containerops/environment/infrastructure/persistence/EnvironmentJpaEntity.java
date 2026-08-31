@@ -6,7 +6,7 @@ import java.time.Instant;
 
 @Entity
 @Table(name="environment")
-class EnvironmentJpaEntity {
+public class EnvironmentJpaEntity {
  @Id @GeneratedValue(strategy=GenerationType.IDENTITY) Long id;
  @ManyToOne(fetch=FetchType.EAGER,optional=false) @JoinColumn(name="release_version_id") ReleaseVersionJpaEntity releaseVersion;
  @Enumerated(EnumType.STRING) @Column(nullable=false) EnvironmentType type;
@@ -15,7 +15,7 @@ class EnvironmentJpaEntity {
  @Column(name="ssh_port",nullable=false) Integer sshPort;
  @Column(nullable=false) String password;
  @Column(name="work_directory") String workDirectory;
- String architecture; String mae;
+ String architecture;String mae;
  @Column(name="mae_user") String maeUser;
  @Column(name="mae_password") String maePassword;
  String osmu;
