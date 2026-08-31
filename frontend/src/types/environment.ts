@@ -1,0 +1,5 @@
+export type EnvironmentType = 'BUILD' | 'CONTAINER'
+export type ConnectionStatus = 'UNTESTED' | 'REACHABLE' | 'FAILED'
+export interface ReleaseVersion { id:number; code:string; name:string; sortOrder:number }
+export interface Environment { id:number; releaseVersion:ReleaseVersion; type:EnvironmentType; name:string; host:string; sshPort:number; password:string; workDirectory?:string; architecture?:string; mae?:string; maeUser?:string; maePassword?:string; osmu?:string; osmuUser?:string; osmuPassword?:string; connectionStatus:ConnectionStatus; lastTestedAt?:string; lastTestLatencyMs?:number; lastTestError?:string; version:number }
+export interface EnvironmentRequest { releaseVersionId:number; type:EnvironmentType; name:string; host:string; sshPort:number; password:string; workDirectory?:string; architecture?:string; mae?:string; maeUser?:string; maePassword?:string; osmu?:string; osmuUser?:string; osmuPassword?:string; version?:number }
