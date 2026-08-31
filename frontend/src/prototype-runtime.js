@@ -27,16 +27,18 @@
    environments.splice(0,environments.length,...result[1].map(mapEnvironment))
    if(releaseVersions.length&&!releaseVersions.some(item=>item.id===state.resourceVersion))state.resourceVersion=releaseVersions[0].id
    render(false)
-  }catch(error){showToast(error.message||'资源中心加载失败')}
- }
-
- function testPayload(environment){
-  return {type:environment.type==='build'?'BUILD':'CONTAINER',host:environment.ip,sshPort:Number(environment.port),password:environment.password}
+  }catch(error){
+   releaseVersions.splice(0,releaseVersions.length)
+   environments.splice(0,environments.length)
+   state.resourceVersion=''
+   render(false)
+   showToast((error.message||'资源中心加载失败')+'，请确认后端已启动')
+  }
  }
 
  testEnvironment=async function(id){
   const environment=environments.find(item=>item.id===id)
-  if(!environment||testTokens.has(id))return
+  if(!environment||environment._apiId==null||testTokens.has(id)){showToast('环境数据尚未从后端加载');return}
   const token=Symbol(id);testTokens.set(id,token);render(false)
   try{
    const result=await request('/api/environments/'+environment._apiId+'/connection-test',{method:'POST'})
@@ -47,7 +49,7 @@
  }
 
  testAllEnvironments=async function(){
-  const targets=versionEnvironments(state.resourceType)
+  const targets=versionEnvironments(state.resourceType).filter(item=>item._apiId!=null)
   if(!targets.length){showToast('当前范围没有可测试的环境');return}
   targets.forEach(item=>testTokens.set(item.id,Symbol(item.id)));render(false)
   const results=await Promise.all(targets.map(async environment=>{
@@ -68,6 +70,7 @@
   const existing=environments.find(item=>item.id===form.dataset.environmentId)
   const selectedVersion=releaseVersions.find(item=>item.id===values.version)
   const type=form.dataset.environmentType
+  if(!selectedVersion||selectedVersion._apiId==null){showToast('发布版本数据尚未从后端加载');return}
   const password=values.password||existing?.password||''
   const body={
    releaseVersionId:selectedVersion._apiId,type:type==='build'?'BUILD':'CONTAINER',name:values.name,host:values.ip,sshPort:Number(values.port),
@@ -82,7 +85,8 @@
  }
 
  deleteEnvironment=async function(environment){
-  if(!environment||!confirm('确定删除“'+environment.name+'”吗？删除后无法恢复。'))return
+  if(!environment||environment._apiId==null){showToast('环境数据尚未从后端加载');return}
+  if(!confirm('确定删除“'+environment.name+'”吗？删除后无法恢复。'))return
   try{await request('/api/environments/'+environment._apiId,{method:'DELETE'});await loadResources();showToast('环境已删除')}
   catch(error){showToast(error.message||'删除失败')}
  }
