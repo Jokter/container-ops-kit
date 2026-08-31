@@ -10,5 +10,6 @@ import java.util.Map;
 public class EnvironmentExceptionHandler {
  @ExceptionHandler(EnvironmentNotFoundException.class) @ResponseStatus(HttpStatus.NOT_FOUND) public Map<String,String> notFound(EnvironmentNotFoundException e){return Map.of("message",e.getMessage());}
  @ExceptionHandler(EnvironmentConflictException.class) @ResponseStatus(HttpStatus.CONFLICT) public Map<String,String> conflict(EnvironmentConflictException e){return Map.of("message",e.getMessage());}
+ @ExceptionHandler(IllegalArgumentException.class) @ResponseStatus(HttpStatus.BAD_REQUEST) public Map<String,String> invalidArgument(IllegalArgumentException e){return Map.of("message",e.getMessage());}
  @ExceptionHandler(MethodArgumentNotValidException.class) @ResponseStatus(HttpStatus.BAD_REQUEST) public Map<String,String> invalid(){return Map.of("message","请求参数校验失败");}
 }

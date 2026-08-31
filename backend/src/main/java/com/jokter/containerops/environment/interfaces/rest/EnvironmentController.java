@@ -19,6 +19,6 @@ public class EnvironmentController {
  @PutMapping("/environments/{id}") public EnvironmentResponse update(@PathVariable Long id,@Valid @RequestBody EnvironmentRequest request){return EnvironmentResponse.from(service.update(id,request.toCommand()));}
  @DeleteMapping("/environments/{id}") @ResponseStatus(HttpStatus.NO_CONTENT) public void delete(@PathVariable Long id){service.delete(id);}
  @PostMapping("/connection-tests/preview") public ConnectionTestResult preview(@Valid @RequestBody ConnectionTestRequest request){return service.preview(request.toCommand());}
- @PostMapping("/environments/{id}/connection-test") public ConnectionTestResult test(@PathVariable Long id){return service.test(id);}
+ @PostMapping("/environments/{id}/connection-test") public ConnectionTestResult test(@PathVariable Long id,@Valid @RequestBody SavedConnectionTestRequest request){return service.test(id,request.user());}
  @PostMapping("/environments/connection-tests/batch") public List<ConnectionTestResult> testAll(){return service.testAll();}
 }

@@ -1,14 +1,20 @@
 import {defineConfig} from 'vite'
 import {resolve} from 'node:path'
+import {fileURLToPath} from 'node:url'
+
+const frontendDirectory=resolve(fileURLToPath(import.meta.url),'..')
 
 export default defineConfig({
- root:resolve(__dirname,'..'),
+ root:resolve(frontendDirectory,'..'),
  plugins:[{
   name:'resource-center-runtime',
-  transformIndexHtml(html){
-   return html.replace('</body>','<script src="/frontend/src/prototype-runtime.js"></script></body>')
+  transformIndexHtml:{
+   order:'pre',
+   handler(html){
+    return html.replace('</body>','<script type="module" src="/frontend/src/prototype-runtime.js"></script></body>')
+   }
   }
  }],
  server:{proxy:{'/api':'http://localhost:8080'}},
- build:{outDir:resolve(__dirname,'dist'),emptyOutDir:true}
+ build:{outDir:resolve(frontendDirectory,'dist'),emptyOutDir:true}
 })

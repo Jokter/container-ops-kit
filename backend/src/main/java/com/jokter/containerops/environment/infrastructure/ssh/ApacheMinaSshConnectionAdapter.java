@@ -15,7 +15,7 @@ class ApacheMinaSshConnectionAdapter implements SshConnectionPort {
  private final long connectTimeout;private final long authTimeout;
  ApacheMinaSshConnectionAdapter(@Value("${resource-center.ssh.connect-timeout:5000}") long connectTimeout,@Value("${resource-center.ssh.auth-timeout:5000}") long authTimeout){this.connectTimeout=connectTimeout;this.authTimeout=authTimeout;}
  public ConnectionTestResult test(ConnectionTestCommand command){
-  Instant started=Instant.now();String user=command.type()==EnvironmentType.BUILD?"huawei":"sopuser";
+  Instant started=Instant.now();String user=command.user().username();
   try(SshClient client=SshClient.setUpDefaultClient()){
    client.start();
    try(ClientSession session=client.connect(user,command.host(),command.sshPort()).verify(connectTimeout,TimeUnit.MILLISECONDS).getSession()){

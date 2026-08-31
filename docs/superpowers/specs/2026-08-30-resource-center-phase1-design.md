@@ -49,6 +49,7 @@ H2 文件数据库路径为应用目录下的 `data/resource-center`，服务重
 - host
 - ssh_port
 - password：明文保存
+- root_password：容器环境 `root` 用户的明文密码
 - work_directory
 - architecture
 - connection_status：UNTESTED、REACHABLE、FAILED
@@ -59,20 +60,21 @@ H2 文件数据库路径为应用目录下的 `data/resource-center`，服务重
 - updated_at
 - version
 
-容器环境额外保存 MAE 和 OSMU 的地址、账号、密码。
+容器环境额外保存业务面和管理面的完整 HTTP(S) 地址、账号、密码。
 
 不建立测试历史表。每次测试只覆盖环境的最后一次测试结果。
 
-修改 host、ssh_port 或 password 后，connection_status 自动重置为 UNTESTED。
+修改 host、ssh_port、password 或 root_password 后，connection_status 自动重置为 UNTESTED。
 
 ## 4. SSH 规则
 
 - 构建环境固定 SSH 用户名：huawei
-- 容器环境固定 SSH 用户名：sopuser
+- 容器环境固定提供 sopuser、root 两个 SSH 用户
+- 单个容器环境测试由用户选择 SSH 用户，批量测试默认使用 sopuser
 - 默认端口：22
 - 仅验证 TCP 连接、SSH 握手和账号密码认证
 - 不执行远端命令
-- 不验证工作目录、MAE 或 OSMU 服务
+- 不验证工作目录、业务面或管理面服务
 - 第一阶段接受服务器主机密钥，不维护 known_hosts
 - 连接与认证设置超时，单次测试最长约 10 秒
 
@@ -114,7 +116,9 @@ frontend/src/
 
 支持按版本、环境类型、名称、地址和连接状态筛选。
 
-“更多”菜单只保留复制 SSH 命令和删除环境。密码使用普通文本输入框，允许直接查看和编辑。
+“更多”菜单只保留复制 SSH 命令和删除环境，不提供测试记录入口。密码使用普通文本输入框，允许直接查看和编辑。
+
+容器环境表格展示业务面、管理面地址、账号和密码。地址在新页签打开，账号和密码分别支持复制，不将认证信息拼入 URL。业务面、管理面配置均可不填；任一配置开始填写后，其完整 HTTP(S) 地址、账号和密码必须齐全。
 
 测试期间只禁用当前按钮并显示加载状态，不展示进度和历史。
 

@@ -1,5 +1,6 @@
 package com.jokter.containerops.environment.application;
 
-import com.jokter.containerops.environment.domain.model.EnvironmentType;
+import com.jokter.containerops.environment.domain.model.SshUser;
 
-public record ConnectionTestCommand(EnvironmentType type,String host,Integer sshPort,String password) {}
+public record ConnectionTestCommand(SshUser user, String host, Integer sshPort, String password) {
+}
