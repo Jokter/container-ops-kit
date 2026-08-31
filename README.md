@@ -4,7 +4,7 @@
 
 ## 一键启动
 
-Windows 双击根目录的 `start.cmd`。脚本会检查 Java 21、Maven、Node.js 和 npm，首次运行自动安装前端依赖，随后分别启动后端和前端并打开浏览器。
+Windows 双击根目录的 `start.bat`。脚本会检查 Java 21、Maven、Node.js 和 npm，首次运行自动安装前端依赖，随后分别启动后端和前端并打开浏览器。
 
 ## 手动启动后端
 
