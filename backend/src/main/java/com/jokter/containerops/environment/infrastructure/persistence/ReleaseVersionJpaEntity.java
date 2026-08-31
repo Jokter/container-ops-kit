@@ -5,7 +5,7 @@ import jakarta.persistence.*;
 
 @Entity
 @Table(name="release_version")
-class ReleaseVersionJpaEntity {
+public class ReleaseVersionJpaEntity {
  @Id @GeneratedValue(strategy=GenerationType.IDENTITY) Long id;
  @Column(nullable=false,unique=true) String code;
  @Column(nullable=false) String name;
