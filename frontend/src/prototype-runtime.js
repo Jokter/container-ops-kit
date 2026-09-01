@@ -84,6 +84,36 @@
       + '<span class="credential-line"><span>' + escapeHtml(environment.user) + ' / ' + escapeHtml(environment.password) + '</span></span>' + rootLine + '</div>'
   }
 
+  const expandedContainerEnvironments = new Set()
+
+  function compactServiceEntry(environment, prefix, label) {
+    const address = environment[prefix + 'Url']
+    if (!address) return '<span><b>' + label + '</b><em>未配置</em></span>'
+    const url = normalizeAddress(address)
+    const content = url
+      ? '<a href="' + escapeHtml(url) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(address) + '</a>'
+      : '<em class="mono">' + escapeHtml(address) + '</em>'
+    return '<span><b>' + label + '</b>' + content + '</span>'
+  }
+
+  function credentialDetail(environment, label, value, property) {
+    return '<div class="container-detail-item"><span>' + label + '</span><strong class="mono">' + escapeHtml(value || '未配置') + '</strong>'
+      + (value ? '<button type="button" data-copy-credential="' + property + '" data-environment-id="' + environment.id + '">复制</button>' : '') + '</div>'
+  }
+
+  function containerDetails(environment) {
+    return '<div class="container-detail-row"><div class="container-detail-grid">'
+      + credentialDetail(environment, '工作目录', environment.workdir, 'workdir')
+      + '<div class="container-detail-item"><span>系统架构</span><strong>' + (environment.architecture === 'aarch64' ? 'ARM' : 'x86') + '</strong></div>'
+      + credentialDetail(environment, 'sopuser 密码', environment.password, 'password')
+      + credentialDetail(environment, 'root 密码', environment.rootPassword, 'rootPassword')
+      + credentialDetail(environment, '业务面账号', environment.businessPlaneUser, 'businessPlaneUser')
+      + credentialDetail(environment, '业务面密码', environment.businessPlanePassword, 'businessPlanePassword')
+      + credentialDetail(environment, '管理面账号', environment.managementPlaneUser, 'managementPlaneUser')
+      + credentialDetail(environment, '管理面密码', environment.managementPlanePassword, 'managementPlanePassword')
+      + '</div></div>'
+  }
+
   const originalEnvironmentEditor = environmentEditor
   environmentEditor = function () {
     if (state.resourceDrawer?.mode === 'history') state.resourceDrawer = null
@@ -98,19 +128,25 @@
     }
     const container = state.resourceType === 'container'
     const head = container
-      ? '<div class="environment-row container-row head"><span>环境</span><span>SSH 地址</span><span>业务面</span><span>管理面</span><span>系统架构</span><span>连接状态</span><span>最近测试</span><span style="text-align:right">操作</span></div>'
+      ? '<div class="environment-row container-compact-row head"><span>环境</span><span>SSH 地址</span><span>业务面 / 管理面</span><span>连接状态</span><span>最近测试</span><span style="text-align:right">操作</span></div>'
       : '<div class="environment-row head"><span>环境</span><span>SSH 地址</span><span>系统架构</span><span>连接状态</span><span>最近测试</span><span style="text-align:right">操作</span></div>'
     const rows = items.map(item => {
       const unavailable = locked || Boolean(state.batch) || Boolean(testTokens.size)
-      const name = '<div class="environment-row-name"><span class="environment-kind-icon">' + (item.type === 'build' ? '构' : '容') + '</span><div><strong>' + escapeHtml(item.name) + '</strong><span class="mono">' + escapeHtml(item.workdir) + '</span></div></div>'
+      const name = '<div class="environment-row-name"><span class="environment-kind-icon">' + (item.type === 'build' ? '构' : '容') + '</span><div><strong>' + escapeHtml(item.name) + '</strong>' + (item.type === 'build' ? '<span class="mono">' + escapeHtml(item.workdir) + '</span>' : '') + '</div></div>'
       const architecture = '<div data-label="系统架构"><span class="badge ' + (item.architecture === 'aarch64' ? 'violet' : 'brand') + '">' + (item.architecture === 'aarch64' ? 'ARM' : 'x86') + '</span></div>'
       const connectionStatus = '<div data-label="连接状态">' + environmentStatus(item) + '</div>'
       const lastTest = '<div data-label="最近测试"><strong>' + escapeHtml(item.lastTest) + '</strong><span class="environment-cell-copy">' + escapeHtml(item.latency) + '</span></div>'
       const userSelector = item.type === 'container'
         ? '<select class="environment-filter compact" data-test-user="' + item.id + '" aria-label="测试账号"><option value="SOPUSER">sopuser</option><option value="ROOT" ' + (item.rootPasswordConfigured ? '' : 'disabled') + '>root' + (item.rootPasswordConfigured ? '' : '（未配置）') + '</option></select>'
         : ''
-      const actions = '<div class="environment-actions">' + userSelector + '<button class="button small" data-test-environment="' + item.id + '" ' + (unavailable ? 'disabled' : '') + '>测试连接</button><button class="button small ghost" data-edit-environment="' + item.id + '" ' + (unavailable ? 'disabled' : '') + '>编辑</button><select class="environment-filter" data-more-environment="' + item.id + '" aria-label="更多操作" ' + (unavailable ? 'disabled' : '') + '><option value="">更多</option><option value="copy">复制 SSH 命令</option><option value="delete">删除环境</option></select></div>'
-      if (container) return '<div class="environment-row container-row">' + name + sshCell(item) + serviceCell(item, 'businessPlane', '业务面') + serviceCell(item, 'managementPlane', '管理面') + architecture + connectionStatus + lastTest + actions + '</div>'
+      const detailButton = container ? '<button class="button small ghost" data-toggle-container-details="' + item.id + '">' + (expandedContainerEnvironments.has(item.id) ? '收起' : '详情') + '</button>' : ''
+      const actions = '<div class="environment-actions">' + userSelector + '<button class="button small" data-test-environment="' + item.id + '" ' + (unavailable ? 'disabled' : '') + '>测试连接</button>' + detailButton + '<button class="button small ghost" data-edit-environment="' + item.id + '" ' + (unavailable ? 'disabled' : '') + '>编辑</button><select class="environment-filter" data-more-environment="' + item.id + '" aria-label="更多操作" ' + (unavailable ? 'disabled' : '') + '><option value="">更多</option><option value="copy">复制 SSH 命令</option><option value="delete">删除环境</option></select></div>'
+      if (container) {
+        const ssh = '<div data-label="SSH 地址"><strong class="mono">' + escapeHtml(item.ip) + ':' + escapeHtml(item.port) + '</strong><span class="environment-cell-copy">sopuser · root</span></div>'
+        const entries = '<div class="container-entry-list" data-label="业务面 / 管理面">' + compactServiceEntry(item, 'businessPlane', '业务面') + compactServiceEntry(item, 'managementPlane', '管理面') + '</div>'
+        const main = '<div class="environment-row container-compact-row">' + name + ssh + entries + connectionStatus + lastTest + actions + '</div>'
+        return main + (expandedContainerEnvironments.has(item.id) ? containerDetails(item) : '')
+      }
       return '<div class="environment-row">' + name + sshCell(item) + architecture + connectionStatus + lastTest + actions + '</div>'
     }).join('')
     return '<div class="environment-table">' + head + rows + '</div>'
@@ -872,6 +908,14 @@
   })
 
   document.addEventListener('click', function (event) {
+    const containerDetailsButton = event.target.closest?.('[data-toggle-container-details]')
+    if (containerDetailsButton) {
+      const id = containerDetailsButton.dataset.toggleContainerDetails
+      if (expandedContainerEnvironments.has(id)) expandedContainerEnvironments.delete(id)
+      else expandedContainerEnvironments.add(id)
+      render(false)
+      return
+    }
     if (event.target.closest?.('[data-deployment-candidates]')) return loadDeploymentCandidates()
     const service = event.target.closest?.('[data-deployment-service]')
     if (service) {
@@ -940,6 +984,7 @@
   const style = document.createElement('style')
   style.textContent = '.environment-row.container-row{grid-template-columns:minmax(190px,1.2fr) minmax(150px,.9fr) minmax(170px,1fr) minmax(170px,1fr) 78px 96px minmax(130px,.8fr) minmax(290px,1.4fr);min-width:1380px}.service-address{display:block;color:var(--brand);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.service-address:hover{text-decoration:underline}.service-cell{min-width:0}.credential-line{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:3px;color:var(--muted);font-size:12px}.credential-line span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.credential-line button{border:0;padding:0;color:var(--brand);background:transparent;font-size:11px}.environment-filter.compact{max-width:100px;padding:5px 7px}.build-terminal{max-height:420px;overflow:auto}.build-terminal div{min-height:20px}.build-log-toolbar{display:flex;align-items:center;gap:8px;margin-bottom:10px}.build-log-toolbar input{min-width:180px;max-width:320px;padding:7px 9px;border:1px solid var(--line);border-radius:7px}.build-log-toolbar span{color:var(--muted);font-size:12px}.build-log-toolbar .button{margin-left:auto}.field input[readonly]{color:var(--muted);cursor:default}.build-storage{display:flex;align-items:center;gap:14px;margin:-8px 0 16px;padding:10px 14px;border:1px solid var(--line);border-radius:9px;background:var(--surface-soft);font-size:12px}.build-storage>span{color:var(--muted)}.build-storage .button{margin-left:auto}.build-directory-list{display:grid;gap:8px}.build-directory-row{display:grid;grid-template-columns:130px minmax(220px,1fr) auto auto;align-items:center;gap:8px}.build-directory-row code{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)}.build-history-table{overflow-x:auto}.build-history-row{display:grid;grid-template-columns:90px 120px 80px minmax(130px,1fr) 80px 170px minmax(350px,1.4fr);gap:12px;align-items:center;min-width:1060px;min-height:52px;padding:0 16px;border-bottom:1px solid var(--line);font-size:12px}.build-history-row.head{min-height:36px;color:var(--faint);background:var(--surface-soft)}.button.danger{color:var(--red)}.deployment-service-checks{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}.deployment-check{display:flex;align-items:center;gap:7px;padding:8px 10px;border:1px solid var(--line);border-radius:8px}.deployment-layout{display:grid;grid-template-columns:340px minmax(0,1fr);gap:16px;margin-top:16px;align-items:start}.deployment-service-list{display:grid;gap:7px}.deployment-service-row{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--surface);text-align:left}.deployment-service-row.active{border-color:var(--brand);box-shadow:0 0 0 1px var(--brand)}.deployment-service-row span:first-child{display:grid;gap:3px;min-width:0}.deployment-service-row small{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.deployment-actions{display:grid;gap:8px;margin-top:14px}.replacement-list{display:grid;gap:7px;max-height:250px;overflow:auto}.replacement-row{display:grid;grid-template-columns:90px minmax(120px,.8fr) minmax(120px,1fr) minmax(120px,1fr);gap:8px;padding:8px;border-bottom:1px solid var(--line);font-size:12px}.replacement-row del{color:var(--red)}.replacement-row ins{color:var(--green);text-decoration:none}.deployment-values{width:100%;min-height:380px;resize:vertical;border:1px solid var(--line);border-radius:8px;padding:12px;background:#1d2b34;color:#c2ccd2;font-size:12px;line-height:1.6}@media(max-width:1000px){.deployment-layout{grid-template-columns:1fr}.build-directory-row{grid-template-columns:1fr auto auto}.build-directory-row span{grid-column:1/-1}}@media(max-width:700px){.environment-row.container-row{min-width:0;grid-template-columns:repeat(2,minmax(0,1fr))}.environment-row.container-row>[data-label]::before{content:attr(data-label);display:block;margin-bottom:4px;color:var(--faint);font-size:12px}.environment-row.container-row>.environment-actions{grid-column:1/-1}.replacement-row{grid-template-columns:1fr}.build-storage{align-items:flex-start;flex-wrap:wrap}.build-storage .button{margin-left:0}.build-directory-row{grid-template-columns:1fr}.build-directory-row span{grid-column:auto}.build-log-toolbar{align-items:stretch;flex-direction:column}.build-log-toolbar input{max-width:none}.build-log-toolbar .button{margin-left:0}}'
   style.textContent += '.build-directories{overflow:hidden}.build-directories>summary{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 16px;cursor:pointer;list-style:none}.build-directories>summary::-webkit-details-marker{display:none}.build-directories>summary span:first-child{display:flex;align-items:center;gap:10px}.build-directories>summary small,.build-directory-help{color:var(--muted);font-size:12px}.build-directories[open] .build-directory-toggle{font-size:0}.build-directories[open] .build-directory-toggle::after{content:"收起";font-size:12px}.build-directory-toggle{color:var(--brand);font-size:12px}.build-directories>.panel-body{border-top:1px solid var(--line)}.build-directory-help{margin-bottom:10px}'
+  style.textContent += '.environment-row.container-compact-row{grid-template-columns:minmax(180px,1.1fr) 155px minmax(250px,1.45fr) 100px minmax(130px,.8fr) minmax(390px,1.6fr);min-width:1160px}.container-entry-list{display:grid;gap:5px;min-width:0}.container-entry-list>span{display:grid;grid-template-columns:44px minmax(0,1fr);align-items:center;gap:6px;min-width:0;font-size:12px}.container-entry-list b{color:var(--faint);font-weight:500}.container-entry-list a,.container-entry-list em{overflow:hidden;color:var(--brand);font-style:normal;text-decoration:none;text-overflow:ellipsis;white-space:nowrap}.container-entry-list a:hover{text-decoration:underline}.container-detail-row{min-width:1160px;padding:0 16px 14px;border-bottom:1px solid var(--line);background:var(--surface-soft)}.container-detail-grid{display:grid;grid-template-columns:repeat(4,minmax(180px,1fr));gap:8px 16px;padding:13px;border:1px solid var(--line);border-radius:8px;background:var(--surface)}.container-detail-item{display:grid;grid-template-columns:90px minmax(0,1fr) auto;align-items:center;gap:7px;min-width:0;font-size:12px}.container-detail-item>span{color:var(--muted)}.container-detail-item>strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}.container-detail-item>button{border:0;padding:0;color:var(--brand);background:transparent;font-size:11px}@media(max-width:700px){.environment-row.container-compact-row{min-width:0;grid-template-columns:repeat(2,minmax(0,1fr))}.container-compact-row>.container-entry-list,.container-compact-row>.environment-actions{grid-column:1/-1}.container-detail-row{min-width:0}.container-detail-grid{grid-template-columns:1fr}.container-detail-item{grid-template-columns:90px minmax(0,1fr) auto}}'
   document.head.appendChild(style)
 
   new MutationObserver(patchEnvironmentForm).observe(document.querySelector('#app'), {childList: true, subtree: true})
