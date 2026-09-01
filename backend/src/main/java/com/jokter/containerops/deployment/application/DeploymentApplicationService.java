@@ -27,9 +27,10 @@ import java.util.regex.Pattern;
 
 @Service
 public class DeploymentApplicationService {
-    private static final String KUBECONFIG = "/opt/kubeconfig/kubeconfig.txt";
-    private static final String HELM = "helm --kubeconfig=" + KUBECONFIG;
-    private static final String KUBECTL = "kubectl --kubeconfig=" + KUBECONFIG;
+    private static final String KUBECTL_KUBECONFIG = "/root/.kube/config";
+    private static final String HELM_KUBECONFIG = "/opt/kubeconfig/kubeconfig.txt";
+    private static final String HELM = "helm --kubeconfig=" + HELM_KUBECONFIG;
+    private static final String KUBECTL = "kubectl --kubeconfig=" + KUBECTL_KUBECONFIG;
     private static final Pattern RESOURCE = Pattern.compile("(?ms)^kind:\\s*([^\\s]+).*?^metadata:\\s*\\n(?:^[ \\t]+.*\\n)*?^[ \\t]+name:\\s*([^\\s#]+)");
     private static final Map<String, String> GROUP_KINDS = Map.ofEntries(
             Map.entry("BeidouLog", "beidoulog"),
