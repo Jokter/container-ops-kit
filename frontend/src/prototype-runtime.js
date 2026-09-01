@@ -487,7 +487,7 @@
   function buildDirectoryActions(task) {
     if (!task?.workspaceRoot) return ''
     const items = [{label: '任务根目录', path: task.workspaceRoot}].concat(task.directories || [])
-    return '<details class="panel build-directories"><summary><span><strong>编译目录与操作</strong><small>不常用，点击展开</small></span><span class="build-directory-toggle">展开</span></summary><div class="panel-body"><p class="build-directory-help">可复制路径或 cd 命令后在 SSH 终端中操作</p><div class="build-directory-list">' + items.map(item => '<div class="build-directory-row"><span>' + escapeHtml(item.label) + '</span><code>' + escapeHtml(item.path) + '</code><button class="button small ghost" data-copy-build-path="' + escapeHtml(item.path) + '">复制路径</button><button class="button small ghost" data-copy-build-cd="' + escapeHtml(item.path) + '">复制 cd 命令</button></div>').join('') + '</div></div></details>'
+    return '<details class="panel build-directories"><summary><span><strong>编译目录与操作</strong></span><span class="build-directory-toggle">展开</span></summary><div class="panel-body"><p class="build-directory-help">可复制路径或 cd 命令后在 SSH 终端中操作</p><div class="build-directory-list">' + items.map(item => '<div class="build-directory-row"><span>' + escapeHtml(item.label) + '</span><code>' + escapeHtml(item.path) + '</code><button class="button small ghost" data-copy-build-path="' + escapeHtml(item.path) + '">复制路径</button><button class="button small ghost" data-copy-build-cd="' + escapeHtml(item.path) + '">复制 cd 命令</button></div>').join('') + '</div></div></details>'
   }
 
   function taskPresentation(status) {
