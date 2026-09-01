@@ -21,6 +21,8 @@ public record BuildTaskResponse(
         Instant createdAt,
         Instant startedAt,
         Instant finishedAt,
+        String workspaceRoot,
+        List<BuildDirectoryResponse> directories,
         List<BuildStepResponse> steps,
         List<BuildEventResponse> events
 ) {
@@ -39,8 +41,26 @@ public record BuildTaskResponse(
                 task.createdAt(),
                 task.startedAt(),
                 task.finishedAt(),
+                task.workspaceRoot(),
+                directories(task),
                 task.steps().stream().map(BuildStepResponse::from).toList(),
                 task.events().stream().map(BuildEventResponse::from).toList()
+        );
+    }
+
+    private static List<BuildDirectoryResponse> directories(BuildTask task) {
+        String root = task.workspaceRoot();
+        if (task.mode() == BuildMode.SINGLE) {
+            return List.of(
+                    new BuildDirectoryResponse("CBB-Web-Dev", root + "/single/CBB-Web-Dev/chart-codegen-plugin"),
+                    new BuildDirectoryResponse(task.module(), root + "/single/ArchDesign/Chart/" + task.module())
+            );
+        }
+        return List.of(
+                new BuildDirectoryResponse("基准 · CBB-Web-Dev", root + "/baseline/CBB-Web-Dev/chart-codegen-plugin"),
+                new BuildDirectoryResponse("基准 · " + task.module(), root + "/baseline/ArchDesign/Chart/" + task.module()),
+                new BuildDirectoryResponse("验证 · CBB-Web-Dev", root + "/candidate/CBB-Web-Dev/chart-codegen-plugin"),
+                new BuildDirectoryResponse("验证 · " + task.module(), root + "/candidate/ArchDesign/Chart/" + task.module())
         );
     }
 }

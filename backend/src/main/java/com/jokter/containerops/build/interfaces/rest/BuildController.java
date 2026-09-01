@@ -13,9 +13,11 @@ import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -59,6 +61,25 @@ public class BuildController {
     @GetMapping("/build-tasks/{id}")
     public BuildTaskResponse get(@PathVariable String id) {
         return BuildTaskResponse.from(builds.get(id));
+    }
+
+    @GetMapping("/build-tasks")
+    public List<BuildTaskSummaryResponse> tasks() {
+        return builds.findAll().stream().map(BuildTaskSummaryResponse::from).toList();
+    }
+
+    @DeleteMapping("/build-tasks/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void delete(
+            @PathVariable String id,
+            @RequestParam(defaultValue = "false") boolean deleteWorkspace
+    ) {
+        builds.delete(id, deleteWorkspace);
+    }
+
+    @GetMapping("/build-environments/{id}/storage")
+    public BuildStorageUsageResponse storage(@PathVariable Long id) {
+        return BuildStorageUsageResponse.from(builds.storage(id));
     }
 
     @GetMapping(path = "/build-tasks/{id}/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)

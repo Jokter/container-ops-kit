@@ -15,6 +15,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.Comparator;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 
@@ -48,6 +49,7 @@ public class BuildApplicationService {
         BuildEnvironment environment = environments.get(command.environmentId());
         BuildModule module = modules.get(command.module());
         String taskId = UUID.randomUUID().toString();
+        String workspaceRoot = normalizedRoot(environment.workDirectory(), taskId);
         BuildTask task = new BuildTask(
                 taskId,
                 command.mode(),
@@ -56,6 +58,7 @@ public class BuildApplicationService {
                 module.name(),
                 command.baseline(),
                 command.candidate(),
+                workspaceRoot,
                 steps(command.mode())
         );
         tasks.save(task);
@@ -67,12 +70,58 @@ public class BuildApplicationService {
         return tasks.findById(id).orElseThrow(BuildTaskNotFoundException::new);
     }
 
+    public List<BuildTask> findAll() {
+        return tasks.findAll().stream()
+                .sorted(Comparator.comparing(BuildTask::createdAt).reversed())
+                .toList();
+    }
+
+    public void delete(String id, boolean deleteWorkspace) {
+        BuildTask task = get(id);
+        if (!task.status().terminal()) {
+            throw new IllegalStateException("运行中的构建任务不能删除");
+        }
+        if (deleteWorkspace) {
+            deleteWorkspace(task);
+        }
+        tasks.deleteById(id);
+    }
+
+    public BuildStorageUsage storage(Long environmentId) {
+        BuildEnvironment environment = environments.get(environmentId);
+        RemoteTarget target = new RemoteTarget(environment.host(), environment.sshPort(), environment.username(), environment.password());
+        List<String> lines = new ArrayList<>();
+        RemoteCommandResult result = remoteCommands.execute(target,
+                "du -sk /user/wytest 2>/dev/null | awk '{print \"DU \" $1}'; "
+                        + "df -Pk /user/wytest 2>/dev/null | tail -1 | awk '{print \"DF \" $2 \" \" $4 \" \" $5}'", lines::add);
+        if (!result.succeeded()) {
+            throw new IllegalStateException("无法读取 /user/wytest 存储占用");
+        }
+        long used = 0;
+        long total = 0;
+        long available = 0;
+        String usage = "—";
+        for (String line : lines) {
+            String[] columns = line.trim().split("\\s+");
+            if (columns.length >= 2 && columns[0].equals("DU")) {
+                used = number(columns[1]) * 1024L;
+            }
+            if (columns.length >= 4 && columns[0].equals("DF")) {
+                total = number(columns[1]) * 1024L;
+                available = number(columns[2]) * 1024L;
+                usage = columns[3];
+            }
+        }
+        if (used == 0 && total == 0) throw new IllegalStateException("/user/wytest 不存在或不可读取");
+        return new BuildStorageUsage("/user/wytest", used, total, available, usage);
+    }
+
     private void execute(BuildTask task, BuildEnvironment environment, BuildModule module, StartBuildCommand command) {
         task.start();
         tasks.save(task);
         try {
             RemoteTarget target = new RemoteTarget(environment.host(), environment.sshPort(), environment.username(), environment.password());
-            String root = normalizedRoot(environment.workDirectory(), task.id());
+            String root = task.workspaceRoot();
             boolean successful;
             if (command.mode() == BuildMode.SINGLE) {
                 successful = executeBranch(task, target, root + "/single", "single", module, command.baseline());
@@ -122,7 +171,7 @@ public class BuildApplicationService {
         if (!step(task, target, side, "clone-cbb", "检出 CBB-Web-Dev", cloneCommand(BuildDefinition.CBB_WEB_DEV_REPOSITORY, branches.cbbWebDev().value(), cbbDirectory))) {
             return false;
         }
-        if (!step(task, target, side, "build-cbb", "构建 CBB-Web-Dev", buildCommand(cbbDirectory))) {
+        if (!step(task, target, side, "build-cbb", "构建 CBB-Web-Dev", buildCommand(cbbDirectory + "/chart-codegen-plugin"))) {
             return false;
         }
         if (!step(task, target, side, "clone-arch", "检出 ArchDesign", cloneCommand(BuildDefinition.ARCH_DESIGN_REPOSITORY, branches.archDesign().value(), archDirectory))) {
@@ -217,5 +266,27 @@ public class BuildApplicationService {
             throw new IllegalArgumentException("构建环境未配置工作目录");
         }
         return workDirectory.replaceAll("/+$", "") + "/container-ops-kit/builds/" + taskId;
+    }
+
+    private void deleteWorkspace(BuildTask task) {
+        String expectedSuffix = "/container-ops-kit/builds/" + task.id();
+        if (task.workspaceRoot() == null || !task.workspaceRoot().endsWith(expectedSuffix)) {
+            throw new IllegalStateException("任务工作目录不合法，拒绝清理");
+        }
+        BuildEnvironment environment = environments.get(task.environmentId());
+        RemoteTarget target = new RemoteTarget(environment.host(), environment.sshPort(), environment.username(), environment.password());
+        RemoteCommandResult result = remoteCommands.execute(target,
+                "rm -rf -- " + ShellArgument.quote(task.workspaceRoot()), ignored -> { });
+        if (!result.succeeded()) {
+            throw new IllegalStateException("远端构建目录清理失败");
+        }
+    }
+
+    private long number(String value) {
+        try {
+            return Long.parseLong(value);
+        } catch (NumberFormatException exception) {
+            return 0;
+        }
     }
 }

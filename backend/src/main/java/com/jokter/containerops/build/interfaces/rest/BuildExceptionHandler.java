@@ -8,11 +8,17 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import java.util.Map;
 
-@RestControllerAdvice
+@RestControllerAdvice(assignableTypes = BuildController.class)
 public class BuildExceptionHandler {
     @ExceptionHandler(BuildTaskNotFoundException.class)
     @ResponseStatus(HttpStatus.NOT_FOUND)
     public Map<String, String> notFound(BuildTaskNotFoundException exception) {
+        return Map.of("message", exception.getMessage());
+    }
+
+    @ExceptionHandler(IllegalStateException.class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public Map<String, String> conflict(IllegalStateException exception) {
         return Map.of("message", exception.getMessage());
     }
 }

@@ -49,6 +49,7 @@ class BuildApplicationServiceTest {
         assertThat(remote.commands).anyMatch(command -> command.contains(BuildDefinition.CBB_WEB_DEV_REPOSITORY) && command.contains("release/cbb"));
         assertThat(remote.commands).anyMatch(command -> command.contains(BuildDefinition.ARCH_DESIGN_REPOSITORY) && command.contains("feature/arch"));
         assertThat(remote.commands).filteredOn(command -> command.contains("mvn clean install")).allMatch(command -> command.contains(BuildDefinition.BUILD_COMMAND));
+        assertThat(remote.commands).anyMatch(command -> command.contains("single/CBB-Web-Dev/chart-codegen-plugin") && command.contains(BuildDefinition.BUILD_COMMAND));
         assertThat(remote.commands).anyMatch(command -> command.contains("ArchDesign/Chart/mae-access"));
     }
 
@@ -67,6 +68,8 @@ class BuildApplicationServiceTest {
         ));
 
         assertThat(task.status()).isEqualTo(BuildStatus.SUCCEEDED);
+        assertThat(remote.commands).anyMatch(command -> command.contains("baseline/CBB-Web-Dev/chart-codegen-plugin") && command.contains(BuildDefinition.BUILD_COMMAND));
+        assertThat(remote.commands).anyMatch(command -> command.contains("candidate/CBB-Web-Dev/chart-codegen-plugin") && command.contains(BuildDefinition.BUILD_COMMAND));
         assertThat(remote.commands).anyMatch(command -> command.startsWith("diff -ru"));
     }
 
@@ -87,6 +90,35 @@ class BuildApplicationServiceTest {
 
         assertThat(task.status()).isEqualTo(BuildStatus.FAILED);
         assertThat(remote.commands).noneMatch(command -> command.startsWith("diff -ru"));
+    }
+
+    @Test
+    void completedTasksCanBeListedAndDeletedWithoutRemovingWorkspace() {
+        InMemoryTasks tasks = new InMemoryTasks();
+        RecordingRemoteCommands remote = new RecordingRemoteCommands();
+        BuildApplicationService service = service(tasks, remote);
+        BuildTask task = service.start(new StartBuildCommand(
+                BuildMode.SINGLE, 9L, "mae-access", new BuildBranches("master", "master"), null));
+
+        assertThat(service.findAll()).extracting(BuildTask::id).containsExactly(task.id());
+        service.delete(task.id(), false);
+
+        assertThat(service.findAll()).isEmpty();
+        assertThat(remote.commands).noneMatch(command -> command.startsWith("rm -rf"));
+    }
+
+    @Test
+    void storageReadsUserWytestUsageFromBuildEnvironment() {
+        InMemoryTasks tasks = new InMemoryTasks();
+        RecordingRemoteCommands remote = new RecordingRemoteCommands();
+        BuildApplicationService service = service(tasks, remote);
+
+        BuildStorageUsage usage = service.storage(9L);
+
+        assertThat(usage.path()).isEqualTo("/user/wytest");
+        assertThat(usage.usedBytes()).isEqualTo(1024L * 1024L);
+        assertThat(usage.availableBytes()).isEqualTo(8L * 1024L * 1024L);
+        assertThat(usage.filesystemUsage()).isEqualTo("20%");
     }
 
     private BuildApplicationService service(InMemoryTasks tasks, RecordingRemoteCommands remote) {
@@ -117,6 +149,16 @@ class BuildApplicationServiceTest {
         public Optional<BuildTask> findById(String id) {
             return Optional.ofNullable(tasks.get(id));
         }
+
+        @Override
+        public List<BuildTask> findAll() {
+            return List.copyOf(tasks.values());
+        }
+
+        @Override
+        public void deleteById(String id) {
+            tasks.remove(id);
+        }
     }
 
     private static final class RecordingRemoteCommands implements RemoteCommandPort {
@@ -126,6 +168,11 @@ class BuildApplicationServiceTest {
         @Override
         public RemoteCommandResult execute(RemoteTarget target, String command, Consumer<String> output) {
             commands.add(command);
+            if (command.contains("du -sk /user/wytest")) {
+                output.accept("DU 1024");
+                output.accept("DF 10240 8192 20%");
+                return new RemoteCommandResult(0);
+            }
             output.accept("executed");
             int exitCode = exitCodes.entrySet().stream()
                     .filter(entry -> command.contains(entry.getKey()))

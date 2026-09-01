@@ -13,6 +13,7 @@ public final class BuildTask {
     private final String module;
     private final BuildBranches baseline;
     private final BuildBranches candidate;
+    private final String workspaceRoot;
     private final Instant createdAt;
     private final List<BuildStep> steps;
     private final List<BuildEvent> events = new ArrayList<>();
@@ -31,6 +32,7 @@ public final class BuildTask {
             String module,
             BuildBranches baseline,
             BuildBranches candidate,
+            String workspaceRoot,
             List<BuildStep> steps
     ) {
         if (baseline == null || mode == BuildMode.COMPARE && candidate == null) {
@@ -43,9 +45,45 @@ public final class BuildTask {
         this.module = module;
         this.baseline = baseline;
         this.candidate = candidate;
+        this.workspaceRoot = workspaceRoot;
         this.steps = new ArrayList<>(steps);
         this.createdAt = Instant.now();
         event(BuildEventType.TASK, null, "构建任务已创建");
+    }
+
+    public static BuildTask restore(
+            String id, BuildMode mode, Long environmentId, String environmentName, String module,
+            BuildBranches baseline, BuildBranches candidate, String workspaceRoot, Instant createdAt,
+            List<BuildStep> steps, List<BuildEvent> events, BuildStatus status, Instant startedAt,
+            Instant finishedAt, String error, int completedSteps, long sequence
+    ) {
+        return new BuildTask(id, mode, environmentId, environmentName, module, baseline, candidate,
+                workspaceRoot, createdAt, steps, events, status, startedAt, finishedAt, error, completedSteps, sequence);
+    }
+
+    private BuildTask(
+            String id, BuildMode mode, Long environmentId, String environmentName, String module,
+            BuildBranches baseline, BuildBranches candidate, String workspaceRoot, Instant createdAt,
+            List<BuildStep> steps, List<BuildEvent> events, BuildStatus status, Instant startedAt,
+            Instant finishedAt, String error, int completedSteps, long sequence
+    ) {
+        this.id = id;
+        this.mode = mode;
+        this.environmentId = environmentId;
+        this.environmentName = environmentName;
+        this.module = module;
+        this.baseline = baseline;
+        this.candidate = candidate;
+        this.workspaceRoot = workspaceRoot;
+        this.createdAt = createdAt;
+        this.steps = new ArrayList<>(steps);
+        this.events.addAll(events);
+        this.status = status;
+        this.startedAt = startedAt;
+        this.finishedAt = finishedAt;
+        this.error = error;
+        this.completedSteps = completedSteps;
+        this.sequence = sequence;
     }
 
     public synchronized void start() {
@@ -90,6 +128,8 @@ public final class BuildTask {
             BuildStep step = steps.get(index);
             if (step.status() == BuildStepStatus.PENDING) {
                 steps.set(index, step.withStatus(BuildStepStatus.SKIPPED));
+            } else if (step.status() == BuildStepStatus.RUNNING) {
+                steps.set(index, step.withStatus(BuildStepStatus.FAILED));
             }
         }
         event(BuildEventType.TASK, null, reason);
@@ -134,6 +174,7 @@ public final class BuildTask {
     public String module() { return module; }
     public BuildBranches baseline() { return baseline; }
     public BuildBranches candidate() { return candidate; }
+    public String workspaceRoot() { return workspaceRoot; }
     public synchronized BuildStatus status() { return status; }
     public Instant createdAt() { return createdAt; }
     public synchronized Instant startedAt() { return startedAt; }
@@ -142,4 +183,6 @@ public final class BuildTask {
     public synchronized int progress() { return steps.isEmpty() ? 0 : Math.min(100, completedSteps * 100 / steps.size()); }
     public synchronized List<BuildStep> steps() { return List.copyOf(steps); }
     public synchronized List<BuildEvent> events() { return List.copyOf(events); }
+    public synchronized int completedSteps() { return completedSteps; }
+    public synchronized long sequence() { return sequence; }
 }

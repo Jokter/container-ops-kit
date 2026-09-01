@@ -123,6 +123,7 @@
       environments.splice(0, environments.length, ...result[1].map(mapEnvironment))
       if (releaseVersions.length && !releaseVersions.some(item => item.id === state.resourceVersion)) state.resourceVersion = releaseVersions[0].id
       render(false)
+      if (state.page === 'build') loadBuildStorage()
     } catch (error) {
       releaseVersions.splice(0, releaseVersions.length)
       environments.splice(0, environments.length)
@@ -361,11 +362,19 @@
   const buildRuntime = {
     configuration: null,
     task: null,
+    history: [],
+    storage: null,
+    storageEnvironmentId: null,
+    storageLoading: false,
     logs: [],
     eventSource: null,
     sequences: new Set(),
     starting: false,
     latestMessage: '尚未开始构建'
+  }
+
+  buildTabs = function () {
+    return '<div class="workspace-tabs"><button data-build-tab="single" class="' + (state.buildTab === 'single' ? 'active' : '') + '">单分支构建</button><button data-build-tab="compare" class="' + (state.buildTab === 'compare' ? 'active' : '') + '">双分支对比</button><button data-build-tab="history" class="' + (state.buildTab === 'history' ? 'active' : '') + '">历史任务</button><button data-build-tab="config" class="' + (state.buildTab === 'config' ? 'active' : '') + '">构建配置</button></div>'
   }
 
   function buildBranchField(repositoryLabel, repository, branchName, branchValue = '') {
@@ -376,7 +385,7 @@
   function buildModuleField(configuration) {
     const modules = configuration?.modules || []
     return '<div class="field" style="grid-column:1/-1"><label>构建模块</label><select name="module" required>'
-      + modules.map(item => '<option value="' + escapeHtml(item.name) + '">' + escapeHtml(item.name) + ' · target/' + escapeHtml(item.chartsPath) + '</option>').join('')
+      + modules.map(item => '<option value="' + escapeHtml(item.name) + '">' + escapeHtml(item.name) + '</option>').join('')
       + '</select></div>'
   }
 
@@ -407,32 +416,65 @@
     return '<div class="resource-grid"><section class="panel"><div class="panel-head"><h2>仓库与命令</h2><span class="badge green">系统固定</span></div><div class="panel-body"><div class="form-grid"><div class="field"><label>CBB-Web-Dev 仓库</label><input class="mono" value="' + escapeHtml(configuration?.cbbWebDevRepository || '正在加载…') + '" readonly></div><div class="field"><label>默认分支</label><input value="' + escapeHtml(configuration?.defaultBranch || '正在加载…') + '" readonly></div><div class="field"><label>ArchDesign 仓库</label><input class="mono" value="' + escapeHtml(configuration?.archDesignRepository || '正在加载…') + '" readonly></div><div class="field"><label>默认分支</label><input value="' + escapeHtml(configuration?.defaultBranch || '正在加载…') + '" readonly></div><div class="field" style="grid-column:1/-1"><label>构建命令</label><input class="mono" value="' + escapeHtml(configuration?.buildCommand || '正在加载…') + '" readonly></div></div></div></section><section class="panel"><div class="panel-head"><h2>当前构建环境</h2><button class="button small" data-page="resources">打开资源中心</button></div><div class="panel-body">' + (environment ? '<h3>' + escapeHtml(environment.name) + '</h3><p style="margin-top:6px;color:var(--muted)">' + escapeHtml(environment.workdir) + '</p><div class="connection-grid"><div class="connection"><span>SSH</span><strong class="mono">huawei@' + escapeHtml(environment.ip) + '</strong></div><div class="connection"><span>系统架构</span><strong>' + (environment.architecture === 'aarch64' ? 'ARM' : 'x86') + '</strong></div><div class="connection"><span>状态</span><strong class="status ' + statusPresentation[environment.status].className + '">' + statusPresentation[environment.status].label + '</strong></div></div>' : '<p style="color:var(--muted)">请先在资源中心新增构建环境。</p>') + '</div></section></div>'
   }
 
+  function formatBytes(value) {
+    if (!Number.isFinite(value) || value < 1) return '0 B'
+    const units = ['B', 'KB', 'MB', 'GB', 'TB']
+    const index = Math.min(Math.floor(Math.log(value) / Math.log(1024)), units.length - 1)
+    return (value / Math.pow(1024, index)).toFixed(index > 2 ? 1 : 2).replace(/\.00$/, '') + ' ' + units[index]
+  }
+
+  function buildStorageSummary() {
+    const storage = buildRuntime.storage
+    if (buildRuntime.storageLoading) return '<section class="build-storage"><span>存储目录</span><strong class="mono">/user/wytest</strong><span>正在读取…</span></section>'
+    if (!storage) return '<section class="build-storage"><span>存储目录</span><strong class="mono">/user/wytest</strong><span>暂不可用</span><button class="button small ghost" data-refresh-build-storage>重试</button></section>'
+    return '<section class="build-storage"><span>存储目录</span><strong class="mono">' + escapeHtml(storage.path) + '</strong><span>目录占用 <b>' + formatBytes(storage.usedBytes) + '</b></span><span>文件系统可用 <b>' + formatBytes(storage.availableBytes) + '</b></span><span>使用率 <b>' + escapeHtml(storage.filesystemUsage) + '</b></span><button class="button small ghost" data-refresh-build-storage>刷新</button></section>'
+  }
+
+  function buildDirectoryActions(task) {
+    if (!task?.workspaceRoot) return ''
+    const items = [{label: '任务根目录', path: task.workspaceRoot}].concat(task.directories || [])
+    return '<section class="panel build-directories"><div class="panel-head"><div><h2>编译目录</h2><p style="color:var(--muted);margin-top:3px;font-size:12px">可复制路径或 cd 命令后在 SSH 终端中操作</p></div></div><div class="panel-body"><div class="build-directory-list">' + items.map(item => '<div class="build-directory-row"><span>' + escapeHtml(item.label) + '</span><code>' + escapeHtml(item.path) + '</code><button class="button small ghost" data-copy-build-path="' + escapeHtml(item.path) + '">复制路径</button><button class="button small ghost" data-copy-build-cd="' + escapeHtml(item.path) + '">复制 cd 命令</button></div>').join('') + '</div></div></section>'
+  }
+
+  function taskPresentation(status) {
+    return {
+      PENDING: ['等待中', 'brand'], RUNNING: ['执行中', 'brand'],
+      SUCCEEDED: ['成功', 'green'], FAILED: ['失败', 'red']
+    }[status] || [status || '未知', '']
+  }
+
+  function buildHistoryContent() {
+    const rows = buildRuntime.history.map(task => {
+      const status = taskPresentation(task.status)
+      const created = task.createdAt ? new Date(task.createdAt).toLocaleString('zh-CN') : '—'
+      const running = task.status === 'RUNNING' || task.status === 'PENDING'
+      return '<div class="build-history-row"><strong class="mono" title="' + escapeHtml(task.id) + '">' + escapeHtml(task.id.slice(0, 8)) + '</strong><span>' + escapeHtml(task.module) + '</span><span>' + escapeHtml(task.mode === 'COMPARE' ? '双分支' : '单分支') + '</span><span>' + escapeHtml(task.environmentName) + '</span><span class="badge ' + status[1] + '">' + status[0] + '</span><span>' + escapeHtml(created) + '</span><div class="environment-actions"><button class="button small" data-view-build-task="' + escapeHtml(task.id) + '">查看</button><button class="button small ghost" data-copy-build-path="' + escapeHtml(task.workspaceRoot) + '">复制目录</button><button class="button small ghost" data-delete-build-task="' + escapeHtml(task.id) + '" ' + (running ? 'disabled' : '') + '>删除记录</button><button class="button small ghost danger" data-clean-build-task="' + escapeHtml(task.id) + '" ' + (running ? 'disabled' : '') + '>清理目录</button></div></div>'
+    }).join('')
+    return '<section class="panel"><div class="panel-head"><div><h2>历史构建任务</h2><p style="color:var(--muted);margin-top:3px;font-size:12px">任务摘要持久化保存；清理目录会同时删除远端工作区和本条记录</p></div><button class="button small ghost" data-refresh-build-history>刷新</button></div>' + (rows ? '<div class="build-history-table"><div class="build-history-row head"><span>任务</span><span>模块</span><span>模式</span><span>环境</span><span>状态</span><span>创建时间</span><span>操作</span></div>' + rows + '</div>' : '<div class="panel-body"><p style="color:var(--muted)">暂无历史构建任务。</p></div>') + '</section>'
+  }
+
   function buildExecutionResult() {
     const task = buildRuntime.task
     if (!task) {
       return '<div class="summary-stack"><section class="panel"><div class="panel-head"><div><h2>执行状态</h2><p style="color:var(--muted);margin-top:3px;font-size:12px">选择分支后开始构建</p></div><span class="badge">未开始</span></div><div class="panel-body"><div class="progress"><span style="width:0"></span></div></div></section><section class="panel"><div class="panel-head"><h2>实时日志</h2></div><div class="panel-body"><div class="terminal">构建开始后将在这里显示远端输出</div></div></section></div>'
     }
-    const presentation = {
-      PENDING: ['等待中', 'brand'],
-      RUNNING: ['执行中', 'brand'],
-      SUCCEEDED: ['成功', 'green'],
-      FAILED: ['失败', 'red']
-    }[task.status] || ['执行中', 'brand']
+    const presentation = taskPresentation(task.status)
     const lines = buildRuntime.logs.length
       ? buildRuntime.logs.slice(-500).map(item => '<div><b>' + escapeHtml(item.time) + '</b> ' + escapeHtml(item.message) + '</div>').join('')
       : '<div>等待远端输出…</div>'
-    return '<div class="summary-stack"><section class="panel"><div class="panel-head"><div><h2>执行状态</h2><p style="color:var(--muted);margin-top:3px;font-size:12px">' + escapeHtml(buildRuntime.latestMessage) + '</p></div><span class="badge ' + presentation[1] + '">' + presentation[0] + ' ' + task.progress + '%</span></div><div class="panel-body"><div class="progress"><span style="width:' + task.progress + '%"></span></div></div></section><section class="panel"><div class="panel-head"><h2>实时日志</h2><span class="mono" style="color:var(--muted);font-size:12px">' + escapeHtml(task.id) + '</span></div><div class="panel-body"><div class="terminal build-terminal">' + lines + '</div></div></section></div>'
+    return '<div class="summary-stack"><section class="panel"><div class="panel-head"><div><h2>执行状态</h2><p style="color:var(--muted);margin-top:3px;font-size:12px">' + escapeHtml(buildRuntime.latestMessage) + '</p></div><span class="badge ' + presentation[1] + '">' + presentation[0] + ' ' + task.progress + '%</span></div><div class="panel-body"><div class="progress"><span style="width:' + task.progress + '%"></span></div></div></section>' + buildDirectoryActions(task) + '<section class="panel"><div class="panel-head"><h2>实时日志</h2><span class="mono" style="color:var(--muted);font-size:12px">' + escapeHtml(task.id) + '</span></div><div class="panel-body"><div class="terminal build-terminal">' + lines + '</div></div></section></div>'
   }
 
   buildContent = function () {
     const environment = environments.find(item => item.id === state.selectedBuildEnvironment) || environments.find(item => item.type === 'build')
+    if (state.buildTab === 'history') return buildTabs() + buildHistoryContent()
     if (!environment) {
       return buildTabs() + '<section class="panel"><div class="panel-body"><h2>尚未配置构建环境</h2><p style="margin-top:6px;color:var(--muted)">请先到资源中心新增构建环境，再返回创建构建任务。</p><button class="button primary" style="margin-top:14px" data-page="resources">打开资源中心</button></div></section>'
     }
     if (!environments.some(item => item.id === state.selectedBuildEnvironment)) state.selectedBuildEnvironment = environment.id
     const body = state.buildTab === 'single' ? singleBuildForm() : state.buildTab === 'compare' ? compareBuildForm() : buildConfig()
-    if (state.buildTab === 'config') return environmentBar() + buildTabs() + body
-    return environmentBar() + buildTabs() + (state.buildTab === 'single'
+    if (state.buildTab === 'config') return environmentBar() + buildStorageSummary() + buildTabs() + body
+    return environmentBar() + buildStorageSummary() + buildTabs() + (state.buildTab === 'single'
       ? '<div class="build-layout">' + body + buildExecutionResult() + '</div>'
       : body + '<div style="margin-top:16px">' + buildExecutionResult() + '</div>')
   }
@@ -444,6 +486,67 @@
     } catch (error) {
       buildRuntime.configuration = null
       showToast((error.message || '构建配置加载失败') + '，请确认后端已启动')
+    }
+  }
+
+  async function loadBuildHistory() {
+    try {
+      buildRuntime.history = await request('/api/build-tasks')
+      render(false)
+    } catch (error) {
+      buildRuntime.history = []
+      showToast(error.message || '历史构建任务加载失败')
+    }
+  }
+
+  async function loadBuildStorage(force = false) {
+    const environment = environments.find(item => item.id === state.selectedBuildEnvironment) || environments.find(item => item.type === 'build')
+    if (!environment?._apiId) return
+    if (!force && buildRuntime.storageEnvironmentId === environment._apiId && buildRuntime.storage) return
+    buildRuntime.storageLoading = true
+    buildRuntime.storageEnvironmentId = environment._apiId
+    render(false)
+    try {
+      buildRuntime.storage = await request('/api/build-environments/' + environment._apiId + '/storage')
+    } catch (error) {
+      buildRuntime.storage = null
+      showToast(error.message || '/user/wytest 存储占用读取失败')
+    } finally {
+      buildRuntime.storageLoading = false
+      render(false)
+    }
+  }
+
+  async function viewBuildTask(id) {
+    try {
+      const task = await request('/api/build-tasks/' + id)
+      buildRuntime.task = task
+      buildRuntime.logs = (task.events || []).filter(item => item.type === 'LOG').map(item => ({
+        time: new Date(item.occurredAt).toLocaleTimeString('zh-CN', {hour12: false}), message: item.message
+      }))
+      buildRuntime.latestMessage = task.error || (task.status === 'SUCCEEDED' ? '构建任务执行成功' : '历史任务详情')
+      state.buildTab = task.mode === 'COMPARE' ? 'compare' : 'single'
+      render()
+    } catch (error) {
+      showToast(error.message || '任务详情加载失败')
+    }
+  }
+
+  async function deleteBuildTask(id, deleteWorkspace) {
+    const copy = deleteWorkspace
+      ? '确定清理该任务的远端工作目录并删除历史记录吗？此操作无法恢复。'
+      : '确定只删除该任务的历史记录吗？远端工作目录将保留。'
+    if (!confirm(copy)) return
+    try {
+      await request('/api/build-tasks/' + id + '?deleteWorkspace=' + deleteWorkspace, {method: 'DELETE'})
+      if (buildRuntime.task?.id === id) {
+        buildRuntime.task = null
+        buildRuntime.logs = []
+      }
+      await loadBuildHistory()
+      showToast(deleteWorkspace ? '远端目录和历史记录已清理' : '历史记录已删除')
+    } catch (error) {
+      showToast(error.message || '历史任务删除失败')
     }
   }
 
@@ -475,6 +578,7 @@
       buildRuntime.task = await request('/api/build-tasks', {method: 'POST', body: JSON.stringify(body)})
       tasks.unshift({_apiId: buildRuntime.task.id, id: 'build-' + buildRuntime.task.id.slice(0, 8), kind: 'build', input: mode === 'compare' ? '双分支对比构建' : '单分支构建', environment: environment.name, status: 'running', statusLabel: '执行中', updated: '刚刚'})
       subscribeBuildTask(buildRuntime.task.id)
+      loadBuildHistory()
       showToast('构建任务已开始')
     } catch (error) {
       buildRuntime.latestMessage = error.message || '构建任务创建失败'
@@ -504,6 +608,7 @@
         source.close()
         request('/api/build-tasks/' + taskId).then(task => {
           buildRuntime.task = task
+          loadBuildHistory()
           render(false)
           showToast(task.status === 'SUCCEEDED' ? '构建成功' : task.error || '构建失败')
         }).catch(() => {})
@@ -735,13 +840,41 @@
     copyText(value, '已复制')
   }, true)
 
+  document.addEventListener('change', function (event) {
+    if (event.target.id === 'build-environment-selector') {
+      buildRuntime.storage = null
+      buildRuntime.storageEnvironmentId = null
+      loadBuildStorage(true)
+    }
+  })
+
+  document.addEventListener('click', function (event) {
+    const buildPage = event.target.closest?.('[data-page="build"]')
+    if (buildPage) setTimeout(() => loadBuildStorage(), 0)
+    const pathButton = event.target.closest?.('[data-copy-build-path]')
+    if (pathButton) return copyText(pathButton.dataset.copyBuildPath, '编译目录已复制')
+    const cdButton = event.target.closest?.('[data-copy-build-cd]')
+    if (cdButton) return copyText("cd '" + cdButton.dataset.copyBuildCd.replace(/'/g, "'\\''") + "'", 'cd 命令已复制')
+    const viewButton = event.target.closest?.('[data-view-build-task]')
+    if (viewButton) return viewBuildTask(viewButton.dataset.viewBuildTask)
+    const deleteButton = event.target.closest?.('[data-delete-build-task]')
+    if (deleteButton) return deleteBuildTask(deleteButton.dataset.deleteBuildTask, false)
+    const cleanButton = event.target.closest?.('[data-clean-build-task]')
+    if (cleanButton) return deleteBuildTask(cleanButton.dataset.cleanBuildTask, true)
+    if (event.target.closest?.('[data-refresh-build-history]')) return loadBuildHistory()
+    if (event.target.closest?.('[data-refresh-build-storage]')) return loadBuildStorage(true)
+    const tab = event.target.closest?.('[data-build-tab="history"]')
+    if (tab) return loadBuildHistory()
+  })
+
   const style = document.createElement('style')
-  style.textContent = '.environment-row.container-row{grid-template-columns:minmax(190px,1.2fr) minmax(150px,.9fr) minmax(170px,1fr) minmax(170px,1fr) 78px 96px minmax(130px,.8fr) minmax(290px,1.4fr);min-width:1380px}.service-address{display:block;color:var(--brand);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.service-address:hover{text-decoration:underline}.service-cell{min-width:0}.credential-line{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:3px;color:var(--muted);font-size:12px}.credential-line span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.credential-line button{border:0;padding:0;color:var(--brand);background:transparent;font-size:11px}.environment-filter.compact{max-width:100px;padding:5px 7px}.build-terminal{max-height:420px;overflow:auto}.build-terminal div{min-height:20px}.field input[readonly]{color:var(--muted);cursor:default}.deployment-service-checks{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}.deployment-check{display:flex;align-items:center;gap:7px;padding:8px 10px;border:1px solid var(--line);border-radius:8px}.deployment-layout{display:grid;grid-template-columns:340px minmax(0,1fr);gap:16px;margin-top:16px;align-items:start}.deployment-service-list{display:grid;gap:7px}.deployment-service-row{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--surface);text-align:left}.deployment-service-row.active{border-color:var(--brand);box-shadow:0 0 0 1px var(--brand)}.deployment-service-row span:first-child{display:grid;gap:3px;min-width:0}.deployment-service-row small{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.deployment-actions{display:grid;gap:8px;margin-top:14px}.replacement-list{display:grid;gap:7px;max-height:250px;overflow:auto}.replacement-row{display:grid;grid-template-columns:90px minmax(120px,.8fr) minmax(120px,1fr) minmax(120px,1fr);gap:8px;padding:8px;border-bottom:1px solid var(--line);font-size:12px}.replacement-row del{color:var(--red)}.replacement-row ins{color:var(--green);text-decoration:none}.deployment-values{width:100%;min-height:380px;resize:vertical;border:1px solid var(--line);border-radius:8px;padding:12px;background:#1d2b34;color:#c2ccd2;font-size:12px;line-height:1.6}@media(max-width:1000px){.deployment-layout{grid-template-columns:1fr}}@media(max-width:700px){.environment-row.container-row{min-width:0;grid-template-columns:repeat(2,minmax(0,1fr))}.environment-row.container-row>[data-label]::before{content:attr(data-label);display:block;margin-bottom:4px;color:var(--faint);font-size:12px}.environment-row.container-row>.environment-actions{grid-column:1/-1}.replacement-row{grid-template-columns:1fr}}'
+  style.textContent = '.environment-row.container-row{grid-template-columns:minmax(190px,1.2fr) minmax(150px,.9fr) minmax(170px,1fr) minmax(170px,1fr) 78px 96px minmax(130px,.8fr) minmax(290px,1.4fr);min-width:1380px}.service-address{display:block;color:var(--brand);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.service-address:hover{text-decoration:underline}.service-cell{min-width:0}.credential-line{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:3px;color:var(--muted);font-size:12px}.credential-line span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.credential-line button{border:0;padding:0;color:var(--brand);background:transparent;font-size:11px}.environment-filter.compact{max-width:100px;padding:5px 7px}.build-terminal{max-height:420px;overflow:auto}.build-terminal div{min-height:20px}.field input[readonly]{color:var(--muted);cursor:default}.build-storage{display:flex;align-items:center;gap:14px;margin:-8px 0 16px;padding:10px 14px;border:1px solid var(--line);border-radius:9px;background:var(--surface-soft);font-size:12px}.build-storage>span{color:var(--muted)}.build-storage .button{margin-left:auto}.build-directory-list{display:grid;gap:8px}.build-directory-row{display:grid;grid-template-columns:130px minmax(220px,1fr) auto auto;align-items:center;gap:8px}.build-directory-row code{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)}.build-history-table{overflow-x:auto}.build-history-row{display:grid;grid-template-columns:90px 120px 80px minmax(130px,1fr) 80px 170px minmax(350px,1.4fr);gap:12px;align-items:center;min-width:1060px;min-height:52px;padding:0 16px;border-bottom:1px solid var(--line);font-size:12px}.build-history-row.head{min-height:36px;color:var(--faint);background:var(--surface-soft)}.button.danger{color:var(--red)}.deployment-service-checks{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}.deployment-check{display:flex;align-items:center;gap:7px;padding:8px 10px;border:1px solid var(--line);border-radius:8px}.deployment-layout{display:grid;grid-template-columns:340px minmax(0,1fr);gap:16px;margin-top:16px;align-items:start}.deployment-service-list{display:grid;gap:7px}.deployment-service-row{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--surface);text-align:left}.deployment-service-row.active{border-color:var(--brand);box-shadow:0 0 0 1px var(--brand)}.deployment-service-row span:first-child{display:grid;gap:3px;min-width:0}.deployment-service-row small{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.deployment-actions{display:grid;gap:8px;margin-top:14px}.replacement-list{display:grid;gap:7px;max-height:250px;overflow:auto}.replacement-row{display:grid;grid-template-columns:90px minmax(120px,.8fr) minmax(120px,1fr) minmax(120px,1fr);gap:8px;padding:8px;border-bottom:1px solid var(--line);font-size:12px}.replacement-row del{color:var(--red)}.replacement-row ins{color:var(--green);text-decoration:none}.deployment-values{width:100%;min-height:380px;resize:vertical;border:1px solid var(--line);border-radius:8px;padding:12px;background:#1d2b34;color:#c2ccd2;font-size:12px;line-height:1.6}@media(max-width:1000px){.deployment-layout{grid-template-columns:1fr}.build-directory-row{grid-template-columns:1fr auto auto}.build-directory-row span{grid-column:1/-1}}@media(max-width:700px){.environment-row.container-row{min-width:0;grid-template-columns:repeat(2,minmax(0,1fr))}.environment-row.container-row>[data-label]::before{content:attr(data-label);display:block;margin-bottom:4px;color:var(--faint);font-size:12px}.environment-row.container-row>.environment-actions{grid-column:1/-1}.replacement-row{grid-template-columns:1fr}.build-storage{align-items:flex-start;flex-wrap:wrap}.build-storage .button{margin-left:0}.build-directory-row{grid-template-columns:1fr}.build-directory-row span{grid-column:auto}}'
   document.head.appendChild(style)
 
   new MutationObserver(patchEnvironmentForm).observe(document.querySelector('#app'), {childList: true, subtree: true})
   render(false)
   loadResources()
   loadBuildConfiguration()
+  loadBuildHistory()
   loadDeploymentArtifacts()
 })()
