@@ -1,6 +1,6 @@
 # Container Ops Kit
 
-资源中心第一阶段包含环境配置持久化和真实 SSH 账号密码测试。
+Container Ops Kit 包含环境资源管理、真实 SSH 连接测试、远程构建和部署准备工作区。
 
 ## 一键启动
 
@@ -18,6 +18,12 @@ Windows 双击根目录的 `start.bat`。脚本会检查 Java 21、Maven、Node.
 - `application`：用例、命令和 SSH 端口
 - `infrastructure`：JPA 与 Apache SSHD 适配
 - `interfaces`：REST 请求、响应和控制器
+
+构建工作区位于 `com.jokter.containerops.build`，同样按 `domain / application / infrastructure / interfaces` 组织。构建领域通过端口读取构建环境并执行远程命令，不直接依赖资源中心的 REST 或 JPA 模型。
+
+构建规则和 API 索引见 [构建工作区](docs/build-workspace.md)。
+
+部署工作区位于 `com.jokter.containerops.deployment`，从成功构建产物读取 Chart，并从容器环境 OM 节点采集真实版本、JAR、镜像和环境 global 配置。部署规则和破坏性操作边界见 [部署工作区](docs/deployment-workspace.md)。
 
 ## 手动启动后端
 
@@ -44,6 +50,6 @@ npm run dev
 SSH 用户名由环境类型固定派生：
 
 - 构建环境：huawei
-- 容器环境：sopuser
+- 容器环境：sopuser、root
 
-第一阶段只支持账号密码，不执行远端命令，不保留测试历史。
+SSH 连接测试、构建和部署均使用账号密码。连接测试不保留历史；构建状态、部署准备和实时日志不持久化，服务重启后清空。

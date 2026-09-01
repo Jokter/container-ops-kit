@@ -358,6 +358,362 @@
     copyText(command, '已复制：' + command)
   }
 
+  const buildRuntime = {
+    configuration: null,
+    task: null,
+    logs: [],
+    eventSource: null,
+    sequences: new Set(),
+    starting: false,
+    latestMessage: '尚未开始构建'
+  }
+
+  function buildBranchField(repositoryLabel, repository, branchName, branchValue = '') {
+    return '<div class="field"><label>' + repositoryLabel + '</label><input class="mono" value="' + escapeHtml(repository || '正在加载…') + '" readonly></div>'
+      + '<div class="field"><label>分支</label><input name="' + branchName + '" value="' + escapeHtml(branchValue) + '" maxlength="200" required pattern="[A-Za-z0-9][A-Za-z0-9._/-]{0,199}"></div>'
+  }
+
+  function buildModuleField(configuration) {
+    const modules = configuration?.modules || []
+    return '<div class="field" style="grid-column:1/-1"><label>构建模块</label><select name="module" required>'
+      + modules.map(item => '<option value="' + escapeHtml(item.name) + '">' + escapeHtml(item.name) + ' · target/' + escapeHtml(item.chartsPath) + '</option>').join('')
+      + '</select></div>'
+  }
+
+  singleBuildForm = function () {
+    const configuration = buildRuntime.configuration
+    return '<section class="panel"><div class="panel-head"><div><h2>构建输入</h2><p style="color:var(--muted);margin-top:3px;font-size:12px">分支默认使用 master，可直接修改</p></div><span class="badge green">固定仓库</span></div><div class="panel-body"><form id="single-build-form"><div class="form-grid">'
+      + buildModuleField(configuration)
+      + buildBranchField('CBB-Web-Dev 仓库', configuration?.cbbWebDevRepository, 'cbbWebDevBranch', configuration?.defaultBranch)
+      + buildBranchField('ArchDesign 仓库', configuration?.archDesignRepository, 'archDesignBranch', configuration?.defaultBranch)
+      + '</div><div style="display:flex;justify-content:flex-end;align-items:center;margin-top:15px"><button type="button" class="button primary" data-create-build-task="single" ' + (buildRuntime.starting || !configuration ? 'disabled' : '') + '>开始构建</button></div></form></div></section>'
+  }
+
+  compareBuildForm = function () {
+    const configuration = buildRuntime.configuration
+    return '<form id="compare-build-form"><div class="resource-grid"><section class="panel"><div class="panel-head"><h2>基准版本 A</h2><span class="badge violet">左侧</span></div><div class="panel-body"><div class="form-grid">'
+      + buildModuleField(configuration)
+      + buildBranchField('CBB-Web-Dev 仓库', configuration?.cbbWebDevRepository, 'baselineCbbWebDevBranch', configuration?.defaultBranch)
+      + buildBranchField('ArchDesign 仓库', configuration?.archDesignRepository, 'baselineArchDesignBranch', configuration?.defaultBranch)
+      + '</div></div></section><section class="panel"><div class="panel-head"><h2>验证版本 B</h2><span class="badge green">右侧</span></div><div class="panel-body"><div class="form-grid">'
+      + buildBranchField('CBB-Web-Dev 仓库', configuration?.cbbWebDevRepository, 'candidateCbbWebDevBranch', configuration?.defaultBranch)
+      + buildBranchField('ArchDesign 仓库', configuration?.archDesignRepository, 'candidateArchDesignBranch', configuration?.defaultBranch)
+      + '</div></div></section></div><div style="display:flex;justify-content:flex-end;margin-top:14px"><button type="button" class="button primary" data-create-build-task="compare" ' + (buildRuntime.starting || !configuration ? 'disabled' : '') + '>并发构建并对比</button></div></form>'
+  }
+
+  buildConfig = function () {
+    const configuration = buildRuntime.configuration
+    const environment = environments.find(item => item.id === state.selectedBuildEnvironment) || environments.find(item => item.type === 'build')
+    return '<div class="resource-grid"><section class="panel"><div class="panel-head"><h2>仓库与命令</h2><span class="badge green">系统固定</span></div><div class="panel-body"><div class="form-grid"><div class="field"><label>CBB-Web-Dev 仓库</label><input class="mono" value="' + escapeHtml(configuration?.cbbWebDevRepository || '正在加载…') + '" readonly></div><div class="field"><label>默认分支</label><input value="' + escapeHtml(configuration?.defaultBranch || '正在加载…') + '" readonly></div><div class="field"><label>ArchDesign 仓库</label><input class="mono" value="' + escapeHtml(configuration?.archDesignRepository || '正在加载…') + '" readonly></div><div class="field"><label>默认分支</label><input value="' + escapeHtml(configuration?.defaultBranch || '正在加载…') + '" readonly></div><div class="field" style="grid-column:1/-1"><label>构建命令</label><input class="mono" value="' + escapeHtml(configuration?.buildCommand || '正在加载…') + '" readonly></div></div></div></section><section class="panel"><div class="panel-head"><h2>当前构建环境</h2><button class="button small" data-page="resources">打开资源中心</button></div><div class="panel-body">' + (environment ? '<h3>' + escapeHtml(environment.name) + '</h3><p style="margin-top:6px;color:var(--muted)">' + escapeHtml(environment.workdir) + '</p><div class="connection-grid"><div class="connection"><span>SSH</span><strong class="mono">huawei@' + escapeHtml(environment.ip) + '</strong></div><div class="connection"><span>系统架构</span><strong>' + (environment.architecture === 'aarch64' ? 'ARM' : 'x86') + '</strong></div><div class="connection"><span>状态</span><strong class="status ' + statusPresentation[environment.status].className + '">' + statusPresentation[environment.status].label + '</strong></div></div>' : '<p style="color:var(--muted)">请先在资源中心新增构建环境。</p>') + '</div></section></div>'
+  }
+
+  function buildExecutionResult() {
+    const task = buildRuntime.task
+    if (!task) {
+      return '<div class="summary-stack"><section class="panel"><div class="panel-head"><div><h2>执行状态</h2><p style="color:var(--muted);margin-top:3px;font-size:12px">选择分支后开始构建</p></div><span class="badge">未开始</span></div><div class="panel-body"><div class="progress"><span style="width:0"></span></div></div></section><section class="panel"><div class="panel-head"><h2>实时日志</h2></div><div class="panel-body"><div class="terminal">构建开始后将在这里显示远端输出</div></div></section></div>'
+    }
+    const presentation = {
+      PENDING: ['等待中', 'brand'],
+      RUNNING: ['执行中', 'brand'],
+      SUCCEEDED: ['成功', 'green'],
+      FAILED: ['失败', 'red']
+    }[task.status] || ['执行中', 'brand']
+    const lines = buildRuntime.logs.length
+      ? buildRuntime.logs.slice(-500).map(item => '<div><b>' + escapeHtml(item.time) + '</b> ' + escapeHtml(item.message) + '</div>').join('')
+      : '<div>等待远端输出…</div>'
+    return '<div class="summary-stack"><section class="panel"><div class="panel-head"><div><h2>执行状态</h2><p style="color:var(--muted);margin-top:3px;font-size:12px">' + escapeHtml(buildRuntime.latestMessage) + '</p></div><span class="badge ' + presentation[1] + '">' + presentation[0] + ' ' + task.progress + '%</span></div><div class="panel-body"><div class="progress"><span style="width:' + task.progress + '%"></span></div></div></section><section class="panel"><div class="panel-head"><h2>实时日志</h2><span class="mono" style="color:var(--muted);font-size:12px">' + escapeHtml(task.id) + '</span></div><div class="panel-body"><div class="terminal build-terminal">' + lines + '</div></div></section></div>'
+  }
+
+  buildContent = function () {
+    const environment = environments.find(item => item.id === state.selectedBuildEnvironment) || environments.find(item => item.type === 'build')
+    if (!environment) {
+      return buildTabs() + '<section class="panel"><div class="panel-body"><h2>尚未配置构建环境</h2><p style="margin-top:6px;color:var(--muted)">请先到资源中心新增构建环境，再返回创建构建任务。</p><button class="button primary" style="margin-top:14px" data-page="resources">打开资源中心</button></div></section>'
+    }
+    if (!environments.some(item => item.id === state.selectedBuildEnvironment)) state.selectedBuildEnvironment = environment.id
+    const body = state.buildTab === 'single' ? singleBuildForm() : state.buildTab === 'compare' ? compareBuildForm() : buildConfig()
+    if (state.buildTab === 'config') return environmentBar() + buildTabs() + body
+    return environmentBar() + buildTabs() + (state.buildTab === 'single'
+      ? '<div class="build-layout">' + body + buildExecutionResult() + '</div>'
+      : body + '<div style="margin-top:16px">' + buildExecutionResult() + '</div>')
+  }
+
+  async function loadBuildConfiguration() {
+    try {
+      buildRuntime.configuration = await request('/api/build-configuration')
+      render(false)
+    } catch (error) {
+      buildRuntime.configuration = null
+      showToast((error.message || '构建配置加载失败') + '，请确认后端已启动')
+    }
+  }
+
+  function branchPayload(values, prefix) {
+    return {
+      cbbWebDevBranch: values[prefix + 'CbbWebDevBranch'],
+      archDesignBranch: values[prefix + 'ArchDesignBranch']
+    }
+  }
+
+  createBuildTask = async function (mode = 'single') {
+    const environment = environments.find(item => item.id === state.selectedBuildEnvironment) || environments.find(item => item.type === 'build')
+    const form = document.querySelector(mode === 'compare' ? '#compare-build-form' : '#single-build-form')
+    if (!environment?._apiId || !form || !form.reportValidity() || buildRuntime.starting) {
+      if (!environment?._apiId) showToast('请先配置构建环境')
+      return
+    }
+    const values = Object.fromEntries(new FormData(form))
+    const body = mode === 'compare'
+      ? {mode: 'COMPARE', environmentId: environment._apiId, module: values.module, baseline: branchPayload(values, 'baseline'), candidate: branchPayload(values, 'candidate')}
+      : {mode: 'SINGLE', environmentId: environment._apiId, module: values.module, baseline: {cbbWebDevBranch: values.cbbWebDevBranch, archDesignBranch: values.archDesignBranch}, candidate: null}
+    buildRuntime.starting = true
+    buildRuntime.logs = []
+    buildRuntime.sequences.clear()
+    buildRuntime.latestMessage = '正在创建构建任务'
+    buildRuntime.eventSource?.close()
+    render(false)
+    try {
+      buildRuntime.task = await request('/api/build-tasks', {method: 'POST', body: JSON.stringify(body)})
+      tasks.unshift({_apiId: buildRuntime.task.id, id: 'build-' + buildRuntime.task.id.slice(0, 8), kind: 'build', input: mode === 'compare' ? '双分支对比构建' : '单分支构建', environment: environment.name, status: 'running', statusLabel: '执行中', updated: '刚刚'})
+      subscribeBuildTask(buildRuntime.task.id)
+      showToast('构建任务已开始')
+    } catch (error) {
+      buildRuntime.latestMessage = error.message || '构建任务创建失败'
+      showToast(buildRuntime.latestMessage)
+    } finally {
+      buildRuntime.starting = false
+      render(false)
+    }
+  }
+
+  function subscribeBuildTask(taskId) {
+    const source = new EventSource('/api/build-tasks/' + taskId + '/events')
+    buildRuntime.eventSource = source
+    source.onmessage = event => {
+      const item = JSON.parse(event.data)
+      if (buildRuntime.sequences.has(item.sequence)) return
+      buildRuntime.sequences.add(item.sequence)
+      buildRuntime.latestMessage = item.message
+      buildRuntime.task.progress = item.progress
+      buildRuntime.task.status = item.taskStatus
+      if (item.type === 'LOG') {
+        buildRuntime.logs.push({time: new Date(item.occurredAt).toLocaleTimeString('zh-CN', {hour12: false}), message: item.message})
+      }
+      updateDashboardBuildTask(taskId, item.taskStatus)
+      render(false)
+      if (item.taskStatus === 'SUCCEEDED' || item.taskStatus === 'FAILED') {
+        source.close()
+        request('/api/build-tasks/' + taskId).then(task => {
+          buildRuntime.task = task
+          render(false)
+          showToast(task.status === 'SUCCEEDED' ? '构建成功' : task.error || '构建失败')
+        }).catch(() => {})
+      }
+    }
+    source.onerror = () => {
+      if (buildRuntime.task?.status === 'RUNNING' || buildRuntime.task?.status === 'PENDING') {
+        buildRuntime.latestMessage = '实时日志连接中断，正在重连'
+        render(false)
+      }
+    }
+  }
+
+  function updateDashboardBuildTask(taskId, status) {
+    const task = tasks.find(item => item._apiId === taskId)
+    if (!task) return
+    task.status = status === 'SUCCEEDED' ? 'success' : status === 'FAILED' ? 'failed' : 'running'
+    task.statusLabel = status === 'SUCCEEDED' ? '成功' : status === 'FAILED' ? '失败' : '执行中'
+    task.updated = '刚刚'
+  }
+
+  const deploymentRuntime = {
+    artifacts: [],
+    artifactId: '',
+    candidates: null,
+    preparation: null,
+    activeService: '',
+    logs: [],
+    eventSource: null,
+    busy: false
+  }
+
+  const stagePresentation = {
+    ANALYZED: ['已分析', 'brand'],
+    GENERATED: ['已生成', 'violet'],
+    RENDERED: ['渲染通过', 'green'],
+    DEPLOYING: ['部署中', 'brand'],
+    SUCCEEDED: ['成功', 'green'],
+    FAILED: ['失败', 'red']
+  }
+
+  function deploymentServiceRows(preparation) {
+    if (!preparation) return ''
+    return Object.entries(preparation.services).map(([name, service]) => {
+      const presentation = service ? stagePresentation[service.stage] || ['处理中', 'brand'] : ['分析中', 'brand']
+      const errors = service ? [...(service.errors || []), service.stageError].filter(Boolean).join('；') : '正在从构建机和 OM 采集数据'
+      return '<button type="button" class="deployment-service-row ' + (deploymentRuntime.activeService === name ? 'active' : '') + '" data-deployment-service="' + escapeHtml(name) + '"><span><strong>' + escapeHtml(name) + '</strong><small>' + escapeHtml(errors || ((service?.replaceItems?.length || 0) + ' 项自动替换')) + '</small></span><span class="badge ' + presentation[1] + '">' + presentation[0] + '</span></button>'
+    }).join('')
+  }
+
+  function deploymentDetails() {
+    const preparation = deploymentRuntime.preparation
+    const service = preparation?.services?.[deploymentRuntime.activeService]
+    if (!service) return '<section class="panel"><div class="panel-body"><div class="environment-empty">分析完成后可查看替换项并编辑 values.yaml。</div></div></section>'
+    const replaces = (service.replaceItems || []).map(item => '<div class="replacement-row"><span>' + escapeHtml(item.location) + '</span><strong class="mono">' + escapeHtml(item.key) + '</strong><del>' + escapeHtml(item.oldValue) + '</del><ins>' + escapeHtml(item.newValue) + '</ins></div>').join('') || '<div class="environment-empty">没有自动替换项</div>'
+    return '<div class="summary-stack"><section class="panel"><div class="panel-head"><div><h2>替换预览</h2><p style="color:var(--muted);margin-top:3px;font-size:12px">未解析镜像：' + escapeHtml((service.unresolvedImages || []).join('、') || '无') + '</p></div><span class="badge">' + (service.replaceItems || []).length + ' 项</span></div><div class="panel-body"><div class="replacement-list">' + replaces + '</div></div></section><section class="panel"><div class="panel-head"><h2>values.yaml</h2><button class="button small" data-deployment-save-values>保存修改</button></div><div class="panel-body"><textarea id="deployment-values" class="deployment-values mono">' + escapeHtml(service.values || '') + '</textarea></div></section></div>'
+  }
+
+  function deploymentContent() {
+    const environment = environments.find(item => item.id === state.selectedContainerEnvironment) || environments.find(item => item.type === 'container')
+    if (!environment) return pageTitle('部署', '选择成功产物和容器环境，完成校验后部署。') + '<section class="panel empty"><div><h2>尚未配置容器环境</h2><button class="button primary" style="margin-top:18px" data-page="resources">打开资源中心</button></div></section>'
+    if (!environments.some(item => item.id === state.selectedContainerEnvironment)) state.selectedContainerEnvironment = environment.id
+    const artifactOptions = deploymentRuntime.artifacts.map(item => '<option value="' + item.id + '" ' + (String(item.id) === String(deploymentRuntime.artifactId) ? 'selected' : '') + '>' + escapeHtml(item.module) + ' · ' + escapeHtml(item.archDesignBranch) + ' · ' + new Date(item.createdAt).toLocaleString('zh-CN') + '</option>').join('')
+    const candidate = deploymentRuntime.candidates
+    const preparation = deploymentRuntime.preparation
+    const preparedServices = preparation ? Object.values(preparation.services) : []
+    const canApply = preparedServices.length > 0 && preparedServices.every(item => item?.stage === 'ANALYZED')
+    const canRender = preparedServices.length > 0 && preparedServices.every(item => item?.stage === 'GENERATED')
+    const canDeploy = preparedServices.length > 0 && preparedServices.every(item => item?.stage === 'RENDERED')
+    const serviceOptions = candidate ? candidate.services.map(item => '<label class="deployment-check"><input type="checkbox" name="deploymentService" value="' + escapeHtml(item) + '" checked><span>' + escapeHtml(item) + '</span></label>').join('') : ''
+    const namespaces = candidate ? candidate.namespaces.map(item => '<option value="' + escapeHtml(item) + '">' + escapeHtml(item) + '</option>').join('') : ''
+    const logs = deploymentRuntime.logs.length ? deploymentRuntime.logs.slice(-500).map(item => '<div><b>' + escapeHtml(item.time) + '</b> [' + escapeHtml(item.stage) + '] ' + escapeHtml((item.service ? item.service + ' · ' : '') + item.message) + '</div>').join('') : '<div>部署阶段日志将在这里显示</div>'
+    return pageTitle('部署', '从成功构建产物生成 Chart，校验后执行覆盖式重装。') + containerEnvironmentBar()
+      + '<section class="panel"><div class="panel-head"><div><h2>部署输入</h2><p style="color:var(--muted);margin-top:3px;font-size:12px">OM 固定使用 root，命令不加 sudo</p></div><span class="badge red">uninstall → install</span></div><div class="panel-body"><div class="form-grid"><div class="field wide"><label>成功构建产物</label><select id="deployment-artifact" ' + (deploymentRuntime.busy ? 'disabled' : '') + '><option value="">请选择</option>' + artifactOptions + '</select></div><div class="field"><label>模块</label><input readonly value="' + escapeHtml(candidate?.module || deploymentRuntime.artifacts.find(item => String(item.id) === String(deploymentRuntime.artifactId))?.module || '—') + '"></div><div class="field"><label>命名空间</label><select id="deployment-namespace" ' + (!candidate ? 'disabled' : '') + '>' + namespaces + '</select></div></div><div style="display:flex;justify-content:flex-end;margin-top:14px"><button class="button" data-deployment-candidates ' + (!deploymentRuntime.artifactId || deploymentRuntime.busy ? 'disabled' : '') + '>读取服务与命名空间</button></div>'
+      + (candidate ? '<div class="deployment-service-checks">' + serviceOptions + '</div><div style="display:flex;justify-content:flex-end;margin-top:14px"><button class="button primary" data-create-deploy-task ' + (deploymentRuntime.busy ? 'disabled' : '') + '>① 分析补全</button></div>' : '') + '</div></section>'
+      + (preparation ? '<div class="deployment-layout"><section class="panel"><div class="panel-head"><h2>服务与阶段</h2><span class="badge">revision ' + preparation.revision + '</span></div><div class="panel-body"><div class="deployment-service-list">' + deploymentServiceRows(preparation) + '</div><div class="deployment-actions"><button class="button" data-deployment-action="apply" ' + (!canApply || deploymentRuntime.busy ? 'disabled' : '') + '>② 生成 Chart</button><button class="button" data-deployment-action="render" ' + (!canRender || deploymentRuntime.busy ? 'disabled' : '') + '>③ 渲染校验</button><button class="button primary" data-deployment-action="deploy" ' + (!canDeploy || deploymentRuntime.busy ? 'disabled' : '') + '>④ 确认并部署</button></div></div></section>' + deploymentDetails() + '</div><section class="panel" style="margin-top:16px"><div class="panel-head"><h2>实时日志</h2><span class="mono" style="color:var(--muted);font-size:12px">' + escapeHtml(preparation.id) + '</span></div><div class="panel-body"><div class="terminal build-terminal">' + logs + '</div></div></section>' : '')
+  }
+
+  const originalCommonPage = commonPage
+  commonPage = function (page) {
+    return page === 'deploy' ? deploymentContent() : originalCommonPage(page)
+  }
+
+  async function loadDeploymentArtifacts() {
+    try {
+      deploymentRuntime.artifacts = await request('/api/build-artifacts')
+      if (!deploymentRuntime.artifactId && deploymentRuntime.artifacts.length) deploymentRuntime.artifactId = String(deploymentRuntime.artifacts[0].id)
+      render(false)
+    } catch (error) {
+      showToast(error.message || '构建产物加载失败')
+    }
+  }
+
+  async function loadDeploymentCandidates() {
+    const environment = environments.find(item => item.id === state.selectedContainerEnvironment) || environments.find(item => item.type === 'container')
+    if (!deploymentRuntime.artifactId || !environment?._apiId) return showToast('请选择构建产物和容器环境')
+    deploymentRuntime.busy = true
+    render(false)
+    try {
+      deploymentRuntime.candidates = await request('/api/deployment-candidates?artifactId=' + encodeURIComponent(deploymentRuntime.artifactId) + '&environmentId=' + encodeURIComponent(environment._apiId))
+    } catch (error) {
+      showToast(error.message || '候选数据读取失败')
+    } finally {
+      deploymentRuntime.busy = false
+      render(false)
+    }
+  }
+
+  createDeployTask = async function () {
+    const environment = environments.find(item => item.id === state.selectedContainerEnvironment) || environments.find(item => item.type === 'container')
+    const services = [...document.querySelectorAll('[name="deploymentService"]:checked')].map(item => item.value)
+    const namespace = document.querySelector('#deployment-namespace')?.value
+    if (!services.length || !namespace || !environment?._apiId) return showToast('请选择命名空间和至少一个服务')
+    deploymentRuntime.busy = true
+    render(false)
+    try {
+      deploymentRuntime.preparation = await request('/api/deployment-preparations', {method: 'POST', body: JSON.stringify({artifactId: Number(deploymentRuntime.artifactId), environmentId: environment._apiId, namespace, services})})
+      deploymentRuntime.activeService = services[0]
+      deploymentRuntime.logs = []
+      subscribeDeployment(deploymentRuntime.preparation.id)
+    } catch (error) {
+      showToast(error.message || '部署分析启动失败')
+    } finally {
+      deploymentRuntime.busy = false
+      render(false)
+    }
+  }
+
+  function subscribeDeployment(id) {
+    deploymentRuntime.eventSource?.close()
+    const source = new EventSource('/api/deployment-preparations/' + id + '/events')
+    deploymentRuntime.eventSource = source
+    source.onmessage = event => {
+      const item = JSON.parse(event.data)
+      deploymentRuntime.logs.push({time: new Date(item.occurredAt).toLocaleTimeString('zh-CN', {hour12: false}), ...item})
+      request('/api/deployment-preparations/' + id).then(value => {
+        deploymentRuntime.preparation = value
+        render(false)
+      }).catch(() => {})
+    }
+  }
+
+  async function deploymentAction(action) {
+    const preparation = deploymentRuntime.preparation
+    if (!preparation || deploymentRuntime.busy) return
+    if (action === 'deploy') {
+      const services = Object.keys(preparation.services).join('、')
+      if (!confirm('即将部署：' + services + '\n\n将依次执行渲染、卸载旧 release、删除冲突资源、重新安装并等待就绪。确定继续吗？')) return
+    }
+    deploymentRuntime.busy = true
+    render(false)
+    try {
+      if (action === 'deploy') {
+        const confirmation = await request('/api/deployment-preparations/' + preparation.id + '/confirmation', {method: 'POST'})
+        await request('/api/deployment-preparations/' + preparation.id + '/deploy', {method: 'POST', body: JSON.stringify(confirmation)})
+        showToast('部署任务已开始，服务将串行执行')
+      } else {
+        deploymentRuntime.preparation = await request('/api/deployment-preparations/' + preparation.id + '/' + action, {method: 'POST'})
+      }
+    } catch (error) {
+      showToast(error.message || '阶段执行失败')
+    } finally {
+      deploymentRuntime.busy = false
+      render(false)
+    }
+  }
+
+  async function saveDeploymentValues() {
+    const preparation = deploymentRuntime.preparation
+    const service = deploymentRuntime.activeService
+    const values = document.querySelector('#deployment-values')?.value
+    if (!preparation || !service || values == null) return
+    try {
+      await request('/api/deployment-preparations/' + preparation.id + '/services/' + encodeURIComponent(service) + '/values', {method: 'PUT', body: JSON.stringify({values})})
+      deploymentRuntime.preparation = await request('/api/deployment-preparations/' + preparation.id)
+      render(false)
+      showToast('values.yaml 已保存，请重新生成和渲染')
+    } catch (error) {
+      showToast(error.message || 'values.yaml 保存失败')
+    }
+  }
+
+  document.addEventListener('change', function (event) {
+    if (event.target.id === 'deployment-artifact') {
+      deploymentRuntime.artifactId = event.target.value
+      deploymentRuntime.candidates = null
+      deploymentRuntime.preparation = null
+      render(false)
+    }
+    if (event.target.id === 'container-environment-selector') {
+      deploymentRuntime.candidates = null
+      deploymentRuntime.preparation = null
+      deploymentRuntime.eventSource?.close()
+      render(false)
+    }
+  })
+
+  document.addEventListener('click', function (event) {
+    if (event.target.closest?.('[data-deployment-candidates]')) return loadDeploymentCandidates()
+    const service = event.target.closest?.('[data-deployment-service]')
+    if (service) {
+      deploymentRuntime.activeService = service.dataset.deploymentService
+      render(false)
+      return
+    }
+    const action = event.target.closest?.('[data-deployment-action]')
+    if (action) return deploymentAction(action.dataset.deploymentAction)
+    if (event.target.closest?.('[data-deployment-save-values]')) return saveDeploymentValues()
+  })
+
   document.addEventListener('click', function (event) {
     const testButton = event.target.closest?.('[data-drawer-test]')
     if (testButton) {
@@ -380,10 +736,12 @@
   }, true)
 
   const style = document.createElement('style')
-  style.textContent = '.environment-row.container-row{grid-template-columns:minmax(190px,1.2fr) minmax(150px,.9fr) minmax(170px,1fr) minmax(170px,1fr) 78px 96px minmax(130px,.8fr) minmax(290px,1.4fr);min-width:1380px}.service-address{display:block;color:var(--brand);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.service-address:hover{text-decoration:underline}.service-cell{min-width:0}.credential-line{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:3px;color:var(--muted);font-size:12px}.credential-line span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.credential-line button{border:0;padding:0;color:var(--brand);background:transparent;font-size:11px}.environment-filter.compact{max-width:100px;padding:5px 7px}@media(max-width:700px){.environment-row.container-row{min-width:0;grid-template-columns:repeat(2,minmax(0,1fr))}.environment-row.container-row>[data-label]::before{content:attr(data-label);display:block;margin-bottom:4px;color:var(--faint);font-size:12px}.environment-row.container-row>.environment-actions{grid-column:1/-1}}'
+  style.textContent = '.environment-row.container-row{grid-template-columns:minmax(190px,1.2fr) minmax(150px,.9fr) minmax(170px,1fr) minmax(170px,1fr) 78px 96px minmax(130px,.8fr) minmax(290px,1.4fr);min-width:1380px}.service-address{display:block;color:var(--brand);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.service-address:hover{text-decoration:underline}.service-cell{min-width:0}.credential-line{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:3px;color:var(--muted);font-size:12px}.credential-line span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.credential-line button{border:0;padding:0;color:var(--brand);background:transparent;font-size:11px}.environment-filter.compact{max-width:100px;padding:5px 7px}.build-terminal{max-height:420px;overflow:auto}.build-terminal div{min-height:20px}.field input[readonly]{color:var(--muted);cursor:default}.deployment-service-checks{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}.deployment-check{display:flex;align-items:center;gap:7px;padding:8px 10px;border:1px solid var(--line);border-radius:8px}.deployment-layout{display:grid;grid-template-columns:340px minmax(0,1fr);gap:16px;margin-top:16px;align-items:start}.deployment-service-list{display:grid;gap:7px}.deployment-service-row{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--surface);text-align:left}.deployment-service-row.active{border-color:var(--brand);box-shadow:0 0 0 1px var(--brand)}.deployment-service-row span:first-child{display:grid;gap:3px;min-width:0}.deployment-service-row small{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.deployment-actions{display:grid;gap:8px;margin-top:14px}.replacement-list{display:grid;gap:7px;max-height:250px;overflow:auto}.replacement-row{display:grid;grid-template-columns:90px minmax(120px,.8fr) minmax(120px,1fr) minmax(120px,1fr);gap:8px;padding:8px;border-bottom:1px solid var(--line);font-size:12px}.replacement-row del{color:var(--red)}.replacement-row ins{color:var(--green);text-decoration:none}.deployment-values{width:100%;min-height:380px;resize:vertical;border:1px solid var(--line);border-radius:8px;padding:12px;background:#1d2b34;color:#c2ccd2;font-size:12px;line-height:1.6}@media(max-width:1000px){.deployment-layout{grid-template-columns:1fr}}@media(max-width:700px){.environment-row.container-row{min-width:0;grid-template-columns:repeat(2,minmax(0,1fr))}.environment-row.container-row>[data-label]::before{content:attr(data-label);display:block;margin-bottom:4px;color:var(--faint);font-size:12px}.environment-row.container-row>.environment-actions{grid-column:1/-1}.replacement-row{grid-template-columns:1fr}}'
   document.head.appendChild(style)
 
   new MutationObserver(patchEnvironmentForm).observe(document.querySelector('#app'), {childList: true, subtree: true})
   render(false)
   loadResources()
+  loadBuildConfiguration()
+  loadDeploymentArtifacts()
 })()

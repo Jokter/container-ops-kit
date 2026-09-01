@@ -18,3 +18,24 @@ resource-center:
     connect-timeout: 5000
     auth-timeout: 5000
     batch-concurrency: 5
+build:
+  arch-build-dir-template: Chart/{module}
+  modules:
+    - name: mae-access
+      charts-path: mae-access-base-features-charts/chartTool/charts
+    - name: mae-common
+      charts-path: mae-common-feature-charts/chartTool/charts
+    - name: mae-commonan
+      charts-path: assurance-common-feature-charts/chartTool/charts
+    - name: mae-datapulse
+      charts-path: datapulse-charts/chartTool/charts
+    - name: mae-devicehealthcheck
+      charts-path: devicehealthcheck-charts/chartTool/charts
+    - name: mae-fmemate
+      charts-path: fmemate-charts/chartTool/charts
+    - name: mae-ifaultcare
+      charts-path: ifaultcare-charts/chartTool/charts
+    - name: mae-optimization
+      charts-path: optimization-feature-charts/chartTool/charts
+  ssh:
+    command-timeout: 1800000
