@@ -573,6 +573,7 @@
         localStorage.removeItem('container-ops-kit.active-build-task')
       }
       await loadBuildHistory()
+      await loadDeploymentArtifacts()
       showToast(deleteWorkspace ? '远端目录和历史记录已清理' : '历史记录已删除')
     } catch (error) {
       showToast(error.message || '历史任务删除失败')
@@ -745,7 +746,11 @@
   async function loadDeploymentArtifacts() {
     try {
       deploymentRuntime.artifacts = await request('/api/build-artifacts')
-      if (!deploymentRuntime.artifactId && deploymentRuntime.artifacts.length) deploymentRuntime.artifactId = String(deploymentRuntime.artifacts[0].id)
+      if (!deploymentRuntime.artifacts.some(item => String(item.id) === String(deploymentRuntime.artifactId))) {
+        deploymentRuntime.artifactId = deploymentRuntime.artifacts.length ? String(deploymentRuntime.artifacts[0].id) : ''
+        deploymentRuntime.candidates = null
+        deploymentRuntime.preparation = null
+      }
       render(false)
     } catch (error) {
       showToast(error.message || '构建产物加载失败')

@@ -101,9 +101,11 @@ class BuildApplicationServiceTest {
                 BuildMode.SINGLE, 9L, "mae-access", new BuildBranches("master", "master"), null));
 
         assertThat(service.findAll()).extracting(BuildTask::id).containsExactly(task.id());
+        assertThat(service.findDeployableArtifacts()).hasSize(1);
         service.delete(task.id(), false);
 
         assertThat(service.findAll()).isEmpty();
+        assertThat(service.findDeployableArtifacts()).isEmpty();
         assertThat(remote.commands).noneMatch(command -> command.startsWith("rm -rf"));
     }
 
@@ -129,9 +131,11 @@ class BuildApplicationServiceTest {
             public BuildModule get(String name) { return module; }
         };
         BuildArtifactRepository artifacts = new BuildArtifactRepository() {
-            public BuildArtifact save(BuildArtifact artifact) { return artifact; }
-            public List<BuildArtifact> findAll() { return List.of(); }
-            public Optional<BuildArtifact> findById(Long id) { return Optional.empty(); }
+            private final List<BuildArtifact> values = new ArrayList<>();
+            public BuildArtifact save(BuildArtifact artifact) { values.add(artifact); return artifact; }
+            public List<BuildArtifact> findAll() { return List.copyOf(values); }
+            public Optional<BuildArtifact> findById(Long id) { return values.stream().filter(item -> java.util.Objects.equals(item.id(), id)).findFirst(); }
+            public void deleteByBuildTaskId(String buildTaskId) { values.removeIf(item -> item.buildTaskId().equals(buildTaskId)); }
         };
         Executor direct = Runnable::run;
         return new BuildApplicationService(tasks, environments, modules, artifacts, remote, direct);

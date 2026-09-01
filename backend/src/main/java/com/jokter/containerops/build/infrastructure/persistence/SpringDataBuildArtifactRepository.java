@@ -6,4 +6,6 @@ import java.util.List;
 
 interface SpringDataBuildArtifactRepository extends JpaRepository<BuildArtifactJpaEntity, Long> {
     List<BuildArtifactJpaEntity> findAllByOrderByCreatedAtDesc();
+
+    void deleteByBuildTaskId(String buildTaskId);
 }

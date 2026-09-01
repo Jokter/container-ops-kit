@@ -139,11 +139,14 @@ public class DeploymentApplicationService {
     }
 
     public String confirmation(String id) {
-        return store.get(id).issueConfirmation();
+        DeploymentPreparation preparation = store.get(id);
+        context.artifact(preparation.artifactId());
+        return preparation.issueConfirmation();
     }
 
     public void deploy(String id, long revision, String token) {
         DeploymentPreparation preparation = store.get(id);
+        context.artifact(preparation.artifactId());
         preparation.authorizeDeployment(revision, token);
         DeploymentTarget target = context.target(preparation.environmentId());
         CompletableFuture.runAsync(() -> deploySerial(preparation, target), executor);

@@ -3,6 +3,7 @@ package com.jokter.containerops.build.infrastructure.persistence;
 import com.jokter.containerops.build.domain.model.BuildArtifact;
 import com.jokter.containerops.build.domain.model.BuildArtifactRepository;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Optional;
@@ -28,5 +29,11 @@ class JpaBuildArtifactRepository implements BuildArtifactRepository {
     @Override
     public Optional<BuildArtifact> findById(Long id) {
         return artifacts.findById(id).map(BuildArtifactJpaEntity::toDomain);
+    }
+
+    @Override
+    @Transactional
+    public void deleteByBuildTaskId(String buildTaskId) {
+        artifacts.deleteByBuildTaskId(buildTaskId);
     }
 }

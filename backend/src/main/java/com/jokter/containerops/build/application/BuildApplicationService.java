@@ -7,10 +7,12 @@ import com.jokter.containerops.build.domain.model.BuildArtifactRepository;
 import com.jokter.containerops.build.domain.model.BuildModule;
 import com.jokter.containerops.build.domain.model.BuildStep;
 import com.jokter.containerops.build.domain.model.BuildStepStatus;
+import com.jokter.containerops.build.domain.model.BuildStatus;
 import com.jokter.containerops.build.domain.model.BuildTask;
 import com.jokter.containerops.build.domain.model.BuildTaskRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -76,6 +78,15 @@ public class BuildApplicationService {
                 .toList();
     }
 
+    public List<BuildArtifact> findDeployableArtifacts() {
+        return artifacts.findAll().stream()
+                .filter(artifact -> tasks.findById(artifact.buildTaskId())
+                        .filter(task -> task.mode() == BuildMode.SINGLE && task.status() == BuildStatus.SUCCEEDED)
+                        .isPresent())
+                .toList();
+    }
+
+    @Transactional
     public void delete(String id, boolean deleteWorkspace) {
         BuildTask task = get(id);
         if (!task.status().terminal()) {
@@ -84,6 +95,7 @@ public class BuildApplicationService {
         if (deleteWorkspace) {
             deleteWorkspace(task);
         }
+        artifacts.deleteByBuildTaskId(task.id());
         tasks.deleteById(id);
     }
 

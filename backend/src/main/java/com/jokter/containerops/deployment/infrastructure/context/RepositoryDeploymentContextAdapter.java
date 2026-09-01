@@ -4,6 +4,9 @@ import com.jokter.containerops.build.application.BuildModuleCatalog;
 import com.jokter.containerops.build.domain.model.BuildArtifact;
 import com.jokter.containerops.build.domain.model.BuildArtifactRepository;
 import com.jokter.containerops.build.domain.model.BuildModule;
+import com.jokter.containerops.build.domain.model.BuildMode;
+import com.jokter.containerops.build.domain.model.BuildStatus;
+import com.jokter.containerops.build.domain.model.BuildTaskRepository;
 import com.jokter.containerops.deployment.application.DeploymentArtifact;
 import com.jokter.containerops.deployment.application.DeploymentContextPort;
 import com.jokter.containerops.deployment.application.DeploymentNotFoundException;
@@ -19,11 +22,13 @@ import org.springframework.stereotype.Component;
 class RepositoryDeploymentContextAdapter implements DeploymentContextPort {
     private final BuildArtifactRepository artifacts;
     private final BuildModuleCatalog modules;
+    private final BuildTaskRepository tasks;
     private final EnvironmentRepository environments;
 
-    RepositoryDeploymentContextAdapter(BuildArtifactRepository artifacts, BuildModuleCatalog modules, EnvironmentRepository environments) {
+    RepositoryDeploymentContextAdapter(BuildArtifactRepository artifacts, BuildModuleCatalog modules, BuildTaskRepository tasks, EnvironmentRepository environments) {
         this.artifacts = artifacts;
         this.modules = modules;
+        this.tasks = tasks;
         this.environments = environments;
     }
 
@@ -31,6 +36,9 @@ class RepositoryDeploymentContextAdapter implements DeploymentContextPort {
     public DeploymentArtifact artifact(Long artifactId) {
         BuildArtifact artifact = artifacts.findById(artifactId)
                 .orElseThrow(() -> new DeploymentNotFoundException("构建产物不存在"));
+        tasks.findById(artifact.buildTaskId())
+                .filter(task -> task.mode() == BuildMode.SINGLE && task.status() == BuildStatus.SUCCEEDED)
+                .orElseThrow(() -> new DeploymentNotFoundException("关联的成功单分支构建任务不存在"));
         Environment environment = environments.findById(artifact.buildEnvironmentId())
                 .orElseThrow(() -> new DeploymentNotFoundException("构建环境不存在"));
         BuildModule module = modules.get(artifact.module());

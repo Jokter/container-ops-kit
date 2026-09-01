@@ -3,7 +3,6 @@ package com.jokter.containerops.build.interfaces.rest;
 import com.jokter.containerops.build.application.BuildApplicationService;
 import com.jokter.containerops.build.application.BuildEventStream;
 import com.jokter.containerops.build.application.BuildModuleCatalog;
-import com.jokter.containerops.build.domain.model.BuildArtifactRepository;
 import com.jokter.containerops.build.domain.model.BuildEvent;
 import com.jokter.containerops.build.domain.model.BuildStatus;
 import com.jokter.containerops.build.domain.model.BuildTask;
@@ -33,13 +32,11 @@ public class BuildController {
     private final BuildApplicationService builds;
     private final BuildEventStream events;
     private final BuildModuleCatalog modules;
-    private final BuildArtifactRepository artifacts;
 
-    public BuildController(BuildApplicationService builds, BuildEventStream events, BuildModuleCatalog modules, BuildArtifactRepository artifacts) {
+    public BuildController(BuildApplicationService builds, BuildEventStream events, BuildModuleCatalog modules) {
         this.builds = builds;
         this.events = events;
         this.modules = modules;
-        this.artifacts = artifacts;
     }
 
     @GetMapping("/build-configuration")
@@ -49,7 +46,7 @@ public class BuildController {
 
     @GetMapping("/build-artifacts")
     public List<BuildArtifactResponse> artifacts() {
-        return artifacts.findAll().stream().map(BuildArtifactResponse::from).toList();
+        return builds.findDeployableArtifacts().stream().map(BuildArtifactResponse::from).toList();
     }
 
     @PostMapping("/build-tasks")

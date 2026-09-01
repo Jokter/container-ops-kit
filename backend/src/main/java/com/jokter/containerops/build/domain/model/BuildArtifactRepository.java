@@ -9,4 +9,6 @@ public interface BuildArtifactRepository {
     List<BuildArtifact> findAll();
 
     Optional<BuildArtifact> findById(Long id);
+
+    void deleteByBuildTaskId(String buildTaskId);
 }
