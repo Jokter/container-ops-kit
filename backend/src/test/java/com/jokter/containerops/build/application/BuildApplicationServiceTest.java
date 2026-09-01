@@ -28,7 +28,7 @@ class BuildApplicationServiceTest {
             22,
             "huawei",
             "password",
-            "/data/builds"
+            "/user1/wytest"
     );
 
     @Test
@@ -108,14 +108,14 @@ class BuildApplicationServiceTest {
     }
 
     @Test
-    void storageReadsUserWytestUsageFromBuildEnvironment() {
+    void storageReadsConfiguredWorkDirectoryUsageFromBuildEnvironment() {
         InMemoryTasks tasks = new InMemoryTasks();
         RecordingRemoteCommands remote = new RecordingRemoteCommands();
         BuildApplicationService service = service(tasks, remote);
 
         BuildStorageUsage usage = service.storage(9L);
 
-        assertThat(usage.path()).isEqualTo("/user/wytest");
+        assertThat(usage.path()).isEqualTo("/user1/wytest");
         assertThat(usage.usedBytes()).isEqualTo(1024L * 1024L);
         assertThat(usage.availableBytes()).isEqualTo(8L * 1024L * 1024L);
         assertThat(usage.filesystemUsage()).isEqualTo("20%");
@@ -168,7 +168,7 @@ class BuildApplicationServiceTest {
         @Override
         public RemoteCommandResult execute(RemoteTarget target, String command, Consumer<String> output) {
             commands.add(command);
-            if (command.contains("du -sk /user/wytest")) {
+            if (command.contains("du -sk '/user1/wytest'")) {
                 output.accept("DU 1024");
                 output.accept("DF 10240 8192 20%");
                 return new RemoteCommandResult(0);

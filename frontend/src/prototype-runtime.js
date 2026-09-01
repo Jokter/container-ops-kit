@@ -425,8 +425,10 @@
 
   function buildStorageSummary() {
     const storage = buildRuntime.storage
-    if (buildRuntime.storageLoading) return '<section class="build-storage"><span>存储目录</span><strong class="mono">/user/wytest</strong><span>正在读取…</span></section>'
-    if (!storage) return '<section class="build-storage"><span>存储目录</span><strong class="mono">/user/wytest</strong><span>暂不可用</span><button class="button small ghost" data-refresh-build-storage>重试</button></section>'
+    const environment = environments.find(item => item.id === state.selectedBuildEnvironment) || environments.find(item => item.type === 'build')
+    const configuredPath = environment?.workdir || '未配置'
+    if (buildRuntime.storageLoading) return '<section class="build-storage"><span>存储目录</span><strong class="mono">' + escapeHtml(configuredPath) + '</strong><span>正在读取…</span></section>'
+    if (!storage) return '<section class="build-storage"><span>存储目录</span><strong class="mono">' + escapeHtml(configuredPath) + '</strong><span>暂不可用</span><button class="button small ghost" data-refresh-build-storage>重试</button></section>'
     return '<section class="build-storage"><span>存储目录</span><strong class="mono">' + escapeHtml(storage.path) + '</strong><span>目录占用 <b>' + formatBytes(storage.usedBytes) + '</b></span><span>文件系统可用 <b>' + formatBytes(storage.availableBytes) + '</b></span><span>使用率 <b>' + escapeHtml(storage.filesystemUsage) + '</b></span><button class="button small ghost" data-refresh-build-storage>刷新</button></section>'
   }
 
@@ -510,7 +512,7 @@
       buildRuntime.storage = await request('/api/build-environments/' + environment._apiId + '/storage')
     } catch (error) {
       buildRuntime.storage = null
-      showToast(error.message || '/user/wytest 存储占用读取失败')
+      showToast(error.message || '构建工作目录存储占用读取失败')
     } finally {
       buildRuntime.storageLoading = false
       render(false)

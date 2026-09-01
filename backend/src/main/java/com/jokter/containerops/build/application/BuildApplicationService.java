@@ -89,13 +89,19 @@ public class BuildApplicationService {
 
     public BuildStorageUsage storage(Long environmentId) {
         BuildEnvironment environment = environments.get(environmentId);
+        String path = environment.workDirectory();
+        if (path == null || path.isBlank()) {
+            throw new IllegalStateException("构建环境未配置工作目录");
+        }
+        path = path.replaceAll("/+$", "");
+        String quotedPath = ShellArgument.quote(path);
         RemoteTarget target = new RemoteTarget(environment.host(), environment.sshPort(), environment.username(), environment.password());
         List<String> lines = new ArrayList<>();
         RemoteCommandResult result = remoteCommands.execute(target,
-                "du -sk /user/wytest 2>/dev/null | awk '{print \"DU \" $1}'; "
-                        + "df -Pk /user/wytest 2>/dev/null | tail -1 | awk '{print \"DF \" $2 \" \" $4 \" \" $5}'", lines::add);
+                "du -sk " + quotedPath + " 2>/dev/null | awk '{print \"DU \" $1}'; "
+                        + "df -Pk " + quotedPath + " 2>/dev/null | tail -1 | awk '{print \"DF \" $2 \" \" $4 \" \" $5}'", lines::add);
         if (!result.succeeded()) {
-            throw new IllegalStateException("无法读取 /user/wytest 存储占用");
+            throw new IllegalStateException("无法读取构建工作目录存储占用");
         }
         long used = 0;
         long total = 0;
@@ -112,8 +118,8 @@ public class BuildApplicationService {
                 usage = columns[3];
             }
         }
-        if (used == 0 && total == 0) throw new IllegalStateException("/user/wytest 不存在或不可读取");
-        return new BuildStorageUsage("/user/wytest", used, total, available, usage);
+        if (used == 0 && total == 0) throw new IllegalStateException(path + " 不存在或不可读取");
+        return new BuildStorageUsage(path, used, total, available, usage);
     }
 
     private void execute(BuildTask task, BuildEnvironment environment, BuildModule module, StartBuildCommand command) {
