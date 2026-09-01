@@ -45,3 +45,6 @@ ArchDesign `Chart/` 下的一级目录名，同时决定模块构建目录；每
 
 **覆盖式重装**：
 部署阶段固定执行再次渲染、卸载旧 release、释放其它 release 占用的同名资源、Helm 安装和工作负载就绪轮询。部署必须使用最新渲染结果签发的二次确认令牌。
+
+**服务资源**：
+容器环境中按服务归集的实时 Kubernetes 资源集合。资源类型由 API Discovery 识别，服务归属由 Helm 清单和 Kubernetes 推荐标签派生；公共资源、未归属资源和集群级资源是无法唯一归属到单个服务的派生范围。具体接口和写入规则见 [服务资源工作区](container-resource-workspace.md)。

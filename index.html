@@ -479,7 +479,7 @@
     }
 
     function variantA() {
-      const nav = `<div class="variant-a-nav"><button data-page="dashboard" class="${state.page === 'dashboard' ? 'active' : ''}">工作台</button><div class="nav-section">工作区</div><button data-page="build" class="${state.page === 'build' ? 'active' : ''}">构建</button><button data-page="deploy" class="${state.page === 'deploy' ? 'active' : ''}">部署</button><button data-page="operations" class="${state.page === 'operations' ? 'active' : ''}">容器运维</button><div class="nav-section">基础能力</div><button data-page="resources" class="${state.page === 'resources' ? 'active' : ''}">资源中心</button></div>`;
+      const nav = `<div class="variant-a-nav"><button data-page="dashboard" class="${state.page === 'dashboard' ? 'active' : ''}">工作台</button><div class="nav-section">研发流程</div><button data-page="build" class="${state.page === 'build' ? 'active' : ''}">构建</button><button data-page="deploy" class="${state.page === 'deploy' ? 'active' : ''}">部署</button><div class="nav-section">容器运维</div><button data-page="operations" class="${state.page === 'operations' ? 'active' : ''}">服务资源</button><div class="nav-section">系统管理</div><button data-page="resources" class="${state.page === 'resources' ? 'active' : ''}">环境管理</button><div class="nav-section">任务</div><button>任务中心</button></div>`;
       const content = state.page === 'dashboard' ? dashboardA() : commonPage(state.page);
       return `<div class="variant-a-shell"><aside class="variant-a-sidebar"><div class="variant-a-brand">${taiji}<div><strong>Container Ops Kit</strong><span>容器运维工作台</span></div></div>${nav}<div class="variant-a-user">林工 · 本地环境</div></aside><main class="variant-a-main">${content}</main></div>`;
     }

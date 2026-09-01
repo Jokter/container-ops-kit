@@ -11,7 +11,7 @@ export default defineConfig({
   transformIndexHtml:{
    order:'pre',
    handler(html){
-    return html.replace('</body>','<script type="module" src="/frontend/src/prototype-runtime.js"></script></body>')
+    return html.replace('</body>','<script type="module" src="/frontend/src/prototype-runtime.js"></script><script type="module" src="/frontend/src/container-resource-runtime.js"></script></body>')
    }
   }
  }],
