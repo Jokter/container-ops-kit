@@ -721,6 +721,9 @@
     artifacts: [],
     artifactId: '',
     candidates: null,
+    serviceQuery: '',
+    selectedServices: new Set(),
+    namespace: '',
     preparation: null,
     activeService: '',
     logs: [],
@@ -735,6 +738,22 @@
     DEPLOYING: ['部署中', 'brand'],
     SUCCEEDED: ['成功', 'green'],
     FAILED: ['失败', 'red']
+  }
+
+  function visibleDeploymentServices() {
+    const services = deploymentRuntime.candidates?.services || []
+    const query = deploymentRuntime.serviceQuery.trim().toLocaleLowerCase()
+    return query ? services.filter(item => item.toLocaleLowerCase().includes(query)) : services
+  }
+
+  function deploymentServicePicker() {
+    const candidate = deploymentRuntime.candidates
+    if (!candidate) return ''
+    const visible = visibleDeploymentServices()
+    const selected = deploymentRuntime.selectedServices
+    const rows = visible.map(item => '<label class="deployment-service-option"><input type="checkbox" name="deploymentService" value="' + escapeHtml(item) + '" ' + (selected.has(item) ? 'checked' : '') + '><span>' + escapeHtml(item) + '</span></label>').join('')
+    const empty = candidate.services.length ? '没有匹配的服务' : '构建产物中没有可部署服务'
+    return '<div class="deployment-service-picker"><div class="deployment-service-toolbar"><input id="deployment-service-search" value="' + escapeHtml(deploymentRuntime.serviceQuery) + '" placeholder="搜索服务名称"><span>已选 ' + selected.size + ' / ' + candidate.services.length + '</span><button type="button" class="button small ghost" data-select-visible-services ' + (!visible.length ? 'disabled' : '') + '>选择搜索结果</button><button type="button" class="button small ghost" data-clear-deployment-services ' + (!selected.size ? 'disabled' : '') + '>清空</button></div><div class="deployment-service-options">' + (rows || '<div class="environment-empty">' + empty + '</div>') + '</div></div>'
   }
 
   function deploymentServiceRows(preparation) {
@@ -765,12 +784,11 @@
     const canApply = preparedServices.length > 0 && preparedServices.every(item => item?.stage === 'ANALYZED')
     const canRender = preparedServices.length > 0 && preparedServices.every(item => item?.stage === 'GENERATED')
     const canDeploy = preparedServices.length > 0 && preparedServices.every(item => item?.stage === 'RENDERED')
-    const serviceOptions = candidate ? candidate.services.map(item => '<label class="deployment-check"><input type="checkbox" name="deploymentService" value="' + escapeHtml(item) + '" checked><span>' + escapeHtml(item) + '</span></label>').join('') : ''
-    const namespaces = candidate ? candidate.namespaces.map(item => '<option value="' + escapeHtml(item) + '">' + escapeHtml(item) + '</option>').join('') : ''
+    const namespaces = candidate ? candidate.namespaces.map(item => '<option value="' + escapeHtml(item) + '" ' + (deploymentRuntime.namespace === item ? 'selected' : '') + '>' + escapeHtml(item) + '</option>').join('') : ''
     const logs = deploymentRuntime.logs.length ? deploymentRuntime.logs.slice(-500).map(item => '<div><b>' + escapeHtml(item.time) + '</b> [' + escapeHtml(item.stage) + '] ' + escapeHtml((item.service ? item.service + ' · ' : '') + item.message) + '</div>').join('') : '<div>部署阶段日志将在这里显示</div>'
     return pageTitle('部署', '从成功构建产物生成 Chart，校验后执行覆盖式重装。') + containerEnvironmentBar()
-      + '<section class="panel"><div class="panel-head"><div><h2>部署输入</h2><p style="color:var(--muted);margin-top:3px;font-size:12px">OM 固定使用 root，命令不加 sudo</p></div><span class="badge red">uninstall → install</span></div><div class="panel-body"><div class="form-grid"><div class="field wide"><label>成功构建产物</label><select id="deployment-artifact" ' + (deploymentRuntime.busy ? 'disabled' : '') + '><option value="">请选择</option>' + artifactOptions + '</select></div><div class="field"><label>模块</label><input readonly value="' + escapeHtml(candidate?.module || deploymentRuntime.artifacts.find(item => String(item.id) === String(deploymentRuntime.artifactId))?.module || '—') + '"></div><div class="field"><label>命名空间</label><select id="deployment-namespace" ' + (!candidate ? 'disabled' : '') + '>' + namespaces + '</select></div></div><div style="display:flex;justify-content:flex-end;margin-top:14px"><button class="button" data-deployment-candidates ' + (!deploymentRuntime.artifactId || deploymentRuntime.busy ? 'disabled' : '') + '>读取服务与命名空间</button></div>'
-      + (candidate ? '<div class="deployment-service-checks">' + serviceOptions + '</div><div style="display:flex;justify-content:flex-end;margin-top:14px"><button class="button primary" data-create-deploy-task ' + (deploymentRuntime.busy ? 'disabled' : '') + '>① 分析补全</button></div>' : '') + '</div></section>'
+      + '<section class="panel"><div class="panel-head"><div><h2>部署输入</h2><p style="color:var(--muted);margin-top:3px;font-size:12px">OM 固定使用 root，命令不加 sudo</p></div><span class="badge red">uninstall → install</span></div><div class="panel-body"><div class="form-grid"><div class="field wide"><label>成功构建产物</label><select id="deployment-artifact" ' + (deploymentRuntime.busy ? 'disabled' : '') + '><option value="">请选择</option>' + artifactOptions + '</select></div><div class="field"><label>模块</label><input readonly value="' + escapeHtml(candidate?.module || deploymentRuntime.artifacts.find(item => String(item.id) === String(deploymentRuntime.artifactId))?.module || '—') + '"></div><div class="field"><label>命名空间</label><select id="deployment-namespace" ' + (!candidate ? 'disabled' : '') + '><option value="">请选择命名空间</option>' + namespaces + '</select></div></div><div style="display:flex;justify-content:flex-end;margin-top:14px"><button class="button" data-deployment-candidates ' + (!deploymentRuntime.artifactId || deploymentRuntime.busy ? 'disabled' : '') + '>读取服务与命名空间</button></div>'
+      + (candidate ? deploymentServicePicker() + '<div style="display:flex;justify-content:flex-end;margin-top:14px"><button class="button primary" data-create-deploy-task ' + (deploymentRuntime.busy || !deploymentRuntime.selectedServices.size || !deploymentRuntime.namespace ? 'disabled' : '') + '>① 分析补全</button></div>' : '') + '</div></section>'
       + (preparation ? '<div class="deployment-layout"><section class="panel"><div class="panel-head"><h2>服务与阶段</h2><span class="badge">revision ' + preparation.revision + '</span></div><div class="panel-body"><div class="deployment-service-list">' + deploymentServiceRows(preparation) + '</div><div class="deployment-actions"><button class="button" data-deployment-action="apply" ' + (!canApply || deploymentRuntime.busy ? 'disabled' : '') + '>② 生成 Chart</button><button class="button" data-deployment-action="render" ' + (!canRender || deploymentRuntime.busy ? 'disabled' : '') + '>③ 渲染校验</button><button class="button primary" data-deployment-action="deploy" ' + (!canDeploy || deploymentRuntime.busy ? 'disabled' : '') + '>④ 确认并部署</button></div></div></section>' + deploymentDetails() + '</div><section class="panel" style="margin-top:16px"><div class="panel-head"><h2>实时日志</h2><span class="mono" style="color:var(--muted);font-size:12px">' + escapeHtml(preparation.id) + '</span></div><div class="panel-body"><div class="terminal build-terminal">' + logs + '</div></div></section>' : '')
   }
 
@@ -785,6 +803,9 @@
       if (!deploymentRuntime.artifacts.some(item => String(item.id) === String(deploymentRuntime.artifactId))) {
         deploymentRuntime.artifactId = deploymentRuntime.artifacts.length ? String(deploymentRuntime.artifacts[0].id) : ''
         deploymentRuntime.candidates = null
+        deploymentRuntime.selectedServices.clear()
+        deploymentRuntime.serviceQuery = ''
+        deploymentRuntime.namespace = ''
         deploymentRuntime.preparation = null
       }
       render(false)
@@ -797,6 +818,10 @@
     const environment = environments.find(item => item.id === state.selectedContainerEnvironment) || environments.find(item => item.type === 'container')
     if (!deploymentRuntime.artifactId || !environment?._apiId) return showToast('请选择构建产物和容器环境')
     deploymentRuntime.busy = true
+    deploymentRuntime.candidates = null
+    deploymentRuntime.selectedServices.clear()
+    deploymentRuntime.serviceQuery = ''
+    deploymentRuntime.namespace = ''
     render(false)
     try {
       deploymentRuntime.candidates = await request('/api/deployment-candidates?artifactId=' + encodeURIComponent(deploymentRuntime.artifactId) + '&environmentId=' + encodeURIComponent(environment._apiId))
@@ -810,8 +835,8 @@
 
   createDeployTask = async function () {
     const environment = environments.find(item => item.id === state.selectedContainerEnvironment) || environments.find(item => item.type === 'container')
-    const services = [...document.querySelectorAll('[name="deploymentService"]:checked')].map(item => item.value)
-    const namespace = document.querySelector('#deployment-namespace')?.value
+    const services = [...deploymentRuntime.selectedServices]
+    const namespace = deploymentRuntime.namespace
     if (!services.length || !namespace || !environment?._apiId) return showToast('请选择命名空间和至少一个服务')
     deploymentRuntime.busy = true
     render(false)
@@ -886,18 +911,42 @@
     if (event.target.id === 'deployment-artifact') {
       deploymentRuntime.artifactId = event.target.value
       deploymentRuntime.candidates = null
+      deploymentRuntime.selectedServices.clear()
+      deploymentRuntime.serviceQuery = ''
+      deploymentRuntime.namespace = ''
       deploymentRuntime.preparation = null
       render(false)
     }
     if (event.target.id === 'container-environment-selector') {
       deploymentRuntime.candidates = null
+      deploymentRuntime.selectedServices.clear()
+      deploymentRuntime.serviceQuery = ''
+      deploymentRuntime.namespace = ''
       deploymentRuntime.preparation = null
       deploymentRuntime.eventSource?.close()
+      render(false)
+    }
+    if (event.target.id === 'deployment-namespace') {
+      deploymentRuntime.namespace = event.target.value
+      render(false)
+    }
+    if (event.target.name === 'deploymentService') {
+      if (event.target.checked) deploymentRuntime.selectedServices.add(event.target.value)
+      else deploymentRuntime.selectedServices.delete(event.target.value)
       render(false)
     }
   })
 
   document.addEventListener('input', function (event) {
+    if (event.target.id === 'deployment-service-search') {
+      const cursor = event.target.selectionStart
+      deploymentRuntime.serviceQuery = event.target.value
+      render(false)
+      const search = document.querySelector('#deployment-service-search')
+      search?.focus()
+      search?.setSelectionRange(cursor, cursor)
+      return
+    }
     if (event.target.id !== 'build-log-search') return
     const cursor = event.target.selectionStart
     buildRuntime.logQuery = event.target.value
@@ -908,6 +957,16 @@
   })
 
   document.addEventListener('click', function (event) {
+    if (event.target.closest?.('[data-select-visible-services]')) {
+      visibleDeploymentServices().forEach(item => deploymentRuntime.selectedServices.add(item))
+      render(false)
+      return
+    }
+    if (event.target.closest?.('[data-clear-deployment-services]')) {
+      deploymentRuntime.selectedServices.clear()
+      render(false)
+      return
+    }
     const containerDetailsButton = event.target.closest?.('[data-toggle-container-details]')
     if (containerDetailsButton) {
       const id = containerDetailsButton.dataset.toggleContainerDetails
@@ -985,6 +1044,7 @@
   style.textContent = '.environment-row.container-row{grid-template-columns:minmax(190px,1.2fr) minmax(150px,.9fr) minmax(170px,1fr) minmax(170px,1fr) 78px 96px minmax(130px,.8fr) minmax(290px,1.4fr);min-width:1380px}.service-address{display:block;color:var(--brand);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.service-address:hover{text-decoration:underline}.service-cell{min-width:0}.credential-line{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:3px;color:var(--muted);font-size:12px}.credential-line span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.credential-line button{border:0;padding:0;color:var(--brand);background:transparent;font-size:11px}.environment-filter.compact{max-width:100px;padding:5px 7px}.build-terminal{max-height:420px;overflow:auto}.build-terminal div{min-height:20px}.build-log-toolbar{display:flex;align-items:center;gap:8px;margin-bottom:10px}.build-log-toolbar input{min-width:180px;max-width:320px;padding:7px 9px;border:1px solid var(--line);border-radius:7px}.build-log-toolbar span{color:var(--muted);font-size:12px}.build-log-toolbar .button{margin-left:auto}.field input[readonly]{color:var(--muted);cursor:default}.build-storage{display:flex;align-items:center;gap:14px;margin:-8px 0 16px;padding:10px 14px;border:1px solid var(--line);border-radius:9px;background:var(--surface-soft);font-size:12px}.build-storage>span{color:var(--muted)}.build-storage .button{margin-left:auto}.build-directory-list{display:grid;gap:8px}.build-directory-row{display:grid;grid-template-columns:130px minmax(220px,1fr) auto auto;align-items:center;gap:8px}.build-directory-row code{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)}.build-history-table{overflow-x:auto}.build-history-row{display:grid;grid-template-columns:90px 120px 80px minmax(130px,1fr) 80px 170px minmax(350px,1.4fr);gap:12px;align-items:center;min-width:1060px;min-height:52px;padding:0 16px;border-bottom:1px solid var(--line);font-size:12px}.build-history-row.head{min-height:36px;color:var(--faint);background:var(--surface-soft)}.button.danger{color:var(--red)}.deployment-service-checks{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}.deployment-check{display:flex;align-items:center;gap:7px;padding:8px 10px;border:1px solid var(--line);border-radius:8px}.deployment-layout{display:grid;grid-template-columns:340px minmax(0,1fr);gap:16px;margin-top:16px;align-items:start}.deployment-service-list{display:grid;gap:7px}.deployment-service-row{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--surface);text-align:left}.deployment-service-row.active{border-color:var(--brand);box-shadow:0 0 0 1px var(--brand)}.deployment-service-row span:first-child{display:grid;gap:3px;min-width:0}.deployment-service-row small{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.deployment-actions{display:grid;gap:8px;margin-top:14px}.replacement-list{display:grid;gap:7px;max-height:250px;overflow:auto}.replacement-row{display:grid;grid-template-columns:90px minmax(120px,.8fr) minmax(120px,1fr) minmax(120px,1fr);gap:8px;padding:8px;border-bottom:1px solid var(--line);font-size:12px}.replacement-row del{color:var(--red)}.replacement-row ins{color:var(--green);text-decoration:none}.deployment-values{width:100%;min-height:380px;resize:vertical;border:1px solid var(--line);border-radius:8px;padding:12px;background:#1d2b34;color:#c2ccd2;font-size:12px;line-height:1.6}@media(max-width:1000px){.deployment-layout{grid-template-columns:1fr}.build-directory-row{grid-template-columns:1fr auto auto}.build-directory-row span{grid-column:1/-1}}@media(max-width:700px){.environment-row.container-row{min-width:0;grid-template-columns:repeat(2,minmax(0,1fr))}.environment-row.container-row>[data-label]::before{content:attr(data-label);display:block;margin-bottom:4px;color:var(--faint);font-size:12px}.environment-row.container-row>.environment-actions{grid-column:1/-1}.replacement-row{grid-template-columns:1fr}.build-storage{align-items:flex-start;flex-wrap:wrap}.build-storage .button{margin-left:0}.build-directory-row{grid-template-columns:1fr}.build-directory-row span{grid-column:auto}.build-log-toolbar{align-items:stretch;flex-direction:column}.build-log-toolbar input{max-width:none}.build-log-toolbar .button{margin-left:0}}'
   style.textContent += '.build-directories{overflow:hidden}.build-directories>summary{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 16px;cursor:pointer;list-style:none}.build-directories>summary::-webkit-details-marker{display:none}.build-directories>summary span:first-child{display:flex;align-items:center;gap:10px}.build-directories>summary small,.build-directory-help{color:var(--muted);font-size:12px}.build-directories[open] .build-directory-toggle{font-size:0}.build-directories[open] .build-directory-toggle::after{content:"收起";font-size:12px}.build-directory-toggle{color:var(--brand);font-size:12px}.build-directories>.panel-body{border-top:1px solid var(--line)}.build-directory-help{margin-bottom:10px}'
   style.textContent += '.environment-row.container-compact-row{grid-template-columns:minmax(180px,1.1fr) 155px minmax(250px,1.45fr) 100px minmax(130px,.8fr) minmax(390px,1.6fr);min-width:1160px}.container-entry-list{display:grid;gap:5px;min-width:0}.container-entry-list>span{display:grid;grid-template-columns:44px minmax(0,1fr);align-items:center;gap:6px;min-width:0;font-size:12px}.container-entry-list b{color:var(--faint);font-weight:500}.container-entry-list a,.container-entry-list em{overflow:hidden;color:var(--brand);font-style:normal;text-decoration:none;text-overflow:ellipsis;white-space:nowrap}.container-entry-list a:hover{text-decoration:underline}.container-detail-row{min-width:1160px;padding:0 16px 14px;border-bottom:1px solid var(--line);background:var(--surface-soft)}.container-detail-grid{display:grid;grid-template-columns:repeat(4,minmax(180px,1fr));gap:8px 16px;padding:13px;border:1px solid var(--line);border-radius:8px;background:var(--surface)}.container-detail-item{display:grid;grid-template-columns:90px minmax(0,1fr) auto;align-items:center;gap:7px;min-width:0;font-size:12px}.container-detail-item>span{color:var(--muted)}.container-detail-item>strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}.container-detail-item>button{border:0;padding:0;color:var(--brand);background:transparent;font-size:11px}@media(max-width:700px){.environment-row.container-compact-row{min-width:0;grid-template-columns:repeat(2,minmax(0,1fr))}.container-compact-row>.container-entry-list,.container-compact-row>.environment-actions{grid-column:1/-1}.container-detail-row{min-width:0}.container-detail-grid{grid-template-columns:1fr}.container-detail-item{grid-template-columns:90px minmax(0,1fr) auto}}'
+  style.textContent += '.deployment-service-picker{margin-top:15px;border:1px solid var(--line);border-radius:9px;overflow:hidden}.deployment-service-toolbar{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line);background:var(--surface-soft)}.deployment-service-toolbar input{min-width:200px;max-width:360px;padding:7px 9px;border:1px solid var(--line);border-radius:7px}.deployment-service-toolbar>span{color:var(--muted);font-size:12px}.deployment-service-toolbar .button:first-of-type{margin-left:auto}.deployment-service-options{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:0;max-height:250px;overflow:auto;padding:6px}.deployment-service-option{display:flex;align-items:center;gap:8px;min-width:0;padding:8px 10px;border-radius:7px;font-size:12px}.deployment-service-option:hover{background:var(--surface-soft)}.deployment-service-option span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}@media(max-width:700px){.deployment-service-toolbar{align-items:stretch;flex-direction:column}.deployment-service-toolbar input{max-width:none}.deployment-service-toolbar .button:first-of-type{margin-left:0}.deployment-service-options{grid-template-columns:1fr}}'
   document.head.appendChild(style)
 
   new MutationObserver(patchEnvironmentForm).observe(document.querySelector('#app'), {childList: true, subtree: true})

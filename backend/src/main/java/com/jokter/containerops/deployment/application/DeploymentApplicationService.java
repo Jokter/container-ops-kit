@@ -67,19 +67,13 @@ public class DeploymentApplicationService {
     public DeploymentCandidates candidates(Long artifactId, Long environmentId) {
         DeploymentArtifact artifact = context.artifact(artifactId);
         DeploymentTarget target = context.target(environmentId);
-        List<String> services;
-        List<String> namespaces;
-        try {
-            services = remote.listDirectories(artifact.buildEndpoint(), artifact.remoteChartsRoot());
-        } catch (RuntimeException ignored) {
-            services = List.of();
-        }
-        try {
-            RemoteOperationResult result = execute(target.endpoint(), KUBECTL + " get namespaces -o jsonpath='{range .items[*]}{.metadata.name}{\"\\n\"}{end}'", 120000, null, "candidates");
-            namespaces = result.succeeded() ? lines(result.output()) : List.of();
-        } catch (RuntimeException ignored) {
-            namespaces = List.of();
-        }
+        List<String> services = remote.listDirectories(artifact.buildEndpoint(), artifact.remoteChartsRoot());
+        RemoteOperationResult result = execute(target.endpoint(),
+                KUBECTL + " get namespaces --no-headers -o custom-columns=NAME:.metadata.name 2>&1",
+                120000, null, "candidates");
+        requireSuccess(result, "命名空间读取失败");
+        List<String> namespaces = lines(result.output());
+        if (namespaces.isEmpty()) throw new IllegalStateException("命名空间读取结果为空");
         return new DeploymentCandidates(artifact.module(), services, namespaces);
     }
 
