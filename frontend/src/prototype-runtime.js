@@ -367,10 +367,23 @@
     storageEnvironmentId: null,
     storageLoading: false,
     logs: [],
+    logQuery: '',
     eventSource: null,
     sequences: new Set(),
     starting: false,
     latestMessage: '尚未开始构建'
+  }
+
+  const baseRender = render
+  render = function (resetScroll = true) {
+    const previousTerminal = document.querySelector('#build-log-terminal')
+    const previousScrollTop = previousTerminal?.scrollTop || 0
+    const followedLatest = previousTerminal
+      ? previousTerminal.scrollHeight - previousTerminal.clientHeight - previousTerminal.scrollTop < 36
+      : true
+    baseRender(resetScroll)
+    const nextTerminal = document.querySelector('#build-log-terminal')
+    if (nextTerminal) nextTerminal.scrollTop = followedLatest ? nextTerminal.scrollHeight : previousScrollTop
   }
 
   buildTabs = function () {
@@ -445,6 +458,12 @@
     }[status] || [status || '未知', '']
   }
 
+  function visibleBuildLogs() {
+    const query = buildRuntime.logQuery.trim().toLocaleLowerCase()
+    if (!query) return buildRuntime.logs
+    return buildRuntime.logs.filter(item => (item.time + ' ' + item.message).toLocaleLowerCase().includes(query))
+  }
+
   function buildHistoryContent() {
     const rows = buildRuntime.history.map(task => {
       const status = taskPresentation(task.status)
@@ -461,10 +480,12 @@
       return '<div class="summary-stack"><section class="panel"><div class="panel-head"><div><h2>执行状态</h2><p style="color:var(--muted);margin-top:3px;font-size:12px">选择分支后开始构建</p></div><span class="badge">未开始</span></div><div class="panel-body"><div class="progress"><span style="width:0"></span></div></div></section><section class="panel"><div class="panel-head"><h2>实时日志</h2></div><div class="panel-body"><div class="terminal">构建开始后将在这里显示远端输出</div></div></section></div>'
     }
     const presentation = taskPresentation(task.status)
-    const lines = buildRuntime.logs.length
-      ? buildRuntime.logs.slice(-500).map(item => '<div><b>' + escapeHtml(item.time) + '</b> ' + escapeHtml(item.message) + '</div>').join('')
-      : '<div>等待远端输出…</div>'
-    return '<div class="summary-stack"><section class="panel"><div class="panel-head"><div><h2>执行状态</h2><p style="color:var(--muted);margin-top:3px;font-size:12px">' + escapeHtml(buildRuntime.latestMessage) + '</p></div><span class="badge ' + presentation[1] + '">' + presentation[0] + ' ' + task.progress + '%</span></div><div class="panel-body"><div class="progress"><span style="width:' + task.progress + '%"></span></div></div></section>' + buildDirectoryActions(task) + '<section class="panel"><div class="panel-head"><h2>实时日志</h2><span class="mono" style="color:var(--muted);font-size:12px">' + escapeHtml(task.id) + '</span></div><div class="panel-body"><div class="terminal build-terminal">' + lines + '</div></div></section></div>'
+    const visibleLogs = visibleBuildLogs()
+    const lines = visibleLogs.length
+      ? visibleLogs.slice(-500).map(item => '<div><b>' + escapeHtml(item.time) + '</b> ' + escapeHtml(item.message) + '</div>').join('')
+      : '<div>' + (buildRuntime.logQuery ? '没有匹配的日志' : '等待远端输出…') + '</div>'
+    const logCount = buildRuntime.logQuery ? visibleLogs.length + ' / ' + buildRuntime.logs.length : buildRuntime.logs.length
+    return '<div class="summary-stack"><section class="panel"><div class="panel-head"><div><h2>执行状态</h2><p style="color:var(--muted);margin-top:3px;font-size:12px">' + escapeHtml(buildRuntime.latestMessage) + '</p></div><span class="badge ' + presentation[1] + '">' + presentation[0] + ' ' + task.progress + '%</span></div><div class="panel-body"><div class="progress"><span style="width:' + task.progress + '%"></span></div></div></section>' + buildDirectoryActions(task) + '<section class="panel"><div class="panel-head"><h2>实时日志</h2><span class="mono" style="color:var(--muted);font-size:12px">' + escapeHtml(task.id) + '</span></div><div class="panel-body"><div class="build-log-toolbar"><input id="build-log-search" value="' + escapeHtml(buildRuntime.logQuery) + '" placeholder="搜索日志关键字"><span>' + logCount + ' 条</span><button class="button small ghost" data-copy-build-logs>复制' + (buildRuntime.logQuery ? '搜索结果' : '全部日志') + '</button></div><div id="build-log-terminal" class="terminal build-terminal">' + lines + '</div></div></section></div>'
   }
 
   buildContent = function () {
@@ -523,11 +544,13 @@
     try {
       const task = await request('/api/build-tasks/' + id)
       buildRuntime.task = task
+      buildRuntime.sequences = new Set((task.events || []).map(item => item.sequence))
       buildRuntime.logs = (task.events || []).filter(item => item.type === 'LOG').map(item => ({
         time: new Date(item.occurredAt).toLocaleTimeString('zh-CN', {hour12: false}), message: item.message
       }))
       buildRuntime.latestMessage = task.error || (task.status === 'SUCCEEDED' ? '构建任务执行成功' : '历史任务详情')
       state.buildTab = task.mode === 'COMPARE' ? 'compare' : 'single'
+      localStorage.setItem('container-ops-kit.active-build-task', task.id)
       render()
     } catch (error) {
       showToast(error.message || '任务详情加载失败')
@@ -544,11 +567,32 @@
       if (buildRuntime.task?.id === id) {
         buildRuntime.task = null
         buildRuntime.logs = []
+        localStorage.removeItem('container-ops-kit.active-build-task')
       }
       await loadBuildHistory()
       showToast(deleteWorkspace ? '远端目录和历史记录已清理' : '历史记录已删除')
     } catch (error) {
       showToast(error.message || '历史任务删除失败')
+    }
+  }
+
+  async function restoreActiveBuildTask() {
+    const id = localStorage.getItem('container-ops-kit.active-build-task')
+    if (!id) return
+    try {
+      const task = await request('/api/build-tasks/' + id)
+      buildRuntime.task = task
+      buildRuntime.sequences = new Set((task.events || []).map(item => item.sequence))
+      buildRuntime.logs = (task.events || []).filter(item => item.type === 'LOG').map(item => ({
+        time: new Date(item.occurredAt).toLocaleTimeString('zh-CN', {hour12: false}), message: item.message
+      }))
+      buildRuntime.latestMessage = task.error || (task.status === 'SUCCEEDED' ? '构建任务执行成功' : '正在恢复实时日志')
+      state.page = 'build'
+      state.buildTab = task.mode === 'COMPARE' ? 'compare' : 'single'
+      render(false)
+      if (task.status === 'RUNNING' || task.status === 'PENDING') subscribeBuildTask(task.id)
+    } catch {
+      localStorage.removeItem('container-ops-kit.active-build-task')
     }
   }
 
@@ -578,6 +622,7 @@
     render(false)
     try {
       buildRuntime.task = await request('/api/build-tasks', {method: 'POST', body: JSON.stringify(body)})
+      localStorage.setItem('container-ops-kit.active-build-task', buildRuntime.task.id)
       tasks.unshift({_apiId: buildRuntime.task.id, id: 'build-' + buildRuntime.task.id.slice(0, 8), kind: 'build', input: mode === 'compare' ? '双分支对比构建' : '单分支构建', environment: environment.name, status: 'running', statusLabel: '执行中', updated: '刚刚'})
       subscribeBuildTask(buildRuntime.task.id)
       loadBuildHistory()
@@ -808,6 +853,16 @@
     }
   })
 
+  document.addEventListener('input', function (event) {
+    if (event.target.id !== 'build-log-search') return
+    const cursor = event.target.selectionStart
+    buildRuntime.logQuery = event.target.value
+    render(false)
+    const search = document.querySelector('#build-log-search')
+    search?.focus()
+    search?.setSelectionRange(cursor, cursor)
+  })
+
   document.addEventListener('click', function (event) {
     if (event.target.closest?.('[data-deployment-candidates]')) return loadDeploymentCandidates()
     const service = event.target.closest?.('[data-deployment-service]')
@@ -865,12 +920,17 @@
     if (cleanButton) return deleteBuildTask(cleanButton.dataset.cleanBuildTask, true)
     if (event.target.closest?.('[data-refresh-build-history]')) return loadBuildHistory()
     if (event.target.closest?.('[data-refresh-build-storage]')) return loadBuildStorage(true)
+    if (event.target.closest?.('[data-copy-build-logs]')) {
+      const logs = visibleBuildLogs()
+      if (!logs.length) return showToast('没有可复制的日志')
+      return copyText(logs.map(item => item.time + ' ' + item.message).join('\n'), '日志已复制')
+    }
     const tab = event.target.closest?.('[data-build-tab="history"]')
     if (tab) return loadBuildHistory()
   })
 
   const style = document.createElement('style')
-  style.textContent = '.environment-row.container-row{grid-template-columns:minmax(190px,1.2fr) minmax(150px,.9fr) minmax(170px,1fr) minmax(170px,1fr) 78px 96px minmax(130px,.8fr) minmax(290px,1.4fr);min-width:1380px}.service-address{display:block;color:var(--brand);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.service-address:hover{text-decoration:underline}.service-cell{min-width:0}.credential-line{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:3px;color:var(--muted);font-size:12px}.credential-line span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.credential-line button{border:0;padding:0;color:var(--brand);background:transparent;font-size:11px}.environment-filter.compact{max-width:100px;padding:5px 7px}.build-terminal{max-height:420px;overflow:auto}.build-terminal div{min-height:20px}.field input[readonly]{color:var(--muted);cursor:default}.build-storage{display:flex;align-items:center;gap:14px;margin:-8px 0 16px;padding:10px 14px;border:1px solid var(--line);border-radius:9px;background:var(--surface-soft);font-size:12px}.build-storage>span{color:var(--muted)}.build-storage .button{margin-left:auto}.build-directory-list{display:grid;gap:8px}.build-directory-row{display:grid;grid-template-columns:130px minmax(220px,1fr) auto auto;align-items:center;gap:8px}.build-directory-row code{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)}.build-history-table{overflow-x:auto}.build-history-row{display:grid;grid-template-columns:90px 120px 80px minmax(130px,1fr) 80px 170px minmax(350px,1.4fr);gap:12px;align-items:center;min-width:1060px;min-height:52px;padding:0 16px;border-bottom:1px solid var(--line);font-size:12px}.build-history-row.head{min-height:36px;color:var(--faint);background:var(--surface-soft)}.button.danger{color:var(--red)}.deployment-service-checks{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}.deployment-check{display:flex;align-items:center;gap:7px;padding:8px 10px;border:1px solid var(--line);border-radius:8px}.deployment-layout{display:grid;grid-template-columns:340px minmax(0,1fr);gap:16px;margin-top:16px;align-items:start}.deployment-service-list{display:grid;gap:7px}.deployment-service-row{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--surface);text-align:left}.deployment-service-row.active{border-color:var(--brand);box-shadow:0 0 0 1px var(--brand)}.deployment-service-row span:first-child{display:grid;gap:3px;min-width:0}.deployment-service-row small{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.deployment-actions{display:grid;gap:8px;margin-top:14px}.replacement-list{display:grid;gap:7px;max-height:250px;overflow:auto}.replacement-row{display:grid;grid-template-columns:90px minmax(120px,.8fr) minmax(120px,1fr) minmax(120px,1fr);gap:8px;padding:8px;border-bottom:1px solid var(--line);font-size:12px}.replacement-row del{color:var(--red)}.replacement-row ins{color:var(--green);text-decoration:none}.deployment-values{width:100%;min-height:380px;resize:vertical;border:1px solid var(--line);border-radius:8px;padding:12px;background:#1d2b34;color:#c2ccd2;font-size:12px;line-height:1.6}@media(max-width:1000px){.deployment-layout{grid-template-columns:1fr}.build-directory-row{grid-template-columns:1fr auto auto}.build-directory-row span{grid-column:1/-1}}@media(max-width:700px){.environment-row.container-row{min-width:0;grid-template-columns:repeat(2,minmax(0,1fr))}.environment-row.container-row>[data-label]::before{content:attr(data-label);display:block;margin-bottom:4px;color:var(--faint);font-size:12px}.environment-row.container-row>.environment-actions{grid-column:1/-1}.replacement-row{grid-template-columns:1fr}.build-storage{align-items:flex-start;flex-wrap:wrap}.build-storage .button{margin-left:0}.build-directory-row{grid-template-columns:1fr}.build-directory-row span{grid-column:auto}}'
+  style.textContent = '.environment-row.container-row{grid-template-columns:minmax(190px,1.2fr) minmax(150px,.9fr) minmax(170px,1fr) minmax(170px,1fr) 78px 96px minmax(130px,.8fr) minmax(290px,1.4fr);min-width:1380px}.service-address{display:block;color:var(--brand);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.service-address:hover{text-decoration:underline}.service-cell{min-width:0}.credential-line{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:3px;color:var(--muted);font-size:12px}.credential-line span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.credential-line button{border:0;padding:0;color:var(--brand);background:transparent;font-size:11px}.environment-filter.compact{max-width:100px;padding:5px 7px}.build-terminal{max-height:420px;overflow:auto}.build-terminal div{min-height:20px}.build-log-toolbar{display:flex;align-items:center;gap:8px;margin-bottom:10px}.build-log-toolbar input{min-width:180px;max-width:320px;padding:7px 9px;border:1px solid var(--line);border-radius:7px}.build-log-toolbar span{color:var(--muted);font-size:12px}.build-log-toolbar .button{margin-left:auto}.field input[readonly]{color:var(--muted);cursor:default}.build-storage{display:flex;align-items:center;gap:14px;margin:-8px 0 16px;padding:10px 14px;border:1px solid var(--line);border-radius:9px;background:var(--surface-soft);font-size:12px}.build-storage>span{color:var(--muted)}.build-storage .button{margin-left:auto}.build-directory-list{display:grid;gap:8px}.build-directory-row{display:grid;grid-template-columns:130px minmax(220px,1fr) auto auto;align-items:center;gap:8px}.build-directory-row code{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)}.build-history-table{overflow-x:auto}.build-history-row{display:grid;grid-template-columns:90px 120px 80px minmax(130px,1fr) 80px 170px minmax(350px,1.4fr);gap:12px;align-items:center;min-width:1060px;min-height:52px;padding:0 16px;border-bottom:1px solid var(--line);font-size:12px}.build-history-row.head{min-height:36px;color:var(--faint);background:var(--surface-soft)}.button.danger{color:var(--red)}.deployment-service-checks{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}.deployment-check{display:flex;align-items:center;gap:7px;padding:8px 10px;border:1px solid var(--line);border-radius:8px}.deployment-layout{display:grid;grid-template-columns:340px minmax(0,1fr);gap:16px;margin-top:16px;align-items:start}.deployment-service-list{display:grid;gap:7px}.deployment-service-row{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--surface);text-align:left}.deployment-service-row.active{border-color:var(--brand);box-shadow:0 0 0 1px var(--brand)}.deployment-service-row span:first-child{display:grid;gap:3px;min-width:0}.deployment-service-row small{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.deployment-actions{display:grid;gap:8px;margin-top:14px}.replacement-list{display:grid;gap:7px;max-height:250px;overflow:auto}.replacement-row{display:grid;grid-template-columns:90px minmax(120px,.8fr) minmax(120px,1fr) minmax(120px,1fr);gap:8px;padding:8px;border-bottom:1px solid var(--line);font-size:12px}.replacement-row del{color:var(--red)}.replacement-row ins{color:var(--green);text-decoration:none}.deployment-values{width:100%;min-height:380px;resize:vertical;border:1px solid var(--line);border-radius:8px;padding:12px;background:#1d2b34;color:#c2ccd2;font-size:12px;line-height:1.6}@media(max-width:1000px){.deployment-layout{grid-template-columns:1fr}.build-directory-row{grid-template-columns:1fr auto auto}.build-directory-row span{grid-column:1/-1}}@media(max-width:700px){.environment-row.container-row{min-width:0;grid-template-columns:repeat(2,minmax(0,1fr))}.environment-row.container-row>[data-label]::before{content:attr(data-label);display:block;margin-bottom:4px;color:var(--faint);font-size:12px}.environment-row.container-row>.environment-actions{grid-column:1/-1}.replacement-row{grid-template-columns:1fr}.build-storage{align-items:flex-start;flex-wrap:wrap}.build-storage .button{margin-left:0}.build-directory-row{grid-template-columns:1fr}.build-directory-row span{grid-column:auto}.build-log-toolbar{align-items:stretch;flex-direction:column}.build-log-toolbar input{max-width:none}.build-log-toolbar .button{margin-left:0}}'
   document.head.appendChild(style)
 
   new MutationObserver(patchEnvironmentForm).observe(document.querySelector('#app'), {childList: true, subtree: true})
@@ -879,4 +939,5 @@
   loadBuildConfiguration()
   loadBuildHistory()
   loadDeploymentArtifacts()
+  restoreActiveBuildTask()
 })()
