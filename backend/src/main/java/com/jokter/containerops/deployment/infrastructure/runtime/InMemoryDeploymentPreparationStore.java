@@ -4,6 +4,8 @@ import com.jokter.containerops.deployment.application.DeploymentEvent;
 import com.jokter.containerops.deployment.application.DeploymentNotFoundException;
 import com.jokter.containerops.deployment.application.DeploymentPreparationStore;
 import com.jokter.containerops.deployment.domain.model.DeploymentPreparation;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Repository;
 
 import java.time.Instant;
@@ -16,6 +18,7 @@ import java.util.function.Consumer;
 
 @Repository
 class InMemoryDeploymentPreparationStore implements DeploymentPreparationStore {
+    private static final Logger LOGGER = LoggerFactory.getLogger(InMemoryDeploymentPreparationStore.class);
     private final Map<String, DeploymentPreparation> preparations = new LinkedHashMap<>();
     private final Map<String, List<DeploymentEvent>> events = new LinkedHashMap<>();
     private final Map<String, CopyOnWriteArrayList<Consumer<DeploymentEvent>>> listeners = new LinkedHashMap<>();
@@ -46,6 +49,7 @@ class InMemoryDeploymentPreparationStore implements DeploymentPreparationStore {
         if (taskEvents.size() > 10000) {
             taskEvents.remove(0);
         }
+        LOGGER.info("deploymentId={} stage={} service={} message={}", id, stage, service, message);
         listeners.getOrDefault(id, new CopyOnWriteArrayList<>()).forEach(listener -> listener.accept(event));
     }
 
