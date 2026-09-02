@@ -6,6 +6,7 @@
 
 - 编译机：`values.yaml`、`Chart.yaml`、业务模板、模块公共模板和模块根 `values.yaml`。
 - OM：`/opt/pkg_version/lock.json`、`jarlist.json`、`crictl images` 和 `helm get values -a`。
+- 包版本以 `lock.json` 中目标架构的组件记录为准；环境占位符以模块对应 Helm release 的计算值为准，节点镜像仅提供无歧义的已缓存版本。
 - OM 固定使用资源中心配置的 `root` 密码，不使用 `sudo`。
 - 华为 CCE/KMC 环境下必须拆分 kubeconfig：`kubectl` 使用 `/root/.kube/config` 以支持 KMC 解密，`helm` 使用 `/opt/kubeconfig/kubeconfig.txt` 读取明文 RSA key；两者不能互换。
 - 命名空间通过 OM 上的 `kubectl get namespaces --no-headers -o custom-columns=NAME:.metadata.name` 读取；失败时接口返回真实原因，不再降级为空列表。

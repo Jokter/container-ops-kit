@@ -1,7 +1,5 @@
 package com.jokter.containerops.deployment.application;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jokter.containerops.deployment.domain.model.DeploymentPreparation;
 import com.jokter.containerops.deployment.domain.model.DeploymentStage;
@@ -45,7 +43,7 @@ public class DeploymentApplicationService {
     private final DeploymentRemotePort remote;
     private final ChartWorkspacePort workspace;
     private final DeploymentPreparationStore store;
-    private final ObjectMapper objectMapper;
+    private final EnvironmentVersionResolver versions;
     private final Executor executor;
     private final ChartPreparationService charts = new ChartPreparationService();
 
@@ -61,7 +59,7 @@ public class DeploymentApplicationService {
         this.remote = remote;
         this.workspace = workspace;
         this.store = store;
-        this.objectMapper = objectMapper;
+        this.versions = new EnvironmentVersionResolver(objectMapper);
         this.executor = executor;
     }
 
@@ -205,87 +203,38 @@ public class DeploymentApplicationService {
 
     private EnvironmentSnapshot snapshot(DeploymentPreparation preparation, DeploymentTarget target) {
         String namespace = preparation.namespace();
+        RemoteOperationResult architectureResult = execute(target.endpoint(), "uname -m", 120000, preparation.id(), "环境采集");
+        requireSuccess(architectureResult, "环境架构读取失败");
+        String architecture = versions.architecture(architectureResult.output());
         String podCommand = KUBECTL + " get pods -n " + q(namespace) + " -o jsonpath='{.items[0].metadata.name}'";
         RemoteOperationResult podResult = execute(target.endpoint(), podCommand, 120000, preparation.id(), "环境采集");
-        String pod = podResult.succeeded() ? podResult.output().trim() : "";
-        Map<String, String> versions = Map.of();
-        String jars = "";
-        if (!pod.isBlank()) {
-            versions = jsonMap(execute(target.endpoint(), KUBECTL + " exec -n " + q(namespace) + " " + q(pod)
-                    + " -- cat /opt/pkg_version/lock.json", 120000, preparation.id(), "环境采集").output());
-            jars = execute(target.endpoint(), KUBECTL + " exec -n " + q(namespace) + " " + q(pod)
-                    + " -- cat /opt/pkg_version/jarlist.json", 120000, preparation.id(), "环境采集").output().trim();
-        }
-        Map<String, String> images = imageTags(execute(target.endpoint(), "crictl images -o json 2>/dev/null || crictl images 2>/dev/null", 120000, preparation.id(), "环境采集").output());
-        if (versions.isEmpty() && !images.isEmpty()) {
-            String fallback = images.values().iterator().next().replaceFirst("-(x86_64|aarch64|x86|aarch)$", "");
-            Map<String, String> fallbackVersions = new LinkedHashMap<>();
-            for (String component : List.of("cbb_engr", "turboplatformcbb", "turbobasecbb", "maeplatformcbb", "maeaccessjarcbb", "maeopen3rd")) {
-                fallbackVersions.put(component, fallback);
-            }
-            versions = fallbackVersions;
-            store.emit(preparation.id(), "ANALYZE", "环境采集", "未找到运行中 Pod，已使用环境镜像版本兜底");
-        }
-        Map<String, String> overrides = environmentOverrides(target.endpoint(), namespace, preparation.id());
-        return new EnvironmentSnapshot(versions, images, jars, overrides);
+        requireSuccess(podResult, "运行中 Pod 读取失败");
+        String pod = podResult.output().trim();
+        if (pod.isBlank()) throw new IllegalStateException("命名空间 " + namespace + " 中没有可读取版本信息的 Pod");
+        RemoteOperationResult lockResult = execute(target.endpoint(), KUBECTL + " exec -n " + q(namespace) + " " + q(pod)
+                + " -- cat /opt/pkg_version/lock.json", 120000, preparation.id(), "环境采集");
+        requireSuccess(lockResult, "lock.json 读取失败");
+        Map<String, String> packageVersions = versions.packageVersions(lockResult.output(), architecture);
+        RemoteOperationResult jarResult = execute(target.endpoint(), KUBECTL + " exec -n " + q(namespace) + " " + q(pod)
+                + " -- cat /opt/pkg_version/jarlist.json", 120000, preparation.id(), "环境采集");
+        requireSuccess(jarResult, "jarlist.json 读取失败");
+        RemoteOperationResult imageResult = execute(target.endpoint(), "crictl images -o json", 120000, preparation.id(), "环境采集");
+        requireSuccess(imageResult, "节点镜像版本读取失败");
+        Map<String, String> placeholderVersions = new LinkedHashMap<>(versions.imageVersions(imageResult.output()));
+        HelmEnvironmentValues helm = helmEnvironment(target.endpoint(), namespace, preparation.module(), preparation.id());
+        placeholderVersions.putAll(helm.placeholderVersions());
+        return new EnvironmentSnapshot(packageVersions, Map.copyOf(placeholderVersions), jarResult.output().trim(), helm.globalOverrides());
     }
 
-    private Map<String, String> environmentOverrides(RemoteEndpoint endpoint, String namespace, String id) {
-        RemoteOperationResult releases = execute(endpoint, HELM + " list -n " + q(namespace) + " -q | head -n 1", 120000, id, "环境采集");
-        String release = releases.output().trim();
-        if (release.isBlank()) return Map.of();
-        RemoteOperationResult values = execute(endpoint, HELM + " get values " + q(release) + " -a -n " + q(namespace) + " -o json", 120000, id, "环境采集");
-        try {
-            JsonNode global = objectMapper.readTree(values.output()).path("global");
-            Map<String, String> result = new LinkedHashMap<>();
-            copyValue(global, "nodePool", result, "nodePool");
-            copyValue(global, "domains", result, "domains");
-            copyValue(global.path("repo"), "address", result, "repo.address");
-            return result;
-        } catch (Exception ignored) {
-            return Map.of();
-        }
-    }
-
-    private void copyValue(JsonNode parent, String field, Map<String, String> result, String key) {
-        JsonNode value = parent.path(field);
-        if (!value.isMissingNode()) result.put(key, value.isContainerNode() ? value.toString() : value.asText());
-    }
-
-    private Map<String, String> jsonMap(String text) {
-        try {
-            JsonNode root = objectMapper.readTree(text);
-            if (root.has("versions")) root = root.get("versions");
-            return objectMapper.convertValue(root, new TypeReference<LinkedHashMap<String, String>>() {});
-        } catch (Exception ignored) {
-            return Map.of();
-        }
-    }
-
-    private Map<String, String> imageTags(String text) {
-        Map<String, String> result = new LinkedHashMap<>();
-        try {
-            for (JsonNode image : objectMapper.readTree(text).path("images")) {
-                for (JsonNode tagNode : image.path("repoTags")) {
-                    String tag = tagNode.asText();
-                    int separator = tag.lastIndexOf(':');
-                    if (separator < 0) continue;
-                    String name = tag.substring(0, separator);
-                    name = name.substring(name.lastIndexOf('/') + 1).replaceFirst("-(x86_64|aarch64|x86|aarch)$", "");
-                    result.putIfAbsent(name, tag.substring(separator + 1));
-                }
-            }
-        } catch (Exception ignored) {
-        }
-        if (result.isEmpty()) {
-            text.lines().skip(1).forEach(line -> {
-                String[] columns = line.trim().split("\\s+");
-                if (columns.length < 2 || columns[0].equals("<none>") || columns[1].equals("<none>")) return;
-                String name = columns[0].substring(columns[0].lastIndexOf('/') + 1).replaceFirst("-(x86_64|aarch64|x86|aarch)$", "");
-                result.putIfAbsent(name, columns[1]);
-            });
-        }
-        return result;
+    private HelmEnvironmentValues helmEnvironment(RemoteEndpoint endpoint, String namespace, String module, String id) {
+        RemoteOperationResult releaseResult = helm(endpoint, "list -n " + q(namespace) + " -q", 120000, id, "环境采集");
+        requireSuccess(releaseResult, "Helm release 列表读取失败");
+        String release = versions.releaseFor(module, lines(releaseResult.output()))
+                .orElseThrow(() -> new IllegalStateException("未找到模块 " + module + " 对应的 Helm release"));
+        RemoteOperationResult valueResult = helm(endpoint, "get values " + q(release) + " -a -n " + q(namespace) + " -o json",
+                120000, id, "环境采集");
+        requireSuccess(valueResult, "Helm values 读取失败");
+        return versions.helmEnvironment(valueResult.output());
     }
 
     private void deploySerial(DeploymentPreparation preparation, DeploymentTarget target) {

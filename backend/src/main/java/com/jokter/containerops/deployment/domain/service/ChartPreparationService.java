@@ -19,16 +19,16 @@ public final class ChartPreparationService {
     public PreparedChart prepare(String service, ChartSource source, EnvironmentSnapshot environment) {
         List<ReplaceItem> replacements = new ArrayList<>();
         Set<String> unresolvedImages = new LinkedHashSet<>();
-        boolean containsVersionPlaceholder = source.values().contains("{version");
-        String values = replaceComponentVersions(source.values(), environment.versions(), replacements);
+        String global = applyGlobalOverrides(source.globalBlock(), environment.globalOverrides(), replacements);
+        String values = joinGlobal(global, source.values());
+        boolean containsVersionPlaceholder = values.contains("{version");
+        values = replaceComponentVersions(values, service, environment.versions(), replacements);
         values = replaceJar(values, service, environment.jars(), replacements);
-        values = replaceImageVersions(values, environment.imageTags(), unresolvedImages, replacements);
+        values = replaceVersionPlaceholders(values, environment.placeholderVersions(), unresolvedImages, replacements);
         String pureVersion = selectVersion(service, environment.versions());
         if (pureVersion != null) {
-            values = replacePureVersions(values, pureVersion, replacements);
+            values = replacePureVersionsOutsidePackageVersions(values, pureVersion, replacements);
         }
-        String global = applyGlobalOverrides(source.globalBlock(), environment.globalOverrides(), replacements);
-        values = joinGlobal(global, values);
         String chartVersion = selectVersion(service, environment.versions());
         String chart = chartVersion == null ? source.chart() : source.chart().replace("{version}", chartVersion);
         List<String> errors = new ArrayList<>();
@@ -45,21 +45,31 @@ public final class ChartPreparationService {
         return new PreparedChart(values, chart, source.templates(), replacements, unresolvedImages, errors);
     }
 
-    private String replaceComponentVersions(String values, Map<String, String> versions, List<ReplaceItem> replacements) {
-        Matcher matcher = VERSION_LINE.matcher(values);
-        StringBuilder result = new StringBuilder();
-        while (matcher.find()) {
-            String key = matcher.group(2);
-            String version = versions.get(key);
-            if (version == null) {
-                matcher.appendReplacement(result, Matcher.quoteReplacement(matcher.group()));
-            } else {
-                replacements.add(new ReplaceItem("values.yaml", "pkgVersion." + key, "{version}", version));
-                matcher.appendReplacement(result, Matcher.quoteReplacement(matcher.group(1) + key + matcher.group(3) + version + matcher.group(4)));
+    private String replaceComponentVersions(String values, String service, Map<String, String> versions, List<ReplaceItem> replacements) {
+        List<String> lines = new ArrayList<>(List.of(values.split("\\n", -1)));
+        List<String> parents = new ArrayList<>();
+        List<Integer> indents = new ArrayList<>();
+        for (int index = 0; index < lines.size(); index++) {
+            Matcher matcher = YAML_LINE.matcher(lines.get(index));
+            if (!matcher.matches()) continue;
+            int indent = matcher.group(1).length();
+            while (!indents.isEmpty() && indents.get(indents.size() - 1) >= indent) {
+                indents.remove(indents.size() - 1);
+                parents.remove(parents.size() - 1);
             }
+            String key = matcher.group(2);
+            String path = String.join(".", parents) + (parents.isEmpty() ? "" : ".") + key;
+            if (path.equals("pkgVersion." + service + "." + key) && matcher.group(4).trim().equals("{version}")) {
+                String version = versions.get(key);
+                if (version != null) {
+                    lines.set(index, matcher.group(1) + key + matcher.group(3) + version + matcher.group(5));
+                    replacements.add(new ReplaceItem("values.yaml", path, "{version}", version));
+                }
+            }
+            parents.add(key);
+            indents.add(indent);
         }
-        matcher.appendTail(result);
-        return result.toString();
+        return String.join("\n", lines);
     }
 
     private String replaceJar(String values, String service, String jars, List<ReplaceItem> replacements) {
@@ -73,17 +83,17 @@ public final class ChartPreparationService {
         return values.replace("replaceByBuild", replacement);
     }
 
-    private String replaceImageVersions(String values, Map<String, String> imageTags, Set<String> unresolved, List<ReplaceItem> replacements) {
+    private String replaceVersionPlaceholders(String values, Map<String, String> versions, Set<String> unresolved, List<ReplaceItem> replacements) {
         Matcher matcher = IMAGE_VERSION.matcher(values);
         StringBuilder result = new StringBuilder();
         while (matcher.find()) {
-            String image = matcher.group(1);
-            String version = imageTags.get(image);
+            String name = matcher.group(1);
+            String version = versions.get(name);
             if (version == null) {
-                unresolved.add(image);
+                unresolved.add(name);
                 matcher.appendReplacement(result, Matcher.quoteReplacement(matcher.group()));
             } else {
-                replacements.add(new ReplaceItem("values.yaml", "image." + image, matcher.group(), version));
+                replacements.add(new ReplaceItem("values.yaml", "version." + name, matcher.group(), version));
                 matcher.appendReplacement(result, Matcher.quoteReplacement(version));
             }
         }
@@ -91,11 +101,23 @@ public final class ChartPreparationService {
         return result.toString();
     }
 
-    private String replacePureVersions(String values, String version, List<ReplaceItem> replacements) {
-        if (values.contains("{version}")) {
-            replacements.add(new ReplaceItem("values.yaml", "global.version", "{version}", version));
+    private String replacePureVersionsOutsidePackageVersions(String values, String version, List<ReplaceItem> replacements) {
+        List<String> lines = new ArrayList<>(List.of(values.split("\\n", -1)));
+        int packageIndent = -1;
+        for (int index = 0; index < lines.size(); index++) {
+            Matcher matcher = VERSION_LINE.matcher(lines.get(index));
+            int indent = indentation(lines.get(index));
+            if (packageIndent >= 0 && !lines.get(index).isBlank() && indent <= packageIndent) packageIndent = -1;
+            Matcher yamlLine = YAML_LINE.matcher(lines.get(index));
+            if (yamlLine.matches() && indent == 0 && yamlLine.group(2).equals("pkgVersion") && yamlLine.group(4).isBlank()) {
+                packageIndent = indent;
+                continue;
+            }
+            if (packageIndent >= 0 || !matcher.matches()) continue;
+            lines.set(index, matcher.group(1) + matcher.group(2) + matcher.group(3) + version + matcher.group(4));
+            replacements.add(new ReplaceItem("values.yaml", matcher.group(2), "{version}", version));
         }
-        return values.replace("{version}", version);
+        return String.join("\n", lines);
     }
 
     private String applyGlobalOverrides(String global, Map<String, String> overrides, List<ReplaceItem> replacements) {
@@ -122,7 +144,7 @@ public final class ChartPreparationService {
             String path = String.join(".", parents) + (parents.isEmpty() ? "" : ".") + key;
             if (path.equals(targetPath)) {
                 String oldValue = matcher.group(4).trim();
-                lines.set(index, matcher.group(1) + key + matcher.group(3) + yamlScalar(value) + matcher.group(5));
+                lines.set(index, matcher.group(1) + key + matcher.group(3).stripTrailing() + " " + yamlScalar(value) + matcher.group(5));
                 if (value.startsWith("{") || value.startsWith("[")) {
                     while (index + 1 < lines.size() && indentation(lines.get(index + 1)) > indent) lines.remove(index + 1);
                 }
@@ -150,13 +172,7 @@ public final class ChartPreparationService {
     }
 
     private String selectVersion(String service, Map<String, String> versions) {
-        if (versions.containsKey(service)) {
-            return versions.get(service);
-        }
-        if (versions.containsKey("cbb_engr")) {
-            return versions.get("cbb_engr");
-        }
-        return versions.values().stream().findFirst().orElse(null);
+        return versions.get(service);
     }
 
     private String yamlScalar(String value) {

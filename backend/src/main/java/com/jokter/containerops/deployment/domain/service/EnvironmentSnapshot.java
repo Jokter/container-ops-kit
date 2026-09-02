@@ -4,7 +4,7 @@ import java.util.Map;
 
 public record EnvironmentSnapshot(
         Map<String, String> versions,
-        Map<String, String> imageTags,
+        Map<String, String> placeholderVersions,
         String jars,
         Map<String, String> globalOverrides
 ) {
