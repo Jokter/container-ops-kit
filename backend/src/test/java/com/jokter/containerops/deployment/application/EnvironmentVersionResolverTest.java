@@ -92,4 +92,65 @@ class EnvironmentVersionResolverTest {
         assertThat(resolver.releaseFor("mae-access", releases)).contains("maeaccesschart");
         assertThat(resolver.releaseFor("mae-fmemate", releases)).contains("mae-fmematechart");
     }
+
+    @Test
+    void discoversNamespaceServicesAndSelectsAReadyReplicaFromRuntimeIdentity() {
+        String pods = """
+                {"items":[
+                  {"metadata":{"name":"accesscommonds-0"},"status":{"phase":"Running","containerStatuses":[{"name":"accesscommonds","ready":true,"image":"repo/access:1","imageID":"sha256:access"}]},"spec":{"containers":[{"name":"accesscommonds"}]}},
+                  {"metadata":{"name":"fmproductfrontendservice-b"},"status":{"phase":"Running","containerStatuses":[{"name":"fmproductfrontendservice","ready":true,"image":"repo/fm:272.010.518","imageID":"sha256:fm"}]},"spec":{"containers":[{"name":"fmproductfrontendservice"}]}},
+                  {"metadata":{"name":"fmproductfrontendservice-a"},"status":{"phase":"Running","containerStatuses":[{"name":"fmproductfrontendservice","ready":true,"image":"repo/fm:272.010.518","imageID":"sha256:fm"}]},"spec":{"containers":[{"name":"fmproductfrontendservice"}]}},
+                  {"metadata":{"name":"wnfmproductservice-0"},"status":{"phase":"Running","containerStatuses":[{"name":"wnfmproduct","ready":true,"imageID":"sha256:wn"}]},"spec":{"containers":[{"name":"wnfmproduct"}]}}
+                ]}
+                """;
+
+        List<RuntimeContainer> containers = resolver.runtimeContainers(pods);
+
+        assertThat(resolver.availableServices(
+                List.of("fmproductfrontendservice", "accesscommonds", "wnfmproductservice", "missing"), containers))
+                .containsExactly("fmproductfrontendservice", "accesscommonds", "wnfmproductservice");
+        RuntimeContainer selected = resolver.targetFor(
+                new ServiceRuntimeIdentity("fmproductfrontendservice", "fmproductfrontendservice"), containers);
+        assertThat(selected.pod()).isEqualTo("fmproductfrontendservice-a");
+        assertThat(selected.container()).isEqualTo("fmproductfrontendservice");
+    }
+
+    @Test
+    void rejectsReadyReplicasUsingDifferentContainerImages() {
+        String pods = """
+                {"items":[
+                  {"metadata":{"name":"fmproductfrontendservice-a"},"status":{"phase":"Running","containerStatuses":[{"name":"fmproductfrontendservice","ready":true,"image":"repo/fm:1","imageID":"sha256:one"}]},"spec":{"containers":[{"name":"fmproductfrontendservice"}]}},
+                  {"metadata":{"name":"fmproductfrontendservice-b"},"status":{"phase":"Running","containerStatuses":[{"name":"fmproductfrontendservice","ready":true,"image":"repo/fm:2","imageID":"sha256:two"}]},"spec":{"containers":[{"name":"fmproductfrontendservice"}]}}
+                ]}
+                """;
+
+        List<RuntimeContainer> containers = resolver.runtimeContainers(pods);
+
+        assertThatThrownBy(() -> resolver.targetFor(
+                        new ServiceRuntimeIdentity("fmproductfrontendservice", "fmproductfrontendservice"), containers))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("fmproductfrontendservice-a")
+                .hasMessageContaining("fmproductfrontendservice-b")
+                .hasMessageContaining("镜像不一致");
+    }
+
+    @Test
+    void readsWorkloadAndContainerNamesFromServiceValues() {
+        String values = """
+                appg:
+                  name: wnfmproductservice
+                  kind: StatefulSet
+                wnfmproduct:
+                  packageName: wnfmproductservice
+                  processName: wnfmproduct
+                pkgVersion:
+                  wnfmproduct:
+                    jre: {version}
+                """;
+
+        ServiceRuntimeIdentity identity = resolver.runtimeIdentity(values);
+
+        assertThat(identity.workload()).isEqualTo("wnfmproductservice");
+        assertThat(identity.container()).isEqualTo("wnfmproduct");
+    }
 }

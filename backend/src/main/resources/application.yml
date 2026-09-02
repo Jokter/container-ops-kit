@@ -13,6 +13,11 @@ spring:
     locations: classpath:db/migration
 server:
   port: 8080
+deployment:
+  kubectl-kubeconfig: /root/.kube/config
+  helm-kubeconfig: /opt/kubeconfig/kubeconfig.txt
+  lock-file: /opt/pkg_version/lock.json
+  jar-list-file: /opt/pkg_version/jarlist.json
 logging:
   file:
     name: logs/container-ops-kit.log

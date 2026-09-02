@@ -35,8 +35,12 @@ public class DeploymentController {
     }
 
     @GetMapping("/deployment-candidates")
-    public DeploymentCandidatesResponse candidates(@RequestParam Long artifactId, @RequestParam Long environmentId) {
-        return DeploymentCandidatesResponse.from(deployments.candidates(artifactId, environmentId));
+    public DeploymentCandidatesResponse candidates(
+            @RequestParam Long artifactId,
+            @RequestParam Long environmentId,
+            @RequestParam(required = false) String namespace
+    ) {
+        return DeploymentCandidatesResponse.from(deployments.candidates(artifactId, environmentId, namespace));
     }
 
     @PostMapping("/deployment-preparations")

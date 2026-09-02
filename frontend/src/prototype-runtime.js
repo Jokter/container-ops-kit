@@ -752,7 +752,7 @@
     const visible = visibleDeploymentServices()
     const selected = deploymentRuntime.selectedServices
     const rows = visible.map(item => '<label class="deployment-service-option"><input type="checkbox" name="deploymentService" value="' + escapeHtml(item) + '" ' + (selected.has(item) ? 'checked' : '') + '><span>' + escapeHtml(item) + '</span></label>').join('')
-    const empty = candidate.services.length ? '没有匹配的服务' : '构建产物中没有可部署服务'
+    const empty = candidate.services.length ? '没有匹配的服务' : '当前命名空间没有匹配的可部署服务'
     return '<div class="deployment-service-picker"><div class="deployment-service-toolbar"><input id="deployment-service-search" value="' + escapeHtml(deploymentRuntime.serviceQuery) + '" placeholder="搜索服务名称"><span>已选 ' + selected.size + ' / ' + candidate.services.length + '</span><button type="button" class="button small ghost" data-select-visible-services ' + (!visible.length ? 'disabled' : '') + '>选择搜索结果</button><button type="button" class="button small ghost" data-clear-deployment-services ' + (!selected.size ? 'disabled' : '') + '>清空</button></div><div class="deployment-service-options">' + (rows || '<div class="environment-empty">' + empty + '</div>') + '</div></div>'
   }
 
@@ -785,10 +785,13 @@
     const canRender = preparedServices.length > 0 && preparedServices.every(item => item?.stage === 'GENERATED')
     const canDeploy = preparedServices.length > 0 && preparedServices.every(item => item?.stage === 'RENDERED')
     const namespaces = candidate ? candidate.namespaces.map(item => '<option value="' + escapeHtml(item) + '" ' + (deploymentRuntime.namespace === item ? 'selected' : '') + '>' + escapeHtml(item) + '</option>').join('') : ''
+    const serviceSelection = candidate && deploymentRuntime.namespace
+      ? deploymentServicePicker() + '<div style="display:flex;justify-content:flex-end;margin-top:14px"><button class="button primary" data-create-deploy-task ' + (deploymentRuntime.busy || !deploymentRuntime.selectedServices.size ? 'disabled' : '') + '>① 分析补全</button></div>'
+      : candidate ? '<div class="environment-empty">选择命名空间后读取其中可部署的服务</div>' : ''
     const logs = deploymentRuntime.logs.length ? deploymentRuntime.logs.slice(-500).map(item => '<div><b>' + escapeHtml(item.time) + '</b> [' + escapeHtml(item.stage) + '] ' + escapeHtml((item.service ? item.service + ' · ' : '') + item.message) + '</div>').join('') : '<div>部署阶段日志将在这里显示</div>'
     return pageTitle('部署', '从成功构建产物生成 Chart，校验后执行覆盖式重装。') + containerEnvironmentBar()
       + '<section class="panel"><div class="panel-head"><div><h2>部署输入</h2><p style="color:var(--muted);margin-top:3px;font-size:12px">OM 固定使用 root，命令不加 sudo</p></div><span class="badge red">uninstall → install</span></div><div class="panel-body"><div class="form-grid"><div class="field wide"><label>成功构建产物</label><select id="deployment-artifact" ' + (deploymentRuntime.busy ? 'disabled' : '') + '><option value="">请选择</option>' + artifactOptions + '</select></div><div class="field"><label>模块</label><input readonly value="' + escapeHtml(candidate?.module || deploymentRuntime.artifacts.find(item => String(item.id) === String(deploymentRuntime.artifactId))?.module || '—') + '"></div><div class="field"><label>命名空间</label><select id="deployment-namespace" ' + (!candidate ? 'disabled' : '') + '><option value="">请选择命名空间</option>' + namespaces + '</select></div></div><div style="display:flex;justify-content:flex-end;margin-top:14px"><button class="button" data-deployment-candidates ' + (!deploymentRuntime.artifactId || deploymentRuntime.busy ? 'disabled' : '') + '>读取服务与命名空间</button></div>'
-      + (candidate ? deploymentServicePicker() + '<div style="display:flex;justify-content:flex-end;margin-top:14px"><button class="button primary" data-create-deploy-task ' + (deploymentRuntime.busy || !deploymentRuntime.selectedServices.size || !deploymentRuntime.namespace ? 'disabled' : '') + '>① 分析补全</button></div>' : '') + '</div></section>'
+      + serviceSelection + '</div></section>'
       + (preparation ? '<div class="deployment-layout"><section class="panel"><div class="panel-head"><h2>服务与阶段</h2><span class="badge">revision ' + preparation.revision + '</span></div><div class="panel-body"><div class="deployment-service-list">' + deploymentServiceRows(preparation) + '</div><div class="deployment-actions"><button class="button" data-deployment-action="apply" ' + (!canApply || deploymentRuntime.busy ? 'disabled' : '') + '>② 生成 Chart</button><button class="button" data-deployment-action="render" ' + (!canRender || deploymentRuntime.busy ? 'disabled' : '') + '>③ 渲染校验</button><button class="button primary" data-deployment-action="deploy" ' + (!canDeploy || deploymentRuntime.busy ? 'disabled' : '') + '>④ 确认并部署</button></div></div></section>' + deploymentDetails() + '</div><section class="panel" style="margin-top:16px"><div class="panel-head"><h2>实时日志</h2><span class="mono" style="color:var(--muted);font-size:12px">' + escapeHtml(preparation.id) + '</span></div><div class="panel-body"><div class="terminal build-terminal">' + logs + '</div></div></section>' : '')
   }
 
@@ -814,17 +817,20 @@
     }
   }
 
-  async function loadDeploymentCandidates() {
+  async function loadDeploymentCandidates(namespace = '') {
     const environment = environments.find(item => item.id === state.selectedContainerEnvironment) || environments.find(item => item.type === 'container')
     if (!deploymentRuntime.artifactId || !environment?._apiId) return showToast('请选择构建产物和容器环境')
     deploymentRuntime.busy = true
-    deploymentRuntime.candidates = null
+    if (!namespace) deploymentRuntime.candidates = null
+    else deploymentRuntime.candidates = {...deploymentRuntime.candidates, services: []}
     deploymentRuntime.selectedServices.clear()
     deploymentRuntime.serviceQuery = ''
-    deploymentRuntime.namespace = ''
+    deploymentRuntime.namespace = namespace
     render(false)
     try {
-      deploymentRuntime.candidates = await request('/api/deployment-candidates?artifactId=' + encodeURIComponent(deploymentRuntime.artifactId) + '&environmentId=' + encodeURIComponent(environment._apiId))
+      const namespaceParameter = namespace ? '&namespace=' + encodeURIComponent(namespace) : ''
+      deploymentRuntime.candidates = await request('/api/deployment-candidates?artifactId=' + encodeURIComponent(deploymentRuntime.artifactId) + '&environmentId=' + encodeURIComponent(environment._apiId) + namespaceParameter)
+      if (namespace && !deploymentRuntime.candidates.namespaces.includes(namespace)) deploymentRuntime.namespace = ''
     } catch (error) {
       showToast(error.message || '候选数据读取失败')
     } finally {
@@ -927,8 +933,9 @@
       render(false)
     }
     if (event.target.id === 'deployment-namespace') {
-      deploymentRuntime.namespace = event.target.value
-      render(false)
+      deploymentRuntime.preparation = null
+      deploymentRuntime.eventSource?.close()
+      return loadDeploymentCandidates(event.target.value)
     }
     if (event.target.name === 'deploymentService') {
       if (event.target.checked) deploymentRuntime.selectedServices.add(event.target.value)
