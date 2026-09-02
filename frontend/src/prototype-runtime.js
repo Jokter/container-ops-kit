@@ -871,6 +871,15 @@
         render(false)
       }).catch(() => {})
     }
+    source.addEventListener('expired', event => {
+      source.close()
+      if (deploymentRuntime.preparation?.id !== id) return
+      deploymentRuntime.eventSource = null
+      deploymentRuntime.preparation = null
+      deploymentRuntime.logs = []
+      render(false)
+      showToast(event.data || '服务已重启，请重新分析')
+    })
   }
 
   async function deploymentAction(action) {

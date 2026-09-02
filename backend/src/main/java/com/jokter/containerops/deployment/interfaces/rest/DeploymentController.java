@@ -2,6 +2,7 @@ package com.jokter.containerops.deployment.interfaces.rest;
 
 import com.jokter.containerops.deployment.application.DeploymentApplicationService;
 import com.jokter.containerops.deployment.application.DeploymentEvent;
+import com.jokter.containerops.deployment.application.DeploymentNotFoundException;
 import com.jokter.containerops.deployment.application.DeploymentPreparationStore;
 import com.jokter.containerops.deployment.domain.model.DeploymentPreparation;
 import jakarta.validation.Valid;
@@ -86,8 +87,12 @@ public class DeploymentController {
 
     @GetMapping(path = "/deployment-preparations/{id}/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter events(@PathVariable String id, @RequestHeader(value = "Last-Event-ID", defaultValue = "0") long lastEventId) {
-        deployments.get(id);
         SseEmitter emitter = new SseEmitter(0L);
+        try {
+            deployments.get(id);
+        } catch (DeploymentNotFoundException exception) {
+            return expired(emitter, exception.getMessage());
+        }
         AtomicReference<Runnable> cancel = new AtomicReference<>(() -> { });
         Consumer<DeploymentEvent> listener = event -> send(emitter, cancel, event);
         Runnable unsubscribe = store.subscribe(id, lastEventId, listener);
@@ -95,6 +100,16 @@ public class DeploymentController {
         emitter.onCompletion(unsubscribe);
         emitter.onTimeout(unsubscribe);
         emitter.onError(ignored -> unsubscribe.run());
+        return emitter;
+    }
+
+    private SseEmitter expired(SseEmitter emitter, String message) {
+        try {
+            emitter.send(SseEmitter.event().name("expired").data(message));
+            emitter.complete();
+        } catch (IOException exception) {
+            emitter.completeWithError(exception);
+        }
         return emitter;
     }
 
