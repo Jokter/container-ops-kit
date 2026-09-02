@@ -73,28 +73,6 @@ final class EnvironmentVersionResolver {
         return new HelmEnvironmentValues(Map.copyOf(placeholders), Map.copyOf(overrides));
     }
 
-    Map<String, String> imageVersions(String text) {
-        JsonNode images = json(text, "crictl images").path("images");
-        if (!images.isArray()) throw new IllegalStateException("crictl images 输出缺少 images 数组");
-        Map<String, Set<String>> candidates = new LinkedHashMap<>();
-        for (JsonNode image : images) {
-            for (JsonNode tagNode : image.path("repoTags")) {
-                String tag = tagNode.asText();
-                int separator = tag.lastIndexOf(':');
-                int slash = tag.lastIndexOf('/');
-                if (separator <= slash) continue;
-                String name = tag.substring(slash + 1, separator)
-                        .replaceFirst("-(x86_64|aarch64|x86|aarch)$", "");
-                candidates.computeIfAbsent(name, ignored -> new LinkedHashSet<>()).add(tag.substring(separator + 1));
-            }
-        }
-        Map<String, String> versions = new LinkedHashMap<>();
-        candidates.forEach((name, tags) -> {
-            if (tags.size() == 1) versions.put(name, tags.iterator().next());
-        });
-        return versions;
-    }
-
     Optional<String> releaseFor(String module, List<String> releases) {
         List<String> candidates = new ArrayList<>();
         candidates.add(module + "chart");
@@ -103,25 +81,14 @@ final class EnvironmentVersionResolver {
     }
 
     List<RuntimeContainer> runtimeContainers(String text) {
-        JsonNode items = json(text, "Pod 列表").path("items");
-        if (!items.isArray()) throw new IllegalStateException("Pod 列表输出缺少 items 数组");
         List<RuntimeContainer> containers = new ArrayList<>();
-        for (JsonNode pod : items) {
-            if (pod.path("metadata").hasNonNull("deletionTimestamp")) continue;
-            String podName = required(pod.path("metadata"), "name", "Pod metadata.name");
-            String phase = pod.path("status").path("phase").asText();
-            Map<String, JsonNode> statuses = new LinkedHashMap<>();
-            for (JsonNode status : pod.path("status").path("containerStatuses")) {
-                statuses.put(status.path("name").asText(), status);
+        for (String line : text.lines().filter(value -> !value.isBlank()).toList()) {
+            String[] columns = line.split("\\t", -1);
+            if (columns.length != 5) throw new IllegalStateException("Pod 精简列表格式不正确：" + line);
+            if (!columns[3].equals("true") && !columns[3].equals("false")) {
+                throw new IllegalStateException("Pod Ready 状态格式不正确：" + line);
             }
-            for (JsonNode container : pod.path("spec").path("containers")) {
-                String name = required(container, "name", "Pod spec.containers.name");
-                JsonNode status = statuses.get(name);
-                boolean ready = status != null && status.path("ready").asBoolean();
-                String image = status == null ? container.path("image").asText() : status.path("imageID").asText();
-                if (image.isBlank() && status != null) image = status.path("image").asText();
-                containers.add(new RuntimeContainer(podName, name, phase, ready, image));
-            }
+            containers.add(new RuntimeContainer(columns[0], columns[1], columns[2], Boolean.parseBoolean(columns[3]), columns[4]));
         }
         return List.copyOf(containers);
     }

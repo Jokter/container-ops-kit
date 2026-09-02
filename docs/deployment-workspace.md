@@ -5,8 +5,11 @@
 ## 数据来源
 
 - 编译机：`values.yaml`、`Chart.yaml`、业务模板、模块公共模板和模块根 `values.yaml`。
-- OM：服务 `values.yaml` 中 `appg.name` 与 `processName` 定位的容器版本文件，以及环境级的 `crictl images` 和 `helm get values -a`；文件路径由 `deployment.lock-file`、`deployment.jar-list-file` 配置。
-- 包版本以 `lock.json` 中目标架构的组件记录为准；环境占位符以模块对应 Helm release 的计算值为准，节点镜像仅提供无歧义的已缓存版本。
+- OM：服务 `values.yaml` 中 `appg.name` 与 `processName` 定位的容器版本文件，以及按占位符读取的 `helm get values -a`；文件路径由 `deployment.lock-file`、`deployment.jar-list-file` 配置。
+- 包版本以 `lock.json` 中目标架构的组件记录为准；环境占位符以模块对应 Helm release 的计算值为准。
+- Pod 查询只读取 Pod 名、容器名、阶段、Ready 状态和镜像标识，不传输完整 Pod JSON。
+- `lock.json` 仅在存在包版本占位符时读取；`jarlist.json` 仅在存在 `replaceByBuild` 时尝试读取，文件不存在时保持原值且不影响分析。
+- 远程采集结果不逐行写入事件日志，只记录采集阶段、耗时和失败摘要。
 - OM 固定使用资源中心配置的 `root` 密码，不使用 `sudo`。
 - 华为 CCE/KMC 环境下必须拆分 kubeconfig，分别由 `deployment.kubectl-kubeconfig`、`deployment.helm-kubeconfig` 配置；两者不能互换。
 - 命名空间通过 OM 上的 `kubectl get namespaces --no-headers -o custom-columns=NAME:.metadata.name` 读取；失败时接口返回真实原因，不再降级为空列表。
@@ -20,8 +23,8 @@
 
 ## 四阶段
 
-1. 分析补全：采集构建机和 OM 数据，生成替换预览；未解析占位符保留并标记失败。
-2. 生成 Chart：写入 `data/deployment-preparations/{prepId}/{service}`，不修改远端构建产物。
+1. 分析补全：读取 `values.yaml`、`Chart.yaml` 和模块公共值，按实际占位符采集 OM 数据并生成替换预览；未解析版本占位符保留并标记失败。
+2. 生成 Chart：延迟读取模板并写入 `data/deployment-preparations/{prepId}/{service}`，不修改远端构建产物。
 3. 渲染校验：上传到 OM 的独立临时目录并执行 `helm template`。
 4. 确认并部署：二次确认后，多个服务串行执行；单服务失败不阻断后续服务。
 

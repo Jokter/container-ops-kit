@@ -13,7 +13,7 @@ import java.util.regex.Pattern;
 public final class ChartPreparationService {
     private static final Pattern VERSION_LINE = Pattern.compile("(?m)^(\\s*)([A-Za-z0-9_.-]+)(\\s*:\\s*)\\{version}(\\s*)$");
     private static final Pattern IMAGE_VERSION = Pattern.compile("\\{version:([A-Za-z0-9_.-]+)}");
-    private static final Pattern REMAINING = Pattern.compile("\\{[A-Za-z0-9_:.-]+}|replaceByBuild|replaceByOssDiy");
+    private static final Pattern REMAINING = Pattern.compile("\\{[A-Za-z0-9_:.-]+}|replaceByOssDiy");
     private static final Pattern YAML_LINE = Pattern.compile("^(\\s*)([A-Za-z0-9_.-]+)(\\s*:\\s*)([^#]*)(.*)$");
 
     public PreparedChart prepare(String service, ChartSource source, EnvironmentSnapshot environment) {
@@ -21,7 +21,6 @@ public final class ChartPreparationService {
         Set<String> unresolvedImages = new LinkedHashSet<>();
         String global = applyGlobalOverrides(source.globalBlock(), environment.globalOverrides(), replacements);
         String values = joinGlobal(global, source.values());
-        boolean containsVersionPlaceholder = values.contains("{version");
         values = replaceComponentVersions(values, service, environment.versions(), replacements);
         values = replaceJar(values, service, environment.jars(), replacements);
         values = replaceVersionPlaceholders(values, environment.placeholderVersions(), unresolvedImages, replacements);
@@ -32,9 +31,6 @@ public final class ChartPreparationService {
         String chartVersion = selectVersion(service, environment.versions());
         String chart = chartVersion == null ? source.chart() : source.chart().replace("{version}", chartVersion);
         List<String> errors = new ArrayList<>();
-        if (!containsVersionPlaceholder) {
-            errors.add("values.yaml 不包含版本占位符");
-        }
         Matcher remaining = REMAINING.matcher(values + "\n" + chart);
         while (remaining.find()) {
             String value = remaining.group();
@@ -73,7 +69,8 @@ public final class ChartPreparationService {
     }
 
     private String replaceJar(String values, String service, String jars, List<ReplaceItem> replacements) {
-        String replacement = jars == null || jars.isBlank() ? "null" : "'" + jars.replace("'", "''") + "'";
+        if (jars == null || jars.isBlank()) return values;
+        String replacement = "'" + jars.replace("'", "''") + "'";
         Pattern pattern = Pattern.compile("(?m)^(\\s*" + Pattern.quote(service) + "\\s*:\\s*)['\"]?replaceByBuild['\"]?(\\s*)$");
         Matcher matcher = pattern.matcher(values);
         if (matcher.find()) {

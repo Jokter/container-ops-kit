@@ -101,4 +101,21 @@ class ChartPreparationServiceTest {
         assertThat(result.values()).contains("serviceVersion: 272.010.518");
         assertThat(result.errors()).contains("存在未解析占位符：{version}");
     }
+
+    @Test
+    void keepsReplaceByBuildWithoutErrorWhenJarListIsUnavailable() {
+        ChartSource source = new ChartSource(
+                "jars:\n  svc: replaceByBuild\n",
+                "name: svc\nversion: 1.0.0\n",
+                "",
+                Map.of()
+        );
+        EnvironmentSnapshot environment = new EnvironmentSnapshot(Map.of(), Map.of(), null, Map.of());
+
+        PreparedChart result = new ChartPreparationService().prepare("svc", source, environment);
+
+        assertThat(result.values()).contains("svc: replaceByBuild");
+        assertThat(result.replaceItems()).isEmpty();
+        assertThat(result.errors()).isEmpty();
+    }
 }

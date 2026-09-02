@@ -71,21 +71,6 @@ class EnvironmentVersionResolverTest {
     }
 
     @Test
-    void usesOnlyUnambiguousCachedImageTags() {
-        String images = """
-                {"images":[
-                  {"repoTags":["registry/default/sop_base_image-x86_64:27.66.102"]},
-                  {"repoTags":["registry/default/wn_base_image-x86_64:272.010.518","registry/default/wn_base_image-x86_64:271.1.1"]}
-                ]}
-                """;
-
-        assertThat(resolver.imageVersions(images))
-                .containsEntry("sop_base_image", "27.66.102")
-                .doesNotContainKey("wn_base_image")
-                .hasSize(1);
-    }
-
-    @Test
     void selectsTheReleaseOwnedByTheModule() {
         List<String> releases = List.of("mae-fmematechart", "maeaccesschart", "maecommonchart");
 
@@ -96,12 +81,10 @@ class EnvironmentVersionResolverTest {
     @Test
     void discoversNamespaceServicesAndSelectsAReadyReplicaFromRuntimeIdentity() {
         String pods = """
-                {"items":[
-                  {"metadata":{"name":"accesscommonds-0"},"status":{"phase":"Running","containerStatuses":[{"name":"accesscommonds","ready":true,"image":"repo/access:1","imageID":"sha256:access"}]},"spec":{"containers":[{"name":"accesscommonds"}]}},
-                  {"metadata":{"name":"fmproductfrontendservice-b"},"status":{"phase":"Running","containerStatuses":[{"name":"fmproductfrontendservice","ready":true,"image":"repo/fm:272.010.518","imageID":"sha256:fm"}]},"spec":{"containers":[{"name":"fmproductfrontendservice"}]}},
-                  {"metadata":{"name":"fmproductfrontendservice-a"},"status":{"phase":"Running","containerStatuses":[{"name":"fmproductfrontendservice","ready":true,"image":"repo/fm:272.010.518","imageID":"sha256:fm"}]},"spec":{"containers":[{"name":"fmproductfrontendservice"}]}},
-                  {"metadata":{"name":"wnfmproductservice-0"},"status":{"phase":"Running","containerStatuses":[{"name":"wnfmproduct","ready":true,"imageID":"sha256:wn"}]},"spec":{"containers":[{"name":"wnfmproduct"}]}}
-                ]}
+                accesscommonds-0\taccesscommonds\tRunning\ttrue\tsha256:access
+                fmproductfrontendservice-b\tfmproductfrontendservice\tRunning\ttrue\tsha256:fm
+                fmproductfrontendservice-a\tfmproductfrontendservice\tRunning\ttrue\tsha256:fm
+                wnfmproductservice-0\twnfmproduct\tRunning\ttrue\tsha256:wn
                 """;
 
         List<RuntimeContainer> containers = resolver.runtimeContainers(pods);
@@ -116,12 +99,27 @@ class EnvironmentVersionResolverTest {
     }
 
     @Test
+    void readsCompactRuntimeContainerRows() {
+        String rows = """
+                fmproductfrontendservice-b\tfmproductfrontendservice\tRunning\ttrue\tsha256:fm
+                fmproductfrontendservice-a\tfmproductfrontendservice\tRunning\ttrue\tsha256:fm
+                accesscommonds-0\taccesscommonds\tPending\tfalse\trepo/access:1
+                """;
+
+        List<RuntimeContainer> containers = resolver.runtimeContainers(rows);
+
+        assertThat(containers).containsExactly(
+                new RuntimeContainer("fmproductfrontendservice-b", "fmproductfrontendservice", "Running", true, "sha256:fm"),
+                new RuntimeContainer("fmproductfrontendservice-a", "fmproductfrontendservice", "Running", true, "sha256:fm"),
+                new RuntimeContainer("accesscommonds-0", "accesscommonds", "Pending", false, "repo/access:1")
+        );
+    }
+
+    @Test
     void rejectsReadyReplicasUsingDifferentContainerImages() {
         String pods = """
-                {"items":[
-                  {"metadata":{"name":"fmproductfrontendservice-a"},"status":{"phase":"Running","containerStatuses":[{"name":"fmproductfrontendservice","ready":true,"image":"repo/fm:1","imageID":"sha256:one"}]},"spec":{"containers":[{"name":"fmproductfrontendservice"}]}},
-                  {"metadata":{"name":"fmproductfrontendservice-b"},"status":{"phase":"Running","containerStatuses":[{"name":"fmproductfrontendservice","ready":true,"image":"repo/fm:2","imageID":"sha256:two"}]},"spec":{"containers":[{"name":"fmproductfrontendservice"}]}}
-                ]}
+                fmproductfrontendservice-a\tfmproductfrontendservice\tRunning\ttrue\tsha256:one
+                fmproductfrontendservice-b\tfmproductfrontendservice\tRunning\ttrue\tsha256:two
                 """;
 
         List<RuntimeContainer> containers = resolver.runtimeContainers(pods);

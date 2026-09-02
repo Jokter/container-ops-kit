@@ -25,6 +25,9 @@ import java.util.regex.Pattern;
 
 @Service
 public class DeploymentApplicationService {
+    private static final String POD_RUNTIME_TEMPLATE = "'{{range .items}}{{if not .metadata.deletionTimestamp}}{{$pod := .}}{{range .status.containerStatuses}}{{printf \"%s\\t%s\\t%s\\t%t\\t%s\\n\" $pod.metadata.name .name $pod.status.phase .ready .imageID}}{{end}}{{end}}{{end}}'";
+    private static final String LOCK_MARKER = "__COK_LOCK__";
+    private static final String JAR_MARKER = "__COK_JAR__";
     private static final Pattern RESOURCE = Pattern.compile("(?ms)^kind:\\s*([^\\s]+).*?^metadata:\\s*\\n(?:^[ \\t]+.*\\n)*?^[ \\t]+name:\\s*([^\\s#]+)");
     private static final Map<String, String> GROUP_KINDS = Map.ofEntries(
             Map.entry("BeidouLog", "beidoulog"),
@@ -79,7 +82,7 @@ public class DeploymentApplicationService {
         List<String> services = List.of();
         if (namespace != null && !namespace.isBlank()) {
             if (!namespaces.contains(namespace)) throw new IllegalStateException("命名空间不存在：" + namespace);
-            RemoteOperationResult pods = execute(target.endpoint(), kubectl + " get pods -n " + q(namespace) + " -o json",
+            RemoteOperationResult pods = capture(target.endpoint(), podRuntimeCommand(namespace),
                     120000, null, "candidates");
             requireSuccess(pods, "命名空间 Pod 读取失败");
             services = versions.availableServices(buildServices, versions.runtimeContainers(pods.output()));
@@ -110,10 +113,15 @@ public class DeploymentApplicationService {
 
     public void apply(String id) {
         DeploymentPreparation preparation = store.get(id);
+        DeploymentArtifact artifact = context.artifact(preparation.artifactId());
         for (Map.Entry<String, PreparedService> entry : preparation.services().entrySet()) {
             if (entry.getValue() == null || entry.getValue().stage() != DeploymentStage.ANALYZED) continue;
             try {
-                workspace.write(id, entry.getValue());
+                PreparedService prepared = entry.getValue();
+                PreparedService writable = new PreparedService(
+                        prepared.service(), prepared.values(), prepared.chart(), templates(artifact, prepared.service()),
+                        prepared.replaceItems(), prepared.unresolvedImages(), prepared.errors());
+                workspace.write(id, writable);
                 preparation.generated(entry.getKey());
                 store.emit(id, "APPLY", entry.getKey(), "Chart 已生成到本地工作目录");
             } catch (RuntimeException exception) {
@@ -158,22 +166,46 @@ public class DeploymentApplicationService {
 
     private void analyze(DeploymentPreparation preparation, DeploymentArtifact artifact) {
         DeploymentTarget target = context.target(preparation.environmentId());
-        DeploymentEnvironment environment;
+        String global;
         try {
-            environment = environment(preparation, target);
+            global = remote.readText(artifact.buildEndpoint(), artifact.remoteModuleRoot() + "/values.yaml");
         } catch (RuntimeException exception) {
             for (String service : preparation.services().keySet()) {
+                PreparedService failed = new PreparedService(service, "", "", Map.of(), List.of(), Set.of(), List.of(failure(exception)));
+                preparation.analyzed(service, failed);
+                store.emit(preparation.id(), "ANALYZE", service, failure(exception));
+            }
+            return;
+        }
+        Map<String, ChartSource> sources = new LinkedHashMap<>();
+        for (String service : preparation.services().keySet()) {
+            try {
+                store.emit(preparation.id(), "ANALYZE", service, "正在读取待补全配置");
+                sources.put(service, source(artifact, service, global));
+            } catch (RuntimeException exception) {
+                PreparedService failed = new PreparedService(service, "", "", Map.of(), List.of(), Set.of(), List.of(failure(exception)));
+                preparation.analyzed(service, failed);
+                store.emit(preparation.id(), "ANALYZE", service, failure(exception));
+            }
+        }
+        if (sources.isEmpty()) return;
+        DeploymentEnvironment environment;
+        try {
+            environment = environment(preparation, target, AnalysisRequirements.from(sources.values()));
+        } catch (RuntimeException exception) {
+            for (String service : sources.keySet()) {
                 preparation.analyzed(service, new PreparedService(service, "", "", Map.of(), List.of(), Set.of(), List.of(failure(exception))));
                 store.emit(preparation.id(), "ANALYZE", service, "OM 环境采集失败：" + failure(exception));
             }
             return;
         }
-        for (String service : preparation.services().keySet()) {
+        for (Map.Entry<String, ChartSource> entry : sources.entrySet()) {
+            String service = entry.getKey();
             try {
-                store.emit(preparation.id(), "ANALYZE", service, "正在读取构建产物和模板");
-                ChartSource source = source(artifact, service);
-                ServiceRuntimeIdentity identity = versions.runtimeIdentity(source.values());
-                EnvironmentSnapshot snapshot = serviceSnapshot(preparation, target, environment, service, identity);
+                ChartSource source = entry.getValue();
+                AnalysisRequirements requirements = AnalysisRequirements.from(List.of(source));
+                ServiceRuntimeIdentity identity = requirements.runtimeContainers() ? versions.runtimeIdentity(source.values()) : null;
+                EnvironmentSnapshot snapshot = serviceSnapshot(preparation, target, environment, service, identity, requirements);
                 PreparedChart chart = charts.prepare(service, source, snapshot);
                 preparation.analyzed(service, new PreparedService(service, chart.values(), chart.chart(), chart.templates(), chart.replaceItems(), chart.unresolvedImages(), chart.errors()));
                 store.emit(preparation.id(), "ANALYZE", service, chart.errors().isEmpty() ? "自动补全完成" : String.join("；", chart.errors()));
@@ -185,10 +217,15 @@ public class DeploymentApplicationService {
         }
     }
 
-    private ChartSource source(DeploymentArtifact artifact, String service) {
+    private ChartSource source(DeploymentArtifact artifact, String service, String global) {
         String serviceRoot = artifact.remoteChartsRoot() + "/" + service;
         String values = remote.readText(artifact.buildEndpoint(), serviceRoot + "/values.yaml");
         String chart = remote.readText(artifact.buildEndpoint(), serviceRoot + "/Chart.yaml");
+        return new ChartSource(values, chart, global, Map.of());
+    }
+
+    private Map<String, String> templates(DeploymentArtifact artifact, String service) {
+        String serviceRoot = artifact.remoteChartsRoot() + "/" + service;
         Map<String, String> templates = new LinkedHashMap<>();
         for (String file : remote.listFiles(artifact.buildEndpoint(), serviceRoot + "/templates")) {
             if (!file.startsWith("_")) templates.put(file, remote.readText(artifact.buildEndpoint(), serviceRoot + "/templates/" + file));
@@ -210,25 +247,33 @@ public class DeploymentApplicationService {
             } catch (RuntimeException ignored) {
             }
         }
-        String global = remote.readText(artifact.buildEndpoint(), artifact.remoteModuleRoot() + "/values.yaml");
-        return new ChartSource(values, chart, global, templates);
+        return templates;
     }
 
-    private DeploymentEnvironment environment(DeploymentPreparation preparation, DeploymentTarget target) {
+    private DeploymentEnvironment environment(
+            DeploymentPreparation preparation,
+            DeploymentTarget target,
+            AnalysisRequirements requirements
+    ) {
         String namespace = preparation.namespace();
-        RemoteOperationResult architectureResult = execute(target.endpoint(), "uname -m", 120000, preparation.id(), "环境采集");
-        requireSuccess(architectureResult, "环境架构读取失败");
-        String architecture = versions.architecture(architectureResult.output());
-        RemoteOperationResult podResult = execute(target.endpoint(), kubectl + " get pods -n " + q(namespace) + " -o json",
-                120000, preparation.id(), "环境采集");
-        requireSuccess(podResult, "命名空间 Pod 读取失败");
-        List<RuntimeContainer> containers = versions.runtimeContainers(podResult.output());
-        RemoteOperationResult imageResult = execute(target.endpoint(), "crictl images -o json", 120000, preparation.id(), "环境采集");
-        requireSuccess(imageResult, "节点镜像版本读取失败");
-        Map<String, String> placeholderVersions = new LinkedHashMap<>(versions.imageVersions(imageResult.output()));
-        HelmEnvironmentValues helm = helmEnvironment(target.endpoint(), namespace, preparation.module(), preparation.id());
-        placeholderVersions.putAll(helm.placeholderVersions());
-        return new DeploymentEnvironment(architecture, Map.copyOf(placeholderVersions), helm.globalOverrides(), containers);
+        String architecture = null;
+        if (requirements.packageVersions()) {
+            store.emit(preparation.id(), "ANALYZE", "环境采集", "读取运行架构");
+            RemoteOperationResult result = capture(target.endpoint(), "uname -m", 120000, preparation.id(), "环境采集");
+            requireSuccess(result, "环境架构读取失败");
+            architecture = versions.architecture(result.output());
+        }
+        List<RuntimeContainer> containers = List.of();
+        if (requirements.runtimeContainers()) {
+            store.emit(preparation.id(), "ANALYZE", "环境采集", "读取服务运行实例");
+            RemoteOperationResult result = capture(target.endpoint(), podRuntimeCommand(namespace), 120000, preparation.id(), "环境采集");
+            requireSuccess(result, "命名空间 Pod 读取失败");
+            containers = versions.runtimeContainers(result.output());
+        }
+        HelmEnvironmentValues helm = requirements.helmValues()
+                ? helmEnvironment(target.endpoint(), namespace, preparation.module(), preparation.id())
+                : new HelmEnvironmentValues(Map.of(), Map.of());
+        return new DeploymentEnvironment(architecture, helm.placeholderVersions(), helm.globalOverrides(), containers);
     }
 
     private EnvironmentSnapshot serviceSnapshot(
@@ -236,29 +281,47 @@ public class DeploymentApplicationService {
             DeploymentTarget target,
             DeploymentEnvironment environment,
             String service,
-            ServiceRuntimeIdentity identity
+            ServiceRuntimeIdentity identity,
+            AnalysisRequirements requirements
     ) {
+        if (!requirements.runtimeContainers()) {
+            return new EnvironmentSnapshot(Map.of(), environment.placeholderVersions(), null, environment.globalOverrides());
+        }
         RuntimeContainer container = versions.targetFor(identity, environment.containers());
         store.emit(preparation.id(), "ANALYZE", service,
                 "读取 Pod " + container.pod() + " / 容器 " + container.container() + " 的版本信息");
         String exec = kubectl + " exec -n " + q(preparation.namespace()) + " " + q(container.pod())
                 + " -c " + q(container.container()) + " -- ";
-        RemoteOperationResult lockResult = execute(target.endpoint(), exec + "cat " + q(runtime.lockFile()),
+        StringBuilder script = new StringBuilder("set -e; ");
+        if (requirements.packageVersions()) {
+            script.append("printf '%s\\n' ").append(q(LOCK_MARKER)).append("; cat ").append(q(runtime.lockFile())).append("; ");
+        }
+        if (requirements.jarList()) {
+            script.append("printf '\\n%s\\n' ").append(q(JAR_MARKER)).append("; test ! -r ")
+                    .append(q(runtime.jarListFile())).append(" || cat ").append(q(runtime.jarListFile())).append("; ");
+        }
+        RemoteOperationResult result = capture(target.endpoint(), exec + "sh -c " + q(script.toString()),
                 120000, preparation.id(), service);
-        requireSuccess(lockResult, service + " lock.json 读取失败");
-        Map<String, String> packageVersions = versions.packageVersions(lockResult.output(), environment.architecture());
-        RemoteOperationResult jarResult = execute(target.endpoint(), exec + "cat " + q(runtime.jarListFile()),
-                120000, preparation.id(), service);
-        requireSuccess(jarResult, service + " jarlist.json 读取失败");
-        return new EnvironmentSnapshot(packageVersions, environment.placeholderVersions(), jarResult.output().trim(), environment.globalOverrides());
+        requireSuccess(result, service + " 容器版本信息读取失败");
+        String output = result.output();
+        String lock = requirements.packageVersions()
+                ? section(output, LOCK_MARKER, requirements.jarList() ? JAR_MARKER : null)
+                : null;
+        String jars = requirements.jarList() ? section(output, JAR_MARKER, null) : null;
+        Map<String, String> packageVersions = requirements.packageVersions()
+                ? versions.packageVersions(lock, environment.architecture())
+                : Map.of();
+        return new EnvironmentSnapshot(packageVersions, environment.placeholderVersions(),
+                jars == null || jars.isBlank() ? null : jars.trim(), environment.globalOverrides());
     }
 
     private HelmEnvironmentValues helmEnvironment(RemoteEndpoint endpoint, String namespace, String module, String id) {
-        RemoteOperationResult releaseResult = helm(endpoint, "list -n " + q(namespace) + " -q", 120000, id, "环境采集");
+        store.emit(id, "ANALYZE", "环境采集", "读取已部署 Helm 配置");
+        RemoteOperationResult releaseResult = helmCaptured(endpoint, "list -n " + q(namespace) + " -q", 120000, id, "环境采集");
         requireSuccess(releaseResult, "Helm release 列表读取失败");
         String release = versions.releaseFor(module, lines(releaseResult.output()))
                 .orElseThrow(() -> new IllegalStateException("未找到模块 " + module + " 对应的 Helm release"));
-        RemoteOperationResult valueResult = helm(endpoint, "get values " + q(release) + " -a -n " + q(namespace) + " -o json",
+        RemoteOperationResult valueResult = helmCaptured(endpoint, "get values " + q(release) + " -a -n " + q(namespace) + " -o json",
                 120000, id, "环境采集");
         requireSuccess(valueResult, "Helm values 读取失败");
         return versions.helmEnvironment(valueResult.output());
@@ -338,6 +401,16 @@ public class DeploymentApplicationService {
     private RemoteOperationResult helm(RemoteEndpoint endpoint, String args, long timeout, String id, String service) {
         String sentinel = "__COK_EXIT_";
         RemoteOperationResult raw = execute(endpoint, helmCommand + " " + args + " 2>&1; printf '\\n" + sentinel + "%s\\n' $?", timeout, id, service);
+        return helmResult(raw, sentinel);
+    }
+
+    private RemoteOperationResult helmCaptured(RemoteEndpoint endpoint, String args, long timeout, String id, String service) {
+        String sentinel = "__COK_EXIT_";
+        RemoteOperationResult raw = capture(endpoint, helmCommand + " " + args + " 2>&1; printf '\\n" + sentinel + "%s\\n' $?", timeout, id, service);
+        return helmResult(raw, sentinel);
+    }
+
+    private RemoteOperationResult helmResult(RemoteOperationResult raw, String sentinel) {
         Matcher matcher = Pattern.compile(Pattern.quote(sentinel) + "(\\d+)").matcher(raw.output());
         int code = matcher.find() ? Integer.parseInt(matcher.group(1)) : raw.exitCode();
         return new RemoteOperationResult(code, raw.output().replaceAll("(?m)^" + sentinel + "\\d+\\s*$", "").stripTrailing());
@@ -347,6 +420,29 @@ public class DeploymentApplicationService {
         return remote.execute(endpoint, command, timeout, line -> {
             if (id != null) store.emit(id, "LOG", service, line);
         });
+    }
+
+    private RemoteOperationResult capture(RemoteEndpoint endpoint, String command, long timeout, String id, String service) {
+        long started = System.nanoTime();
+        RemoteOperationResult result = remote.execute(endpoint, command, timeout, ignored -> { });
+        if (id != null) {
+            long elapsed = Duration.ofNanos(System.nanoTime() - started).toMillis();
+            store.emit(id, "LOG", service, "远程数据采集完成，耗时 " + elapsed + "ms");
+        }
+        return result;
+    }
+
+    private String podRuntimeCommand(String namespace) {
+        return kubectl + " get pods -n " + q(namespace) + " -o go-template=" + POD_RUNTIME_TEMPLATE;
+    }
+
+    private String section(String output, String startMarker, String endMarker) {
+        int start = output.indexOf(startMarker);
+        if (start < 0) throw new IllegalStateException("容器版本信息缺少分段标记：" + startMarker);
+        start += startMarker.length();
+        int end = endMarker == null ? output.length() : output.indexOf(endMarker, start);
+        if (end < 0) throw new IllegalStateException("容器版本信息缺少分段标记：" + endMarker);
+        return output.substring(start, end).trim();
     }
 
     private void requireSuccess(RemoteOperationResult result, String message) {
