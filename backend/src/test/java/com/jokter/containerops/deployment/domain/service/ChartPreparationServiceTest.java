@@ -30,6 +30,7 @@ class ChartPreparationServiceTest {
         assertThat(result.values()).contains("repo/svc:2.0.1-x86_64");
         assertThat(result.chart()).contains("version: 2.0.0");
         assertThat(result.unresolvedImages()).containsExactly("missing");
+        assertThat(result.errors()).isEmpty();
         assertThat(result.values()).contains("nodePool: 'new'");
     }
 

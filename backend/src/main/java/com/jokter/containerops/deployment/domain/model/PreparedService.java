@@ -1,10 +1,15 @@
 package com.jokter.containerops.deployment.domain.model;
 
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public final class PreparedService {
+    private static final Pattern IMAGE_VERSION = Pattern.compile("\\{version:([A-Za-z0-9_.-]+)}");
+    private static final Pattern UNRESOLVED_VALUE = Pattern.compile("\\{[A-Za-z0-9_:.-]+}|replaceByOssDiy");
     private final String service;
     private String values;
     private final String chart;
@@ -29,7 +34,7 @@ public final class PreparedService {
         this.chart = chart;
         this.templates = Map.copyOf(templates);
         this.replaceItems = List.copyOf(replaceItems);
-        this.unresolvedImages = Set.copyOf(unresolvedImages);
+        this.unresolvedImages = new LinkedHashSet<>(unresolvedImages);
         this.errors = List.copyOf(errors);
         this.stage = errors.isEmpty() ? DeploymentStage.ANALYZED : DeploymentStage.FAILED;
     }
@@ -40,13 +45,28 @@ public final class PreparedService {
 
     public void updateValues(String values) {
         this.values = values;
+        unresolvedImages.clear();
+        Matcher matcher = IMAGE_VERSION.matcher(values);
+        while (matcher.find()) {
+            unresolvedImages.add(matcher.group(1));
+        }
         stage = DeploymentStage.ANALYZED;
         stageError = null;
+    }
+
+    public boolean hasUnresolvedValues() {
+        return UNRESOLVED_VALUE.matcher(values).find();
     }
 
     public void generated() {
         require(DeploymentStage.ANALYZED);
         stage = DeploymentStage.GENERATED;
+    }
+
+    public void generationFailed(String error) {
+        require(DeploymentStage.ANALYZED);
+        stage = DeploymentStage.FAILED;
+        stageError = error;
     }
 
     public void rendered(boolean successful, String error) {
@@ -77,7 +97,7 @@ public final class PreparedService {
     public String chart() { return chart; }
     public Map<String, String> templates() { return templates; }
     public List<ReplaceItem> replaceItems() { return replaceItems; }
-    public Set<String> unresolvedImages() { return unresolvedImages; }
+    public Set<String> unresolvedImages() { return Set.copyOf(unresolvedImages); }
     public List<String> errors() { return errors; }
     public DeploymentStage stage() { return stage; }
     public String stageError() { return stageError; }

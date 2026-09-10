@@ -3,8 +3,7 @@ package com.jokter.containerops.deployment.interfaces.rest;
 import com.jokter.containerops.deployment.application.DeploymentApplicationService;
 import com.jokter.containerops.deployment.application.DeploymentEvent;
 import com.jokter.containerops.deployment.application.DeploymentNotFoundException;
-import com.jokter.containerops.deployment.application.DeploymentPreparationStore;
-import com.jokter.containerops.deployment.domain.model.DeploymentPreparation;
+import com.jokter.containerops.deployment.application.DeploymentTaskStore;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -28,9 +27,9 @@ import java.util.function.Consumer;
 @RequestMapping("/api")
 public class DeploymentController {
     private final DeploymentApplicationService deployments;
-    private final DeploymentPreparationStore store;
+    private final DeploymentTaskStore store;
 
-    public DeploymentController(DeploymentApplicationService deployments, DeploymentPreparationStore store) {
+    public DeploymentController(DeploymentApplicationService deployments, DeploymentTaskStore store) {
         this.deployments = deployments;
         this.store = store;
     }
@@ -44,49 +43,35 @@ public class DeploymentController {
         return DeploymentCandidatesResponse.from(deployments.candidates(artifactId, environmentId, namespace));
     }
 
-    @PostMapping("/deployment-preparations")
+    @PostMapping("/deployment-tasks")
     @ResponseStatus(HttpStatus.ACCEPTED)
-    public DeploymentPreparationResponse create(@Valid @RequestBody CreateDeploymentPreparationRequest request) {
-        return DeploymentPreparationResponse.from(deployments.create(request.toCommand()));
+    public DeploymentTaskResponse create(@Valid @RequestBody CreateDeploymentTaskRequest request) {
+        return DeploymentTaskResponse.from(deployments.create(request.toCommand()));
     }
 
-    @GetMapping("/deployment-preparations/{id}")
-    public DeploymentPreparationResponse get(@PathVariable String id) {
-        return DeploymentPreparationResponse.from(deployments.get(id));
+    @GetMapping("/deployment-tasks/{id}")
+    public DeploymentTaskResponse get(@PathVariable String id) {
+        return DeploymentTaskResponse.from(deployments.get(id));
     }
 
-    @PutMapping("/deployment-preparations/{id}/services/{service}/values")
-    @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void updateValues(@PathVariable String id, @PathVariable String service, @Valid @RequestBody UpdateValuesRequest request) {
+    @PutMapping("/deployment-tasks/{id}/services/{service}/values")
+    public DeploymentTaskResponse updateValues(@PathVariable String id, @PathVariable String service, @Valid @RequestBody UpdateValuesRequest request) {
         deployments.updateValues(id, service, request.values());
+        return DeploymentTaskResponse.from(deployments.get(id));
     }
 
-    @PostMapping("/deployment-preparations/{id}/apply")
-    public DeploymentPreparationResponse apply(@PathVariable String id) {
-        deployments.apply(id);
-        return DeploymentPreparationResponse.from(deployments.get(id));
-    }
-
-    @PostMapping("/deployment-preparations/{id}/render")
-    public DeploymentPreparationResponse render(@PathVariable String id) {
-        deployments.render(id);
-        return DeploymentPreparationResponse.from(deployments.get(id));
-    }
-
-    @PostMapping("/deployment-preparations/{id}/confirmation")
-    public ConfirmationResponse confirmation(@PathVariable String id) {
-        DeploymentPreparation preparation = deployments.get(id);
-        return new ConfirmationResponse(preparation.revision(), deployments.confirmation(id));
-    }
-
-    @PostMapping("/deployment-preparations/{id}/deploy")
+    @PostMapping("/deployment-tasks/{id}/execution")
     @ResponseStatus(HttpStatus.ACCEPTED)
-    public void deploy(@PathVariable String id, @Valid @RequestBody DeployRequest request) {
-        deployments.deploy(id, request.revision(), request.confirmationToken());
+    public DeploymentTaskResponse execute(@PathVariable String id, @Valid @RequestBody ExecuteDeploymentRequest request) {
+        return DeploymentTaskResponse.from(deployments.execute(id, request.expectedRevision()));
     }
 
-    @GetMapping(path = "/deployment-preparations/{id}/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter events(@PathVariable String id, @RequestHeader(value = "Last-Event-ID", defaultValue = "0") long lastEventId) {
+    @GetMapping(path = "/deployment-tasks/{id}/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE + ";charset=UTF-8")
+    public SseEmitter events(
+            @PathVariable String id,
+            @RequestHeader(value = "Last-Event-ID", defaultValue = "0") long lastEventId,
+            @RequestParam(defaultValue = "0") long afterSequence
+    ) {
         SseEmitter emitter = new SseEmitter(0L);
         try {
             deployments.get(id);
@@ -95,7 +80,7 @@ public class DeploymentController {
         }
         AtomicReference<Runnable> cancel = new AtomicReference<>(() -> { });
         Consumer<DeploymentEvent> listener = event -> send(emitter, cancel, event);
-        Runnable unsubscribe = store.subscribe(id, lastEventId, listener);
+        Runnable unsubscribe = store.subscribe(id, Math.max(lastEventId, afterSequence), listener);
         cancel.set(unsubscribe);
         emitter.onCompletion(unsubscribe);
         emitter.onTimeout(unsubscribe);

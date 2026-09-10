@@ -34,6 +34,10 @@ public final class ChartPreparationService {
         Matcher remaining = REMAINING.matcher(values + "\n" + chart);
         while (remaining.find()) {
             String value = remaining.group();
+            Matcher unresolvedImage = IMAGE_VERSION.matcher(value);
+            if (unresolvedImage.matches() && unresolvedImages.contains(unresolvedImage.group(1))) {
+                continue;
+            }
             if (!errors.contains(value)) {
                 errors.add("存在未解析占位符：" + value);
             }

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Container Ops Kit</title>
+  <title>运维平台</title>
   <style>
     :root {
       color-scheme: light;
@@ -117,6 +117,19 @@
     .variant-a-brand { display: flex; align-items: center; gap: 9px; padding: 0 6px 16px; }
     .variant-a-brand strong { display: block; white-space: nowrap; color: #263740; font-size: 14px; font-weight: 600; letter-spacing: -.01em; }
     .variant-a-brand span { display: block; margin-top: 1px; color: #7b8891; font-size: 12px; font-weight: 400; }
+    .platform-switch { position: relative; margin: 0 1px 14px; }
+    .platform-switch summary { min-height: 38px; display: flex; align-items: center; gap: 8px; border: 1px solid #d9dfe3; border-radius: 8px; padding: 7px 9px; color: var(--ink); background: rgba(255,255,255,.72); box-shadow: 0 1px 1px rgba(25,39,48,.03); cursor: pointer; list-style: none; }
+    .platform-switch summary::-webkit-details-marker { display: none; }
+    .platform-switch summary:hover, .platform-switch[open] summary { border-color: #b9c3c9; background: white; }
+    .platform-symbol { width: 22px; height: 22px; display: grid; place-items: center; flex: 0 0 auto; border-radius: 6px; color: var(--brand); background: var(--brand-soft); font-size: 12px; font-weight: 600; }
+    .platform-label { min-width: 0; flex: 1; font-size: 13px; font-weight: 600; }
+    .platform-chevron { color: var(--faint); font-size: 11px; transition: transform .15s ease; }
+    .platform-switch[open] .platform-chevron { transform: rotate(180deg); }
+    .platform-menu { position: absolute; top: calc(100% + 6px); right: 0; left: 0; z-index: 10; display: grid; gap: 3px; padding: 5px; border: 1px solid var(--line); border-radius: 9px; background: white; box-shadow: 0 12px 30px rgba(25,39,48,.14); }
+    .platform-option { width: 100%; display: flex; align-items: center; gap: 9px; border: 0; border-radius: 6px; padding: 8px; color: var(--muted); background: transparent; text-align: left; }
+    .platform-option:hover { color: var(--ink); background: var(--surface-soft); }
+    .platform-option.active { color: var(--brand); background: var(--brand-soft); font-weight: 600; }
+    .platform-option small { margin-left: auto; color: var(--faint); font-size: 11px; font-weight: 400; }
     .variant-a-nav { display: grid; gap: 2px; }
     .variant-a-nav .nav-section { margin: 14px 9px 4px; color: var(--faint); font-size: 12px; font-weight: 500; }
     .variant-a-nav button { width: 100%; border: 0; border-radius: 7px; padding: 8px 10px; color: #53616b; background: transparent; text-align: left; font-size: 14px; font-weight: 400; }
@@ -130,6 +143,12 @@
     .variant-a-status-top { display: flex; align-items: baseline; gap: 9px; }
     .variant-a-columns { display: grid; grid-template-columns: minmax(0,7fr) minmax(320px,5fr); gap: 16px; }
     .variant-a-overview { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; margin-top: 16px; }
+    .platform-placeholder { min-height: calc(100vh - 48px); display: grid; place-items: center; text-align: center; }
+    .platform-placeholder-content { max-width: 430px; padding: 48px; }
+    .platform-placeholder-symbol { width: 58px; height: 58px; display: grid; place-items: center; margin: 0 auto 18px; border-radius: 18px; color: var(--brand); background: var(--brand-soft); font-size: 22px; font-weight: 600; }
+    .platform-placeholder h1 { font-size: 24px; }
+    .platform-placeholder p { margin-top: 8px; color: var(--muted); }
+    .platform-boundary { display: inline-flex; margin-top: 18px; padding: 5px 9px; border-radius: 99px; color: var(--muted); background: #eef1f3; font-size: 12px; }
     .overview-card { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 14px 16px; }
     .overview-card p { margin-top: 3px; color: var(--muted); font-size: 12px; }
     .overview-card-meta { display: flex; align-items: center; gap: 14px; color: var(--muted); font-size: 12px; }
@@ -243,7 +262,7 @@
 <body>
   <div id="app"></div>
   <script>
-    const state = { page: 'dashboard', buildTab: 'single', resourceVersion: 'r27c10', resourceType: 'build', resourceStatus: 'all', resourceQuery: '', resourceDrawer: null, batch: null, selectedBuildEnvironment: 'build-27b-01', selectedContainerEnvironment: 'container-27b-01' };
+    const state = { platformDomain: 'container', page: 'dashboard', buildTab: 'single', resourceVersion: 'r27c10', resourceType: 'build', resourceStatus: 'all', resourceQuery: '', resourceDrawer: null, batch: null, selectedBuildEnvironment: 'build-27b-01', selectedContainerEnvironment: 'container-27b-01' };
 
     const releaseVersions = [
       { id: 'r27c10', code: 'R27C10', name: '27B', locked: false },
@@ -479,9 +498,23 @@
     }
 
     function variantA() {
+      const platformDomains = {
+        container: { label: '容器化', symbol: '容' },
+        virtualization: { label: '虚拟化', symbol: '虚' },
+        common: { label: '公共能力', symbol: '公' }
+      };
+      const currentDomain = platformDomains[state.platformDomain];
+      const platformSwitch = `<details class="platform-switch"><summary data-platform-trigger><span class="platform-symbol">${currentDomain.symbol}</span><span class="platform-label">${currentDomain.label}</span><span class="platform-chevron">⌄</span></summary><div class="platform-menu"><button type="button" class="platform-option ${state.platformDomain === 'container' ? 'active' : ''}" data-platform-domain="container"><span class="platform-symbol">容</span><span>容器化</span></button><button type="button" class="platform-option ${state.platformDomain === 'virtualization' ? 'active' : ''}" data-platform-domain="virtualization"><span class="platform-symbol">虚</span><span>虚拟化</span><small>预留</small></button><button type="button" class="platform-option ${state.platformDomain === 'common' ? 'active' : ''}" data-platform-domain="common"><span class="platform-symbol">公</span><span>公共能力</span><small>预留</small></button></div></details>`;
       const nav = `<div class="variant-a-nav"><button data-page="dashboard" class="${state.page === 'dashboard' ? 'active' : ''}">工作台</button><div class="nav-section">研发流程</div><button data-page="build" class="${state.page === 'build' ? 'active' : ''}">构建</button><button data-page="deploy" class="${state.page === 'deploy' ? 'active' : ''}">部署</button><div class="nav-section">容器运维</div><button data-page="operations" class="${state.page === 'operations' ? 'active' : ''}">服务资源</button><div class="nav-section">系统管理</div><button data-page="resources" class="${state.page === 'resources' ? 'active' : ''}">环境管理</button><div class="nav-section">任务</div><button>任务中心</button></div>`;
-      const content = state.page === 'dashboard' ? dashboardA() : commonPage(state.page);
-      return `<div class="variant-a-shell"><aside class="variant-a-sidebar"><div class="variant-a-brand">${taiji}<div><strong>Container Ops Kit</strong><span>容器运维工作台</span></div></div>${nav}<div class="variant-a-user">林工 · 本地环境</div></aside><main class="variant-a-main">${content}</main></div>`;
+      const placeholders = {
+        virtualization: ['虚', '虚拟化', '这里先作为独立平台域预留，不提前定义功能和页面。'],
+        common: ['公', '公共能力', '这里先作为跨平台公共域预留，不放置构建、环境管理或其它假入口。']
+      };
+      const placeholder = placeholders[state.platformDomain];
+      const content = state.platformDomain === 'container'
+        ? (state.page === 'dashboard' ? dashboardA() : commonPage(state.page))
+        : `<section class="panel platform-placeholder"><div class="platform-placeholder-content"><div class="platform-placeholder-symbol">${placeholder[0]}</div><h1>${placeholder[1]}</h1><p>${placeholder[2]}</p><span class="platform-boundary">平台边界已预留</span></div></section>`;
+      return `<div class="variant-a-shell"><aside class="variant-a-sidebar"><div class="variant-a-brand">${taiji}<div><strong>运维平台</strong><span>统一基础设施工作台</span></div></div>${platformSwitch}${state.platformDomain === 'container' ? nav : ''}<div class="variant-a-user">林工 · 本地环境</div></aside><main class="variant-a-main">${content}</main></div>`;
     }
 
     let toastTimer;
@@ -616,7 +649,7 @@
       document.querySelectorAll('[data-edit-environment]').forEach(item => item.addEventListener('click', () => { state.resourceDrawer = { mode: 'edit', id: item.dataset.editEnvironment }; render(false); }));
       document.querySelectorAll('[data-history-environment]').forEach(item => item.addEventListener('click', () => { state.resourceDrawer = { mode: 'history', id: item.dataset.historyEnvironment }; render(false); }));
       document.querySelectorAll('[data-resource-card]').forEach(item => item.addEventListener('click', () => { state.page = 'resources'; state.resourceType = item.dataset.resourceCard; state.resourceVersion = releaseVersions[0].id; render(); }));
-      document.querySelector('[data-create-deploy-task]')?.addEventListener('click', createDeployTask);
+      document.querySelectorAll('[data-create-deploy-task]').forEach(button => button.addEventListener('click', createDeployTask));
       document.querySelectorAll('[data-create-build-task]').forEach(item => item.addEventListener('click', () => createBuildTask(item.dataset.createBuildTask)));
       document.querySelector('[data-new-environment]')?.addEventListener('click', () => { state.resourceDrawer = { mode: 'create', type: state.resourceType }; render(false); });
       document.querySelectorAll('[data-close-drawer]').forEach(item => item.addEventListener('click', () => { state.resourceDrawer = null; render(false); }));
@@ -655,6 +688,7 @@
     }
 
     function bindInteractions() {
+      document.querySelectorAll('[data-platform-domain]').forEach(item => item.addEventListener('click', () => { state.platformDomain = item.dataset.platformDomain; render(); }));
       document.querySelectorAll('[data-page]').forEach(item => item.addEventListener('click', () => { state.page = item.dataset.page; render(); }));
       document.querySelectorAll('[data-build-tab]').forEach(item => item.addEventListener('click', () => { state.buildTab = item.dataset.buildTab; render(); }));
       document.querySelector('#build-environment-selector')?.addEventListener('change', event => { state.selectedBuildEnvironment = event.target.value; render(false); });

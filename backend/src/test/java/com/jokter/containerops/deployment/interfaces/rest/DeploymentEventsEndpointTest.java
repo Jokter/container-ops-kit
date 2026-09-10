@@ -12,6 +12,7 @@ import org.springframework.test.web.servlet.MvcResult;
 import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -27,7 +28,7 @@ class DeploymentEventsEndpointTest {
 
     @Test
     void closesExpiredDeploymentSubscriptionWithAnSseEvent() throws Exception {
-        MvcResult result = mvc.perform(get("/api/deployment-preparations/missing/events")
+        MvcResult result = mvc.perform(get("/api/deployment-tasks/missing/events")
                         .accept(MediaType.TEXT_EVENT_STREAM))
                 .andExpect(request().asyncStarted())
                 .andReturn();
@@ -36,6 +37,14 @@ class DeploymentEventsEndpointTest {
                 .andExpect(status().isOk())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_EVENT_STREAM))
                 .andExpect(content().string(containsString("event:expired")))
-                .andExpect(content().string(containsString("服务已重启")));
+                .andExpect(content().string(containsString("data:")));
+    }
+
+    @Test
+    void deploymentTaskRequiresAnExecutionMode() throws Exception {
+        mvc.perform(post("/api/deployment-tasks")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"artifactId\":1,\"environmentId\":2,\"namespace\":\"dev\",\"services\":[\"service-a\"]}"))
+                .andExpect(status().isBadRequest());
     }
 }

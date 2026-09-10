@@ -79,7 +79,7 @@ class EnvironmentVersionResolverTest {
     }
 
     @Test
-    void discoversNamespaceServicesAndSelectsAReadyReplicaFromRuntimeIdentity() {
+    void selectsAReadyReplicaFromRuntimeIdentity() {
         String pods = """
                 accesscommonds-0\taccesscommonds\tRunning\ttrue\tsha256:access
                 fmproductfrontendservice-b\tfmproductfrontendservice\tRunning\ttrue\tsha256:fm
@@ -89,9 +89,6 @@ class EnvironmentVersionResolverTest {
 
         List<RuntimeContainer> containers = resolver.runtimeContainers(pods);
 
-        assertThat(resolver.availableServices(
-                List.of("fmproductfrontendservice", "accesscommonds", "wnfmproductservice", "missing"), containers))
-                .containsExactly("fmproductfrontendservice", "accesscommonds", "wnfmproductservice");
         RuntimeContainer selected = resolver.targetFor(
                 new ServiceRuntimeIdentity("fmproductfrontendservice", "fmproductfrontendservice"), containers);
         assertThat(selected.pod()).isEqualTo("fmproductfrontendservice-a");

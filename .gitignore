@@ -1,1 +1,9 @@
 /logs/
+/.idea/
+/.tmp/
+/.vite/
+/backend/data/
+/backend/logs/
+/backend/target/
+/frontend/dist/
+/frontend/node_modules/

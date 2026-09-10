@@ -5,7 +5,7 @@ import com.jokter.containerops.deployment.domain.model.PreparedService;
 import java.util.Map;
 
 public interface ChartWorkspacePort {
-    void write(String preparationId, PreparedService service);
+    void write(String taskId, PreparedService service);
 
-    Map<String, byte[]> files(String preparationId, String service);
+    Map<String, byte[]> files(String taskId, String service);
 }

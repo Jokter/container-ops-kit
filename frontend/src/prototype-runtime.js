@@ -1,3 +1,6 @@
+import {loadDeploymentSelection, saveDeploymentSelection as persistDeploymentSelection} from './deployment-selection.js'
+import {canConvertFailedQuickDeploymentToReview} from './deployment-presentation.js'
+
 (function () {
   const statusMap = {UNTESTED: 'untested', REACHABLE: 'online', FAILED: 'error'}
   const typeMap = {BUILD: 'build', CONTAINER: 'container'}
@@ -724,11 +727,40 @@
     serviceQuery: '',
     selectedServices: new Set(),
     namespace: '',
-    preparation: null,
+    task: null,
     activeService: '',
     logs: [],
     eventSource: null,
     busy: false
+  }
+  const activeDeploymentTaskKey = 'container-ops-kit.active-deployment-task'
+  const deploymentEventSequenceKey = id => 'container-ops-kit.deployment-event-sequence.' + id
+  const deploymentEventLogKey = id => 'container-ops-kit.deployment-event-log.' + id
+
+  function saveDeploymentSelection() {
+    const environment = environments.find(item => item.id === state.selectedContainerEnvironment) || environments.find(item => item.type === 'container')
+    const module = deploymentRuntime.candidates?.module || deploymentRuntime.artifacts.find(item => String(item.id) === String(deploymentRuntime.artifactId))?.module
+    if (!environment?._apiId || !module || !deploymentRuntime.namespace) return
+    persistDeploymentSelection(localStorage, {
+      environmentId: environment._apiId,
+      module,
+      namespace: deploymentRuntime.namespace,
+      services: [...deploymentRuntime.selectedServices]
+    })
+  }
+
+  async function restoreDeploymentSelection() {
+    const environment = environments.find(item => item.id === state.selectedContainerEnvironment) || environments.find(item => item.type === 'container')
+    const module = deploymentRuntime.artifacts.find(item => String(item.id) === String(deploymentRuntime.artifactId))?.module
+    if (deploymentRuntime.task || !environment?._apiId || !module) return
+    const saved = loadDeploymentSelection(localStorage, environment._apiId, module)
+    if (!saved) return
+    await loadDeploymentCandidates()
+    if (!deploymentRuntime.candidates?.namespaces.includes(saved.namespace)) return
+    await loadDeploymentCandidates(saved.namespace)
+    const deployable = new Set((deploymentRuntime.candidates?.workloads || []).filter(item => item.deployable).map(item => item.name))
+    saved.services.filter(item => deployable.has(item)).forEach(item => deploymentRuntime.selectedServices.add(item))
+    render(false)
   }
 
   const stagePresentation = {
@@ -739,26 +771,37 @@
     SUCCEEDED: ['成功', 'green'],
     FAILED: ['失败', 'red']
   }
+  const deploymentStatusPresentation = {
+    PENDING: '等待分析',
+    ANALYZING: '分析中',
+    AWAITING_REVIEW: '待审阅',
+    PREPARING: '准备部署',
+    DEPLOYING: '部署中',
+    SUCCEEDED: '成功',
+    FAILED: '失败'
+  }
 
-  function visibleDeploymentServices() {
-    const services = deploymentRuntime.candidates?.services || []
+  function visibleDeploymentWorkloads() {
+    const workloads = deploymentRuntime.candidates?.workloads || []
     const query = deploymentRuntime.serviceQuery.trim().toLocaleLowerCase()
-    return query ? services.filter(item => item.toLocaleLowerCase().includes(query)) : services
+    return query ? workloads.filter(item => item.name.toLocaleLowerCase().includes(query)) : workloads
   }
 
   function deploymentServicePicker() {
     const candidate = deploymentRuntime.candidates
     if (!candidate) return ''
-    const visible = visibleDeploymentServices()
+    const visible = visibleDeploymentWorkloads()
     const selected = deploymentRuntime.selectedServices
-    const rows = visible.map(item => '<label class="deployment-service-option"><input type="checkbox" name="deploymentService" value="' + escapeHtml(item) + '" ' + (selected.has(item) ? 'checked' : '') + '><span>' + escapeHtml(item) + '</span></label>').join('')
-    const empty = candidate.services.length ? '没有匹配的服务' : '当前命名空间没有匹配的可部署服务'
-    return '<div class="deployment-service-picker"><div class="deployment-service-toolbar"><input id="deployment-service-search" value="' + escapeHtml(deploymentRuntime.serviceQuery) + '" placeholder="搜索服务名称"><span>已选 ' + selected.size + ' / ' + candidate.services.length + '</span><button type="button" class="button small ghost" data-select-visible-services ' + (!visible.length ? 'disabled' : '') + '>选择搜索结果</button><button type="button" class="button small ghost" data-clear-deployment-services ' + (!selected.size ? 'disabled' : '') + '>清空</button></div><div class="deployment-service-options">' + (rows || '<div class="environment-empty">' + empty + '</div>') + '</div></div>'
+    const deployable = candidate.workloads.filter(item => item.deployable)
+    const selectable = visible.filter(item => item.deployable)
+    const rows = visible.map(item => '<label class="deployment-service-option ' + (item.deployable ? '' : 'unavailable') + '"><input type="checkbox" name="deploymentService" value="' + escapeHtml(item.name) + '" ' + (selected.has(item.name) ? 'checked' : '') + ' ' + (item.deployable ? '' : 'disabled') + '><span><strong>' + escapeHtml(item.name) + '</strong><small>' + (item.kind === 'STATEFUL_SET' ? 'StatefulSet' : item.kind === 'DEPLOYMENT' ? 'Deployment' : '工作负载') + (item.deployable ? '' : ' · 不可部署') + '</small></span></label>').join('')
+    const empty = candidate.workloads.length ? '没有匹配的工作负载' : '当前命名空间没有 Deployment 或 StatefulSet'
+    return '<div class="deployment-service-picker"><div class="deployment-service-toolbar"><input id="deployment-service-search" value="' + escapeHtml(deploymentRuntime.serviceQuery) + '" placeholder="搜索工作负载名称"><span>已选 ' + selected.size + ' / ' + deployable.length + ' 个可部署服务</span><button type="button" class="button small ghost" data-select-visible-services ' + (!selectable.length ? 'disabled' : '') + '>选择搜索结果</button><button type="button" class="button small ghost" data-clear-deployment-services ' + (!selected.size ? 'disabled' : '') + '>清空</button></div><div class="deployment-service-options">' + (rows || '<div class="environment-empty">' + empty + '</div>') + '</div></div>'
   }
 
-  function deploymentServiceRows(preparation) {
-    if (!preparation) return ''
-    return Object.entries(preparation.services).map(([name, service]) => {
+  function deploymentServiceRows(task) {
+    if (!task) return ''
+    return Object.entries(task.services).map(([name, service]) => {
       const presentation = service ? stagePresentation[service.stage] || ['处理中', 'brand'] : ['分析中', 'brand']
       const errors = service ? [...(service.errors || []), service.stageError].filter(Boolean).join('；') : '正在从构建机和 OM 采集数据'
       return '<button type="button" class="deployment-service-row ' + (deploymentRuntime.activeService === name ? 'active' : '') + '" data-deployment-service="' + escapeHtml(name) + '"><span><strong>' + escapeHtml(name) + '</strong><small>' + escapeHtml(errors || ((service?.replaceItems?.length || 0) + ' 项自动替换')) + '</small></span><span class="badge ' + presentation[1] + '">' + presentation[0] + '</span></button>'
@@ -766,8 +809,9 @@
   }
 
   function deploymentDetails() {
-    const preparation = deploymentRuntime.preparation
-    const service = preparation?.services?.[deploymentRuntime.activeService]
+    const task = deploymentRuntime.task
+    if (task?.mode === 'QUICK') return ''
+    const service = task?.services?.[deploymentRuntime.activeService]
     if (!service) return '<section class="panel"><div class="panel-body"><div class="environment-empty">分析完成后可查看替换项并编辑 values.yaml。</div></div></section>'
     const replaces = (service.replaceItems || []).map(item => '<div class="replacement-row"><span>' + escapeHtml(item.location) + '</span><strong class="mono">' + escapeHtml(item.key) + '</strong><del>' + escapeHtml(item.oldValue) + '</del><ins>' + escapeHtml(item.newValue) + '</ins></div>').join('') || '<div class="environment-empty">没有自动替换项</div>'
     return '<div class="summary-stack"><section class="panel"><div class="panel-head"><div><h2>替换预览</h2><p style="color:var(--muted);margin-top:3px;font-size:12px">未解析镜像：' + escapeHtml((service.unresolvedImages || []).join('、') || '无') + '</p></div><span class="badge">' + (service.replaceItems || []).length + ' 项</span></div><div class="panel-body"><div class="replacement-list">' + replaces + '</div></div></section><section class="panel"><div class="panel-head"><h2>values.yaml</h2><button class="button small" data-deployment-save-values>保存修改</button></div><div class="panel-body"><textarea id="deployment-values" class="deployment-values mono">' + escapeHtml(service.values || '') + '</textarea></div></section></div>'
@@ -777,22 +821,23 @@
     const environment = environments.find(item => item.id === state.selectedContainerEnvironment) || environments.find(item => item.type === 'container')
     if (!environment) return pageTitle('部署', '选择成功产物和容器环境，完成校验后部署。') + '<section class="panel empty"><div><h2>尚未配置容器环境</h2><button class="button primary" style="margin-top:18px" data-page="resources">打开资源中心</button></div></section>'
     if (!environments.some(item => item.id === state.selectedContainerEnvironment)) state.selectedContainerEnvironment = environment.id
-    const artifactOptions = deploymentRuntime.artifacts.map(item => '<option value="' + item.id + '" ' + (String(item.id) === String(deploymentRuntime.artifactId) ? 'selected' : '') + '>' + escapeHtml(item.module) + ' · ' + escapeHtml(item.archDesignBranch) + ' · ' + new Date(item.createdAt).toLocaleString('zh-CN') + '</option>').join('')
+    const artifactOptions = deploymentRuntime.artifacts.map(item => '<option value="' + item.id + '" ' + (String(item.id) === String(deploymentRuntime.artifactId) ? 'selected' : '') + '>' + escapeHtml(item.buildTaskId.slice(0, 8)) + ' · ' + escapeHtml(item.module) + ' · ' + escapeHtml(item.archDesignBranch) + ' · ' + new Date(item.createdAt).toLocaleString('zh-CN') + '</option>').join('')
     const candidate = deploymentRuntime.candidates
-    const preparation = deploymentRuntime.preparation
-    const preparedServices = preparation ? Object.values(preparation.services) : []
-    const canApply = preparedServices.length > 0 && preparedServices.every(item => item?.stage === 'ANALYZED')
-    const canRender = preparedServices.length > 0 && preparedServices.every(item => item?.stage === 'GENERATED')
-    const canDeploy = preparedServices.length > 0 && preparedServices.every(item => item?.stage === 'RENDERED')
+    const task = deploymentRuntime.task
+    const preparedServices = task ? Object.values(task.services) : []
+    const canDeploy = task?.mode === 'REVIEW'
+      && task?.status === 'AWAITING_REVIEW'
+      && preparedServices.every(item => item?.stage === 'ANALYZED' && !(item.unresolvedImages || []).some(image => (item.values || '').includes('{version:' + image + '}')))
+    const canReviewFailure = canConvertFailedQuickDeploymentToReview(task)
     const namespaces = candidate ? candidate.namespaces.map(item => '<option value="' + escapeHtml(item) + '" ' + (deploymentRuntime.namespace === item ? 'selected' : '') + '>' + escapeHtml(item) + '</option>').join('') : ''
     const serviceSelection = candidate && deploymentRuntime.namespace
-      ? deploymentServicePicker() + '<div style="display:flex;justify-content:flex-end;margin-top:14px"><button class="button primary" data-create-deploy-task ' + (deploymentRuntime.busy || !deploymentRuntime.selectedServices.size ? 'disabled' : '') + '>① 分析补全</button></div>'
+      ? deploymentServicePicker() + '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px"><button class="button" data-create-deploy-task="REVIEW" ' + (deploymentRuntime.busy || !deploymentRuntime.selectedServices.size ? 'disabled' : '') + '>分析并审阅</button><button class="button primary" data-create-deploy-task="QUICK" ' + (deploymentRuntime.busy || !deploymentRuntime.selectedServices.size ? 'disabled' : '') + '>快速部署</button></div>'
       : candidate ? '<div class="environment-empty">选择命名空间后读取其中可部署的服务</div>' : ''
     const logs = deploymentRuntime.logs.length ? deploymentRuntime.logs.slice(-500).map(item => '<div><b>' + escapeHtml(item.time) + '</b> [' + escapeHtml(item.stage) + '] ' + escapeHtml((item.service ? item.service + ' · ' : '') + item.message) + '</div>').join('') : '<div>部署阶段日志将在这里显示</div>'
+    const inputPanel = '<section class="panel"><div class="panel-head"><div><h2>部署输入</h2><p style="color:var(--muted);margin-top:3px;font-size:12px">OM 固定使用 root，命令不加 sudo</p></div><span class="badge red">uninstall → install</span></div><div class="panel-body"><div class="form-grid"><div class="field wide"><label>成功构建产物</label><select id="deployment-artifact" ' + (deploymentRuntime.busy ? 'disabled' : '') + '><option value="">请选择</option>' + artifactOptions + '</select></div><div class="field"><label>模块</label><input readonly value="' + escapeHtml(candidate?.module || deploymentRuntime.artifacts.find(item => String(item.id) === String(deploymentRuntime.artifactId))?.module || '—') + '"></div><div class="field"><label>命名空间</label><select id="deployment-namespace" ' + (!candidate ? 'disabled' : '') + '><option value="">请选择命名空间</option>' + namespaces + '</select></div></div><div style="display:flex;justify-content:flex-end;margin-top:14px"><button class="button" data-deployment-candidates ' + (!deploymentRuntime.artifactId || deploymentRuntime.busy ? 'disabled' : '') + '>读取服务与命名空间</button></div>' + serviceSelection + '</div></section>'
     return pageTitle('部署', '从成功构建产物生成 Chart，校验后执行覆盖式重装。') + containerEnvironmentBar()
-      + '<section class="panel"><div class="panel-head"><div><h2>部署输入</h2><p style="color:var(--muted);margin-top:3px;font-size:12px">OM 固定使用 root，命令不加 sudo</p></div><span class="badge red">uninstall → install</span></div><div class="panel-body"><div class="form-grid"><div class="field wide"><label>成功构建产物</label><select id="deployment-artifact" ' + (deploymentRuntime.busy ? 'disabled' : '') + '><option value="">请选择</option>' + artifactOptions + '</select></div><div class="field"><label>模块</label><input readonly value="' + escapeHtml(candidate?.module || deploymentRuntime.artifacts.find(item => String(item.id) === String(deploymentRuntime.artifactId))?.module || '—') + '"></div><div class="field"><label>命名空间</label><select id="deployment-namespace" ' + (!candidate ? 'disabled' : '') + '><option value="">请选择命名空间</option>' + namespaces + '</select></div></div><div style="display:flex;justify-content:flex-end;margin-top:14px"><button class="button" data-deployment-candidates ' + (!deploymentRuntime.artifactId || deploymentRuntime.busy ? 'disabled' : '') + '>读取服务与命名空间</button></div>'
-      + serviceSelection + '</div></section>'
-      + (preparation ? '<div class="deployment-layout"><section class="panel"><div class="panel-head"><h2>服务与阶段</h2><span class="badge">revision ' + preparation.revision + '</span></div><div class="panel-body"><div class="deployment-service-list">' + deploymentServiceRows(preparation) + '</div><div class="deployment-actions"><button class="button" data-deployment-action="apply" ' + (!canApply || deploymentRuntime.busy ? 'disabled' : '') + '>② 生成 Chart</button><button class="button" data-deployment-action="render" ' + (!canRender || deploymentRuntime.busy ? 'disabled' : '') + '>③ 渲染校验</button><button class="button primary" data-deployment-action="deploy" ' + (!canDeploy || deploymentRuntime.busy ? 'disabled' : '') + '>④ 确认并部署</button></div></div></section>' + deploymentDetails() + '</div><section class="panel" style="margin-top:16px"><div class="panel-head"><h2>实时日志</h2><span class="mono" style="color:var(--muted);font-size:12px">' + escapeHtml(preparation.id) + '</span></div><div class="panel-body"><div class="terminal build-terminal">' + logs + '</div></div></section>' : '')
+      + (task ? '' : inputPanel)
+      + (task ? '<div class="deployment-layout"><section class="panel"><div class="panel-head"><h2>' + (task.mode === 'QUICK' ? '快速部署' : '审阅部署') + '</h2><span class="badge">' + escapeHtml(deploymentStatusPresentation[task.status] || task.status) + ' · revision ' + task.revision + '</span></div><div class="panel-body"><div class="deployment-service-list">' + deploymentServiceRows(task) + '</div><div class="deployment-actions">' + (task.status === 'AWAITING_REVIEW' ? '<button class="button primary" data-deployment-action ' + (!canDeploy || deploymentRuntime.busy ? 'disabled' : '') + '>确认配置并部署</button>' : '') + (canReviewFailure ? '<button class="button primary" data-review-failed-deployment>转为审阅部署</button>' : '') + (['SUCCEEDED', 'FAILED'].includes(task.status) ? '<button class="button" data-repeat-deployment>使用相同输入重新部署</button>' : '') + '</div></div></section>' + deploymentDetails() + '</div><section class="panel" style="margin-top:16px"><div class="panel-head"><h2>实时日志</h2><span class="mono" style="color:var(--muted);font-size:12px">' + escapeHtml(task.id) + '</span></div><div class="panel-body"><div class="terminal build-terminal">' + logs + '</div></div></section>' : '')
   }
 
   const originalCommonPage = commonPage
@@ -809,9 +854,10 @@
         deploymentRuntime.selectedServices.clear()
         deploymentRuntime.serviceQuery = ''
         deploymentRuntime.namespace = ''
-        deploymentRuntime.preparation = null
+        deploymentRuntime.task = null
       }
       render(false)
+      await restoreDeploymentSelection()
     } catch (error) {
       showToast(error.message || '构建产物加载失败')
     }
@@ -822,7 +868,7 @@
     if (!deploymentRuntime.artifactId || !environment?._apiId) return showToast('请选择构建产物和容器环境')
     deploymentRuntime.busy = true
     if (!namespace) deploymentRuntime.candidates = null
-    else deploymentRuntime.candidates = {...deploymentRuntime.candidates, services: []}
+    else deploymentRuntime.candidates = {...deploymentRuntime.candidates, workloads: []}
     deploymentRuntime.selectedServices.clear()
     deploymentRuntime.serviceQuery = ''
     deploymentRuntime.namespace = namespace
@@ -839,20 +885,24 @@
     }
   }
 
-  createDeployTask = async function () {
+  async function startDeployment(mode) {
     const environment = environments.find(item => item.id === state.selectedContainerEnvironment) || environments.find(item => item.type === 'container')
     const services = [...deploymentRuntime.selectedServices]
     const namespace = deploymentRuntime.namespace
     if (!services.length || !namespace || !environment?._apiId) return showToast('请选择命名空间和至少一个服务')
+    if (mode === 'QUICK' && !confirm('确认快速部署到 ' + environment.name + ' / ' + namespace + '：' + services.join('、') + '\n\n系统将执行覆盖式重装，开始后无需再次确认。')) return
     deploymentRuntime.busy = true
     render(false)
     try {
-      deploymentRuntime.preparation = await request('/api/deployment-preparations', {method: 'POST', body: JSON.stringify({artifactId: Number(deploymentRuntime.artifactId), environmentId: environment._apiId, namespace, services})})
+      deploymentRuntime.task = await request('/api/deployment-tasks', {method: 'POST', body: JSON.stringify({mode, artifactId: Number(deploymentRuntime.artifactId), environmentId: environment._apiId, namespace, services})})
+      localStorage.setItem(activeDeploymentTaskKey, deploymentRuntime.task.id)
+      localStorage.removeItem(deploymentEventSequenceKey(deploymentRuntime.task.id))
+      localStorage.removeItem(deploymentEventLogKey(deploymentRuntime.task.id))
       deploymentRuntime.activeService = services[0]
       deploymentRuntime.logs = []
-      subscribeDeployment(deploymentRuntime.preparation.id)
+      subscribeDeployment(deploymentRuntime.task.id)
     } catch (error) {
-      showToast(error.message || '部署分析启动失败')
+      showToast(error.message || '部署任务启动失败')
     } finally {
       deploymentRuntime.busy = false
       render(false)
@@ -861,45 +911,66 @@
 
   function subscribeDeployment(id) {
     deploymentRuntime.eventSource?.close()
-    const source = new EventSource('/api/deployment-preparations/' + id + '/events')
+    const afterSequence = localStorage.getItem(deploymentEventSequenceKey(id)) || '0'
+    const source = new EventSource('/api/deployment-tasks/' + id + '/events?afterSequence=' + encodeURIComponent(afterSequence))
     deploymentRuntime.eventSource = source
     source.onmessage = event => {
       const item = JSON.parse(event.data)
+      if (event.lastEventId) localStorage.setItem(deploymentEventSequenceKey(id), event.lastEventId)
       deploymentRuntime.logs.push({time: new Date(item.occurredAt).toLocaleTimeString('zh-CN', {hour12: false}), ...item})
-      request('/api/deployment-preparations/' + id).then(value => {
-        deploymentRuntime.preparation = value
+      deploymentRuntime.logs = deploymentRuntime.logs.slice(-500)
+      localStorage.setItem(deploymentEventLogKey(id), JSON.stringify(deploymentRuntime.logs))
+      request('/api/deployment-tasks/' + id).then(value => {
+        deploymentRuntime.task = value
         render(false)
       }).catch(() => {})
     }
     source.addEventListener('expired', event => {
       source.close()
-      if (deploymentRuntime.preparation?.id !== id) return
+      if (deploymentRuntime.task?.id !== id) return
       deploymentRuntime.eventSource = null
-      deploymentRuntime.preparation = null
+      deploymentRuntime.task = null
       deploymentRuntime.logs = []
+      localStorage.removeItem(activeDeploymentTaskKey)
+      localStorage.removeItem(deploymentEventSequenceKey(id))
+      localStorage.removeItem(deploymentEventLogKey(id))
       render(false)
       showToast(event.data || '服务已重启，请重新分析')
     })
   }
 
-  async function deploymentAction(action) {
-    const preparation = deploymentRuntime.preparation
-    if (!preparation || deploymentRuntime.busy) return
-    if (action === 'deploy') {
-      const services = Object.keys(preparation.services).join('、')
-      if (!confirm('即将部署：' + services + '\n\n将依次执行渲染、卸载旧 release、删除冲突资源、重新安装并等待就绪。确定继续吗？')) return
+  async function restoreActiveDeploymentTask() {
+    const id = localStorage.getItem(activeDeploymentTaskKey)
+    if (!id) return
+    try {
+      const task = await request('/api/deployment-tasks/' + id)
+      deploymentRuntime.task = task
+      deploymentRuntime.artifactId = String(task.artifactId)
+      deploymentRuntime.namespace = task.namespace
+      deploymentRuntime.selectedServices = new Set(Object.keys(task.services))
+      deploymentRuntime.activeService = Object.keys(task.services)[0] || ''
+      deploymentRuntime.logs = JSON.parse(localStorage.getItem(deploymentEventLogKey(id)) || '[]')
+      subscribeDeployment(id)
+      render(false)
+    } catch {
+      localStorage.removeItem(activeDeploymentTaskKey)
     }
+  }
+
+  createDeployTask = event => startDeployment(event?.currentTarget?.dataset?.createDeployTask || 'REVIEW')
+
+  async function deploymentAction() {
+    const task = deploymentRuntime.task
+    if (!task || deploymentRuntime.busy) return
+    const services = Object.keys(task.services).join('、')
+    if (!confirm('确认配置并部署：' + services + '\n\n系统将依次生成 Chart、执行渲染校验和覆盖式重装。确定继续吗？')) return
     deploymentRuntime.busy = true
     render(false)
     try {
-      if (action === 'deploy') {
-        const confirmation = await request('/api/deployment-preparations/' + preparation.id + '/confirmation', {method: 'POST'})
-        await request('/api/deployment-preparations/' + preparation.id + '/deploy', {method: 'POST', body: JSON.stringify(confirmation)})
-        showToast('部署任务已开始，服务将串行执行')
-      } else {
-        deploymentRuntime.preparation = await request('/api/deployment-preparations/' + preparation.id + '/' + action, {method: 'POST'})
-      }
+      await request('/api/deployment-tasks/' + task.id + '/execution', {method: 'POST', body: JSON.stringify({expectedRevision: task.revision})})
+      showToast('部署任务已开始，服务将串行执行')
     } catch (error) {
+      deploymentRuntime.task = await request('/api/deployment-tasks/' + task.id).catch(() => deploymentRuntime.task)
       showToast(error.message || '阶段执行失败')
     } finally {
       deploymentRuntime.busy = false
@@ -908,13 +979,12 @@
   }
 
   async function saveDeploymentValues() {
-    const preparation = deploymentRuntime.preparation
+    const task = deploymentRuntime.task
     const service = deploymentRuntime.activeService
     const values = document.querySelector('#deployment-values')?.value
-    if (!preparation || !service || values == null) return
+    if (!task || !service || values == null) return
     try {
-      await request('/api/deployment-preparations/' + preparation.id + '/services/' + encodeURIComponent(service) + '/values', {method: 'PUT', body: JSON.stringify({values})})
-      deploymentRuntime.preparation = await request('/api/deployment-preparations/' + preparation.id)
+      deploymentRuntime.task = await request('/api/deployment-tasks/' + task.id + '/services/' + encodeURIComponent(service) + '/values', {method: 'PUT', body: JSON.stringify({values})})
       render(false)
       showToast('values.yaml 已保存，请重新生成和渲染')
     } catch (error) {
@@ -929,26 +999,36 @@
       deploymentRuntime.selectedServices.clear()
       deploymentRuntime.serviceQuery = ''
       deploymentRuntime.namespace = ''
-      deploymentRuntime.preparation = null
+      deploymentRuntime.task = null
       render(false)
+      return restoreDeploymentSelection()
     }
     if (event.target.id === 'container-environment-selector') {
+      if (deploymentRuntime.task) {
+        const taskEnvironment = environments.find(item => item._apiId === deploymentRuntime.task.environmentId)
+        if (taskEnvironment) state.selectedContainerEnvironment = taskEnvironment.id
+        render(false)
+        showToast('请先使用重新部署入口退出当前任务')
+        return
+      }
       deploymentRuntime.candidates = null
       deploymentRuntime.selectedServices.clear()
       deploymentRuntime.serviceQuery = ''
       deploymentRuntime.namespace = ''
-      deploymentRuntime.preparation = null
+      deploymentRuntime.task = null
       deploymentRuntime.eventSource?.close()
       render(false)
+      return restoreDeploymentSelection()
     }
     if (event.target.id === 'deployment-namespace') {
-      deploymentRuntime.preparation = null
+      deploymentRuntime.task = null
       deploymentRuntime.eventSource?.close()
-      return loadDeploymentCandidates(event.target.value)
+      return loadDeploymentCandidates(event.target.value).then(saveDeploymentSelection)
     }
     if (event.target.name === 'deploymentService') {
       if (event.target.checked) deploymentRuntime.selectedServices.add(event.target.value)
       else deploymentRuntime.selectedServices.delete(event.target.value)
+      saveDeploymentSelection()
       render(false)
     }
   })
@@ -974,7 +1054,7 @@
 
   document.addEventListener('click', function (event) {
     if (event.target.closest?.('[data-select-visible-services]')) {
-      visibleDeploymentServices().forEach(item => deploymentRuntime.selectedServices.add(item))
+      visibleDeploymentWorkloads().filter(item => item.deployable).forEach(item => deploymentRuntime.selectedServices.add(item.name))
       render(false)
       return
     }
@@ -999,7 +1079,29 @@
       return
     }
     const action = event.target.closest?.('[data-deployment-action]')
-    if (action) return deploymentAction(action.dataset.deploymentAction)
+    if (action) return deploymentAction()
+    if (event.target.closest?.('[data-review-failed-deployment]')) {
+      const id = deploymentRuntime.task?.id
+      deploymentRuntime.eventSource?.close()
+      deploymentRuntime.task = null
+      deploymentRuntime.logs = []
+      localStorage.removeItem(activeDeploymentTaskKey)
+      if (id) localStorage.removeItem(deploymentEventSequenceKey(id))
+      if (id) localStorage.removeItem(deploymentEventLogKey(id))
+      render(false)
+      return startDeployment('REVIEW')
+    }
+    if (event.target.closest?.('[data-repeat-deployment]')) {
+      const id = deploymentRuntime.task?.id
+      deploymentRuntime.eventSource?.close()
+      deploymentRuntime.task = null
+      deploymentRuntime.logs = []
+      localStorage.removeItem(activeDeploymentTaskKey)
+      if (id) localStorage.removeItem(deploymentEventSequenceKey(id))
+      if (id) localStorage.removeItem(deploymentEventLogKey(id))
+      render(false)
+      return
+    }
     if (event.target.closest?.('[data-deployment-save-values]')) return saveDeploymentValues()
   })
 
@@ -1061,6 +1163,7 @@
   style.textContent += '.build-directories{overflow:hidden}.build-directories>summary{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 16px;cursor:pointer;list-style:none}.build-directories>summary::-webkit-details-marker{display:none}.build-directories>summary span:first-child{display:flex;align-items:center;gap:10px}.build-directories>summary small,.build-directory-help{color:var(--muted);font-size:12px}.build-directories[open] .build-directory-toggle{font-size:0}.build-directories[open] .build-directory-toggle::after{content:"收起";font-size:12px}.build-directory-toggle{color:var(--brand);font-size:12px}.build-directories>.panel-body{border-top:1px solid var(--line)}.build-directory-help{margin-bottom:10px}'
   style.textContent += '.environment-row.container-compact-row{grid-template-columns:minmax(180px,1.1fr) 155px minmax(250px,1.45fr) 100px minmax(130px,.8fr) minmax(390px,1.6fr);min-width:1160px}.container-entry-list{display:grid;gap:5px;min-width:0}.container-entry-list>span{display:grid;grid-template-columns:44px minmax(0,1fr);align-items:center;gap:6px;min-width:0;font-size:12px}.container-entry-list b{color:var(--faint);font-weight:500}.container-entry-list a,.container-entry-list em{overflow:hidden;color:var(--brand);font-style:normal;text-decoration:none;text-overflow:ellipsis;white-space:nowrap}.container-entry-list a:hover{text-decoration:underline}.container-detail-row{min-width:1160px;padding:0 16px 14px;border-bottom:1px solid var(--line);background:var(--surface-soft)}.container-detail-grid{display:grid;grid-template-columns:repeat(4,minmax(180px,1fr));gap:8px 16px;padding:13px;border:1px solid var(--line);border-radius:8px;background:var(--surface)}.container-detail-item{display:grid;grid-template-columns:90px minmax(0,1fr) auto;align-items:center;gap:7px;min-width:0;font-size:12px}.container-detail-item>span{color:var(--muted)}.container-detail-item>strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}.container-detail-item>button{border:0;padding:0;color:var(--brand);background:transparent;font-size:11px}@media(max-width:700px){.environment-row.container-compact-row{min-width:0;grid-template-columns:repeat(2,minmax(0,1fr))}.container-compact-row>.container-entry-list,.container-compact-row>.environment-actions{grid-column:1/-1}.container-detail-row{min-width:0}.container-detail-grid{grid-template-columns:1fr}.container-detail-item{grid-template-columns:90px minmax(0,1fr) auto}}'
   style.textContent += '.deployment-service-picker{margin-top:15px;border:1px solid var(--line);border-radius:9px;overflow:hidden}.deployment-service-toolbar{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line);background:var(--surface-soft)}.deployment-service-toolbar input{min-width:200px;max-width:360px;padding:7px 9px;border:1px solid var(--line);border-radius:7px}.deployment-service-toolbar>span{color:var(--muted);font-size:12px}.deployment-service-toolbar .button:first-of-type{margin-left:auto}.deployment-service-options{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:0;max-height:250px;overflow:auto;padding:6px}.deployment-service-option{display:flex;align-items:center;gap:8px;min-width:0;padding:8px 10px;border-radius:7px;font-size:12px}.deployment-service-option:hover{background:var(--surface-soft)}.deployment-service-option span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}@media(max-width:700px){.deployment-service-toolbar{align-items:stretch;flex-direction:column}.deployment-service-toolbar input{max-width:none}.deployment-service-toolbar .button:first-of-type{margin-left:0}.deployment-service-options{grid-template-columns:1fr}}'
+  style.textContent += '.deployment-service-option>span{display:grid;gap:2px}.deployment-service-option strong{overflow:hidden;text-overflow:ellipsis}.deployment-service-option small{color:var(--muted);font-size:11px}.deployment-service-option.unavailable{color:var(--muted)}'
   document.head.appendChild(style)
 
   new MutationObserver(patchEnvironmentForm).observe(document.querySelector('#app'), {childList: true, subtree: true})
@@ -1068,6 +1171,6 @@
   loadResources()
   loadBuildConfiguration()
   loadBuildHistory()
-  loadDeploymentArtifacts()
+  loadDeploymentArtifacts().then(restoreActiveDeploymentTask)
   restoreActiveBuildTask()
 })()

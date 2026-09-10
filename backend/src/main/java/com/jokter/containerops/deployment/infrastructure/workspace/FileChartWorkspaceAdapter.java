@@ -21,8 +21,8 @@ class FileChartWorkspaceAdapter implements ChartWorkspacePort {
     }
 
     @Override
-    public void write(String preparationId, PreparedService service) {
-        Path serviceRoot = resolve(preparationId, service.service());
+    public void write(String taskId, PreparedService service) {
+        Path serviceRoot = resolve(taskId, service.service());
         try {
             Files.createDirectories(serviceRoot.resolve("templates"));
             Files.writeString(serviceRoot.resolve("values.yaml"), service.values(), StandardCharsets.UTF_8);
@@ -40,8 +40,8 @@ class FileChartWorkspaceAdapter implements ChartWorkspacePort {
     }
 
     @Override
-    public Map<String, byte[]> files(String preparationId, String service) {
-        Path serviceRoot = resolve(preparationId, service);
+    public Map<String, byte[]> files(String taskId, String service) {
+        Path serviceRoot = resolve(taskId, service);
         Map<String, byte[]> result = new LinkedHashMap<>();
         try (var files = Files.walk(serviceRoot)) {
             files.filter(Files::isRegularFile).forEach(file -> {
@@ -57,8 +57,8 @@ class FileChartWorkspaceAdapter implements ChartWorkspacePort {
         }
     }
 
-    private Path resolve(String preparationId, String service) {
-        Path path = root.resolve(preparationId).resolve(service).normalize();
+    private Path resolve(String taskId, String service) {
+        Path path = root.resolve(taskId).resolve(service).normalize();
         if (!path.startsWith(root)) {
             throw new IllegalArgumentException("Chart 工作目录不正确");
         }

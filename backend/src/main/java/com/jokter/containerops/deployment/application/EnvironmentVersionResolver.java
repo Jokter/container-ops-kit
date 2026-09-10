@@ -22,6 +22,14 @@ final class EnvironmentVersionResolver {
         this.yamlMapper = new ObjectMapper(new YAMLFactory());
     }
 
+    List<String> availableServices(List<String> buildServices, List<RuntimeContainer> containers) {
+        Set<String> pods = new LinkedHashSet<>();
+        containers.forEach(container -> pods.add(container.pod()));
+        return buildServices.stream()
+                .filter(service -> pods.stream().anyMatch(pod -> pod.startsWith(service + "-")))
+                .toList();
+    }
+
     Map<String, String> packageVersions(String text, String architecture) {
         JsonNode packages = json(text, "lock.json").path("packages");
         if (!packages.isArray()) throw new IllegalStateException("lock.json 缺少 packages 数组");
@@ -91,14 +99,6 @@ final class EnvironmentVersionResolver {
             containers.add(new RuntimeContainer(columns[0], columns[1], columns[2], Boolean.parseBoolean(columns[3]), columns[4]));
         }
         return List.copyOf(containers);
-    }
-
-    List<String> availableServices(List<String> buildServices, List<RuntimeContainer> containers) {
-        Set<String> pods = new LinkedHashSet<>();
-        containers.forEach(container -> pods.add(container.pod()));
-        return buildServices.stream()
-                .filter(service -> pods.stream().anyMatch(pod -> pod.startsWith(service + "-")))
-                .toList();
     }
 
     ServiceRuntimeIdentity runtimeIdentity(String values) {
