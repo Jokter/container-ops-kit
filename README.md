@@ -1,6 +1,6 @@
 # 运维平台
 
-运维平台以容器化、虚拟化和公共能力作为顶层边界；当前提供环境资源管理、真实 SSH 连接测试、远程构建和部署工作区。
+运维平台以容器化、虚拟化和自动化工具作为顶层边界；当前提供环境资源管理、真实 SSH 连接测试、远程构建、部署和 Auto-UT 工作区。
 
 ## 一键启动
 
@@ -24,6 +24,8 @@ Windows 双击根目录的 `start.bat`。脚本会检查 Java 21、Maven、Node.
 构建规则和 API 索引见 [构建工作区](docs/build-workspace.md)。
 
 部署工作区位于 `com.jokter.containerops.deployment`，从成功构建产物读取 Chart，并从容器环境 OM 节点采集真实版本、JAR、镜像和环境 global 配置。部署规则和破坏性操作边界见 [部署工作区](docs/deployment-workspace.md)。
+
+Auto-UT 工作区位于 `com.jokter.containerops.autout`，从用户上传的 Grafana UT CSV 创建本机修复任务。运行边界和 API 索引见 [Auto-UT 工作区](docs/auto-ut-workspace.md)。
 
 ## 手动启动后端
 

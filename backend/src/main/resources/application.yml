@@ -53,3 +53,36 @@ build:
       charts-path: optimization-feature-charts/chartTool/charts
   ssh:
     command-timeout: 1800000
+auto-ut:
+  log-directory: ./data/auto-ut/logs
+  language: Java
+  pl-group: Access_智能监控组
+  repair:
+    command: pi
+    timeout-minutes: 30
+    max-attempts-per-run: 3
+  guard:
+    forbidden-markers:
+      - "@Disabled"
+      - "@Ignore"
+  scm:
+    command: gh
+    create-pull-request: true
+  repositories:
+    coder:
+      url: https://github.com/Jokter/Coder.git
+      test-command:
+        - mvn
+        - -B
+        - -ntp
+        - clean
+        - test
+      verification-command:
+        - mvn
+        - -B
+        - -ntp
+        - clean
+        - org.jacoco:jacoco-maven-plugin:0.8.12:prepare-agent
+        - test
+        - org.jacoco:jacoco-maven-plugin:0.8.12:report
+      coverage-report: target/site/jacoco/jacoco.xml
