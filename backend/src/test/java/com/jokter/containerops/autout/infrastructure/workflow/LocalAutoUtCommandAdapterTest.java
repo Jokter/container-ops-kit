@@ -37,6 +37,18 @@ class LocalAutoUtCommandAdapterTest {
                 .hasMessageContaining("命令工作目录不存在");
     }
 
+    @Test
+    void 非交互命令可以收到标准输入结束信号() throws Exception {
+        Files.createDirectories(temporary.resolve("workspace"));
+
+        AutoUtCommandResult result = new LocalAutoUtCommandAdapter(new TestSettings(temporary)).run(
+                List.of("cmd.exe", "/d", "/c", "more > nul & echo stdin-closed"),
+                temporary.resolve("workspace"), Duration.ofSeconds(1), "task", "输入结束检查");
+
+        assertThat(result.succeeded()).isTrue();
+        assertThat(result.output()).contains("stdin-closed");
+    }
+
     private record TestSettings(Path root) implements AutoUtSettings {
         @Override public String language() { return "Java"; }
         @Override public String plGroup() { return "Access_智能监控组"; }

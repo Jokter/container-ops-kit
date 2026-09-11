@@ -187,7 +187,6 @@
     .auto-ut-directory-footer { justify-content: flex-end; border-top: 1px solid var(--line); }
     .auto-ut-progress { height: 6px; margin-top: 9px; overflow: hidden; border-radius: 999px; background: var(--surface-soft); }
     .auto-ut-progress span { display: block; height: 100%; border-radius: inherit; background: var(--brand); transition: width .25s ease; }
-    .auto-ut-history { display: grid; gap: 3px; margin-top: 7px; color: var(--muted); font-size: 11px; }
     .auto-ut-task-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
     .overview-card { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 14px 16px; }
     .overview-card p { margin-top: 3px; color: var(--muted); font-size: 12px; }
@@ -550,15 +549,15 @@
 
     function autoUtRows(items, planned = false) {
       if (!items.length) return `<p style="color:var(--muted)">${planned ? '上传报告并扫描后显示执行计划。' : '暂无 Auto-UT 任务。'}</p>`;
-      return `<div class="auto-ut-list">${items.map(item => {
+      const visibleItems = planned ? items : items.filter((item, index) => items.findIndex(candidate => candidate.repository === item.repository) === index);
+      return `<div class="auto-ut-list">${visibleItems.map(item => {
         if (planned) return `<div class="auto-ut-row"><div><strong>${escapeHtml(item.repository)}</strong><p>失败 ${item.failedTests} · 行覆盖率 ${Math.round(item.lineCoverage * 100)}%/${Math.round(item.lineGoal * 100)}%</p></div><code>${escapeHtml(item.repairBranch || '仓库未配置')}</code><span class="badge ${item.configured ? 'green' : 'red'}">${item.configured ? '可执行' : '未配置'}</span></div>`;
-        const history = (item.history || []).slice(-3).reverse().map(event => `<span>${escapeHtml(event.message)}</span>`).join('');
         const action = item.pullRequestUrl
           ? `<a class="button small" href="${escapeHtml(item.pullRequestUrl)}" target="_blank" rel="noopener noreferrer">打开 Pull Request ↗</a>`
           : item.status === 'WAITING_CONFIRMATION' || item.status === 'WAITING_EXTERNAL'
             ? `<button class="button small primary" data-auto-ut-continue="${escapeHtml(item.id)}">${item.status === 'WAITING_EXTERNAL' ? '重试' : '继续'}：${escapeHtml(autoUtStage[item.nextStage] || item.nextStage)}</button>`
             : `<code>${escapeHtml(item.repairBranch)}</code>`;
-        return `<div class="auto-ut-row"><div><strong>${escapeHtml(item.repository)}</strong><p>${escapeHtml(item.message)}</p><p>📁 ${escapeHtml(item.workspaceRoot)} / ${escapeHtml(item.repository)}</p><div class="auto-ut-progress" data-auto-ut-progress="${item.progress || 0}"><span style="width:${item.progress || 0}%"></span></div><div class="auto-ut-history">${history}</div></div><div class="auto-ut-task-actions">${action}</div><span class="badge ${item.status === 'RESOLVED' ? 'green' : item.status === 'WAITING_EXTERNAL' || item.status === 'WAITING_REPOSITORY' || item.status === 'RETRY_PENDING' ? 'red' : 'brand'}">${autoUtStatus[item.status] || item.status} · ${item.progress || 0}%</span></div>`;
+        return `<div class="auto-ut-row" data-auto-ut-task="${escapeHtml(item.id)}"><div><strong>${escapeHtml(item.repository)}</strong><p>${escapeHtml(item.message)}</p><p>📁 ${escapeHtml(item.workspaceRoot)} / ${escapeHtml(item.repository)}</p><div class="auto-ut-progress" data-auto-ut-progress="${item.progress || 0}"><span style="width:${item.progress || 0}%"></span></div></div><div class="auto-ut-task-actions">${action}</div><span class="badge ${item.status === 'RESOLVED' ? 'green' : item.status === 'WAITING_EXTERNAL' || item.status === 'WAITING_REPOSITORY' || item.status === 'RETRY_PENDING' ? 'red' : 'brand'}">${autoUtStatus[item.status] || item.status} · ${item.progress || 0}%</span></div>`;
       }).join('')}</div>`;
     }
 

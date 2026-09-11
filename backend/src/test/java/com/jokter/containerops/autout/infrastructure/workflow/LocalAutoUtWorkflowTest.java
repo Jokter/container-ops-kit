@@ -66,6 +66,8 @@ class LocalAutoUtWorkflowTest {
         assertThat(task.status()).isEqualTo(AutoUtTaskStatus.RESOLVED);
         assertThat(task.pullRequestUrl()).isEqualTo("https://example.test/pull/1");
         assertThat(commands.labels).containsSubsequence("基线测试", "第1轮-Pi", "第1轮-完整验证", "创建PullRequest");
+        assertThat(commands.commands.stream().filter(command -> command.contains("--session-id")).findFirst())
+                .hasValueSatisfying(command -> assertThat(command).contains("--approve"));
     }
 
     private AutoUtRepositoryDefinition repository() {
@@ -86,7 +88,7 @@ class LocalAutoUtWorkflowTest {
     private void writeJacoco(Path workspace, int coveredLines, int missedLines, int coveredBranches, int missedBranches) throws Exception {
         Path report = workspace.resolve("target/site/jacoco/jacoco.xml");
         Files.createDirectories(report.getParent());
-        Files.writeString(report, "<report><counter type=\"LINE\" missed=\"" + missedLines + "\" covered=\""
+        Files.writeString(report, "<?xml version=\"1.0\"?><!DOCTYPE report PUBLIC \"-//JACOCO//DTD Report 1.1//EN\" \"report.dtd\"><report><counter type=\"LINE\" missed=\"" + missedLines + "\" covered=\""
                 + coveredLines + "\"/><counter type=\"BRANCH\" missed=\"" + missedBranches + "\" covered=\""
                 + coveredBranches + "\"/></report>");
     }
@@ -94,6 +96,7 @@ class LocalAutoUtWorkflowTest {
     private final class RecordingCommands implements AutoUtCommandPort {
         private final Path workspace;
         private final List<String> labels = new ArrayList<>();
+        private final List<List<String>> commands = new ArrayList<>();
 
         private RecordingCommands(Path workspace) {
             this.workspace = workspace;
@@ -102,6 +105,7 @@ class LocalAutoUtWorkflowTest {
         @Override
         public AutoUtCommandResult run(List<String> command, Path directory, Duration timeout, String taskId, String label) {
             labels.add(label);
+            commands.add(List.copyOf(command));
             if (label.equals("检查远端")) return new AutoUtCommandResult(0, "https://example.test/coder.git\n");
             if (label.equals("准备状态")) return new AutoUtCommandResult(0, "");
             if (label.equals("查询本地修复分支") || label.equals("查询远端修复分支")) return new AutoUtCommandResult(1, "");

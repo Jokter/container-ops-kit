@@ -113,7 +113,7 @@ public class LocalAutoUtWorkflow implements AutoUtWorkflow {
         TestEvidence evidence = readSurefire(workspace);
         Path prompt = writePrompt(task, evidence, attempt);
         AutoUtCommandResult pi = run(
-                List.of(settings.piCommand(), "-p", "--mode", "json", "--no-context-files", "--session-id",
+                List.of(settings.piCommand(), "-p", "--mode", "json", "--no-context-files", "--approve", "--session-id",
                         "auto-ut-" + task.id(), "@" + prompt, "执行修复并在完成后简要说明修改。"),
                 workspace, Duration.ofSeconds(settings.piTimeoutSeconds()), task, "第" + attempt + "轮-Pi"
         );
@@ -312,8 +312,11 @@ public class LocalAutoUtWorkflow implements AutoUtWorkflow {
     private Element xml(Path path) {
         try {
             DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
-            factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+            factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
+            factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
+            factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
             factory.setExpandEntityReferences(false);
+            factory.setXIncludeAware(false);
             return factory.newDocumentBuilder().parse(path.toFile()).getDocumentElement();
         } catch (Exception exception) {
             throw new IllegalStateException("XML 报告格式无效：" + path, exception);

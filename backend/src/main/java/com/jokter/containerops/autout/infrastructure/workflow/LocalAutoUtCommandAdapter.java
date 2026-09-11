@@ -37,6 +37,7 @@ public class LocalAutoUtCommandAdapter implements AutoUtCommandPort {
             builder.environment().put("GIT_TERMINAL_PROMPT", "0");
             builder.environment().put("GH_PROMPT_DISABLED", "1");
             Process process = builder.start();
+            process.getOutputStream().close();
             StringBuilder output = new StringBuilder();
             Thread reader = Thread.ofVirtual().start(() -> readOutput(process, output, taskId, label, directory));
             boolean completed = process.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS);

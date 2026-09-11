@@ -121,3 +121,29 @@ test('外部错误任务可以从页面重试当前阶段', async () => {
 
   页面实例.window.close()
 })
+
+test('项目进度只显示每个仓库的最新任务和当前信息', async () => {
+  const 最新任务 = {
+    id: 'new-task', repository: 'coder', status: 'REPAIRING', nextStage: 'REPAIR', progress: 45,
+    message: '正在执行 Pi 修复。', repairBranch: 'master_test_user_ticket', workspaceRoot: 'E:\\AutoUT',
+    createdAt: '2026-09-11T00:08:00Z', history: [{message: '不应显示的历史信息'}]
+  }
+  const 旧任务 = {...最新任务, id: 'old-task', message: '旧任务错误', createdAt: '2026-09-10T00:08:00Z'}
+  const 请求 = async 地址 => {
+    if (地址 === '/api/auto-ut/tasks') return {ok: true, status: 200, json: async () => [最新任务, 旧任务]}
+    if (地址 === '/api/auto-ut/schedule') return {ok: true, status: 204}
+    return {ok: true, status: 200, json: async () => ({})}
+  }
+  const 页面实例 = 打开页面(请求)
+  const 文档 = 页面实例.window.document
+
+  文档.querySelector('[data-platform-domain="automation"]').click()
+  文档.querySelector('[data-automation-capability="auto-ut"]').click()
+  await 等待界面更新()
+
+  assert.equal(文档.querySelectorAll('[data-auto-ut-task]').length, 1)
+  assert.match(文档.querySelector('[data-auto-ut-task]').textContent, /正在执行 Pi 修复/)
+  assert.doesNotMatch(文档.querySelector('[data-auto-ut-task]').textContent, /旧任务错误|不应显示的历史信息/)
+
+  页面实例.window.close()
+})
