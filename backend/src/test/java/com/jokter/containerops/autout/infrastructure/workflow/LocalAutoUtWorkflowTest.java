@@ -36,7 +36,8 @@ class LocalAutoUtWorkflowTest {
                 temporary.resolve("manual").toString(), AutoUtExecutionMode.MANUAL
         );
 
-        new LocalAutoUtWorkflow(new TestSettings(repository, temporary), commands, piAgent(commands), new ObjectMapper())
+        new LocalAutoUtWorkflow(new TestSettings(repository, temporary), commands, piAgent(commands),
+                new ObjectMapper(), new InMemoryAutoUtLiveEventStream())
                 .execute(task, repository, ignored -> {});
 
         assertThat(task.status()).isEqualTo(AutoUtTaskStatus.WAITING_CONFIRMATION);
@@ -63,7 +64,9 @@ class LocalAutoUtWorkflowTest {
                 temporary.resolve("workspaces").toString(), AutoUtExecutionMode.AUTOMATIC
         );
 
-        new LocalAutoUtWorkflow(new TestSettings(repository, temporary), commands, piAgent(commands), new ObjectMapper())
+        InMemoryAutoUtLiveEventStream events = new InMemoryAutoUtLiveEventStream();
+        new LocalAutoUtWorkflow(new TestSettings(repository, temporary), commands, piAgent(commands),
+                new ObjectMapper(), events)
                 .execute(task, repository, ignored -> {});
 
         assertThat(task.status()).isEqualTo(AutoUtTaskStatus.RESOLVED);
@@ -78,6 +81,11 @@ class LocalAutoUtWorkflowTest {
         assertThat(commands.commands).allSatisfy(command -> assertThat(command).doesNotContain("push"));
         assertThat(commands.commands.stream().filter(command -> command.contains("--mode")).findFirst())
                 .hasValueSatisfying(command -> assertThat(command).contains("rpc"));
+        List<com.jokter.containerops.autout.domain.model.AutoUtLiveEvent> live = new ArrayList<>();
+        events.subscribe(task.id(), 0, live::add);
+        assertThat(live).filteredOn(event -> event.type().equals("operation_start"))
+                .extracting(com.jokter.containerops.autout.domain.model.AutoUtLiveEvent::content)
+                .contains("拉取仓库", "基线测试", "创建修复分支", "第1轮-完整验证", "创建CodeHub-MR");
     }
 
     private PiAgentPort piAgent(RecordingCommands commands) {

@@ -3,6 +3,7 @@ package com.jokter.containerops.autout.infrastructure.workflow;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jokter.containerops.autout.application.AutoUtRepositoryDefinition;
+import com.jokter.containerops.autout.application.AutoUtLiveEventStream;
 import com.jokter.containerops.autout.application.AutoUtSettings;
 import com.jokter.containerops.autout.application.AutoUtWorkflow;
 import com.jokter.containerops.autout.domain.model.AutoUtTask;
@@ -20,6 +21,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.UUID;
 import java.util.function.Consumer;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
@@ -35,12 +37,17 @@ public class LocalAutoUtWorkflow implements AutoUtWorkflow {
     private final AutoUtCommandPort commands;
     private final PiAgentPort piAgent;
     private final ObjectMapper json;
+    private final AutoUtLiveEventStream liveEvents;
 
-    public LocalAutoUtWorkflow(AutoUtSettings settings, AutoUtCommandPort commands, PiAgentPort piAgent, ObjectMapper json) {
+    public LocalAutoUtWorkflow(
+            AutoUtSettings settings, AutoUtCommandPort commands, PiAgentPort piAgent,
+            ObjectMapper json, AutoUtLiveEventStream liveEvents
+    ) {
         this.settings = settings;
         this.commands = commands;
         this.piAgent = piAgent;
         this.json = json;
+        this.liveEvents = liveEvents;
     }
 
     @Override
@@ -430,7 +437,19 @@ public class LocalAutoUtWorkflow implements AutoUtWorkflow {
     }
 
     private AutoUtCommandResult run(List<String> command, Path directory, Duration timeout, AutoUtTask task, String label) {
-        return commands.run(command, directory, timeout, task.id(), label);
+        String operationId = UUID.randomUUID().toString();
+        liveEvents.publish(task.id(), "operation_start", label, operationId,
+                String.join(" ", command), false, false);
+        try {
+            AutoUtCommandResult result = commands.run(command, directory, timeout, task.id(), label);
+            liveEvents.publish(task.id(), "operation_end", label, operationId,
+                    "", !result.succeeded(), false);
+            return result;
+        } catch (RuntimeException exception) {
+            liveEvents.publish(task.id(), "operation_end", label, operationId,
+                    "", true, false);
+            throw exception;
+        }
     }
 
     private record TestEvidence(int tests, int failures, int errors, int skipped, String details) {

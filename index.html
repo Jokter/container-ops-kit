@@ -207,6 +207,13 @@
     .auto-ut-tool-head span { margin-left: auto; color: var(--muted); font-size: 11px; }
     .auto-ut-tool.error .auto-ut-tool-head span { color: var(--red); }
     .auto-ut-tool pre { max-height: 180px; overflow: auto; margin: 7px 0 0; color: var(--muted); font: 11px/1.55 "Cascadia Code",Consolas,monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .auto-ut-operation-list { display: grid; gap: 5px; }
+    .auto-ut-operation { display: grid; grid-template-columns: 16px minmax(0,1fr) auto; gap: 8px; align-items: center; padding: 7px 9px; border-radius: 7px; background: white; font-size: 12px; }
+    .auto-ut-operation i { width: 8px; height: 8px; border-radius: 50%; background: var(--brand); box-shadow: 0 0 0 3px rgba(25,114,120,.12); }
+    .auto-ut-operation.done i { background: var(--green); box-shadow: none; }
+    .auto-ut-operation.error i { background: var(--red); box-shadow: none; }
+    .auto-ut-operation span { color: var(--muted); font-size: 11px; }
+    .auto-ut-operation code { grid-column: 2 / -1; font-size: 10px; }
     .overview-card { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 14px 16px; }
     .overview-card p { margin-top: 3px; color: var(--muted); font-size: 12px; }
     .overview-card-meta { display: flex; align-items: center; gap: 14px; color: var(--muted); font-size: 12px; }
@@ -570,7 +577,7 @@
     const autoUtEventSources = new Map();
 
     function autoUtLiveState(taskId) {
-      return state.autoUtLive[taskId] ||= { sequence: 0, thinking: '', message: '', thinkingOpen: true, thinkingActive: false, status: '等待 Pi 输出', tools: {} };
+      return state.autoUtLive[taskId] ||= { sequence: 0, thinking: '', message: '', thinkingOpen: true, thinkingActive: false, status: '执行中', tools: {}, operations: {} };
     }
 
     function trimAutoUtOutput(value) {
@@ -588,6 +595,16 @@
       if (event.type === 'message_delta') live.message = trimAutoUtOutput(live.message + (event.content || ''));
       if (event.type === 'status' || event.type === 'completed') live.status = event.content || live.status;
       if (event.type === 'error') { live.status = event.content || 'Pi 执行失败'; live.error = true; }
+      if (event.type === 'operation_start') {
+        live.operations[event.toolCallId] = { id: event.toolCallId, name: event.content, command: event.toolName, status: '执行中', error: false };
+        live.status = event.content || live.status;
+      }
+      if (event.type === 'operation_end') {
+        const operation = live.operations[event.toolCallId] ||= { id: event.toolCallId, name: event.content, command: '', status: '执行中', error: false };
+        operation.status = event.error ? '失败' : '完成';
+        operation.error = Boolean(event.error);
+        live.status = event.error ? `${operation.name}失败` : `${operation.name}完成`;
+      }
       if (event.type === 'tool_start') {
         live.tools[event.toolCallId] = { id: event.toolCallId, name: event.toolName, args: event.content, output: '', status: '执行中', error: false };
       }
@@ -602,7 +619,7 @@
 
     function connectAutoUtStream(taskId) {
       if (typeof EventSource !== 'function' || autoUtEventSources.has(taskId)) return;
-      const after = autoUtLiveState(taskId).sequence || 0;
+      const after = state.autoUtLive[taskId]?.sequence || 0;
       const source = new EventSource(`/api/auto-ut/tasks/${encodeURIComponent(taskId)}/events?afterSequence=${after}`);
       source.onmessage = message => {
         try { applyAutoUtLiveEvent(taskId, JSON.parse(message.data)); }
@@ -628,10 +645,12 @@
 
     function autoUtLivePanel(item) {
       const live = state.autoUtLive[item.id];
-      if (!live && item.status !== 'REPAIRING') return '';
-      const current = live || autoUtLiveState(item.id);
+      if (!live) return '';
+      const current = live;
+      const operations = Object.values(current.operations || {}).slice(-50).map(operation => `<div class="auto-ut-operation ${operation.error ? 'error' : operation.status === '完成' ? 'done' : ''}"><i></i><strong>${escapeHtml(operation.name || '执行步骤')}</strong><span>${escapeHtml(operation.status)}</span>${operation.command ? `<code title="${escapeHtml(operation.command)}">${escapeHtml(operation.command)}</code>` : ''}</div>`).join('');
       const tools = Object.values(current.tools).map(tool => `<div class="auto-ut-tool ${tool.error ? 'error' : ''}"><div class="auto-ut-tool-head"><strong>${escapeHtml(tool.name || '工具')}</strong><span>${escapeHtml(tool.status)}</span></div>${tool.args ? `<pre>${escapeHtml(tool.args)}</pre>` : ''}${tool.output ? `<pre class="auto-ut-stream-text" data-auto-ut-stream="${escapeHtml(item.id + '-tool-' + tool.id)}">${escapeHtml(tool.output)}</pre>` : ''}</div>`).join('');
-      return `<section class="auto-ut-live" data-auto-ut-live="${escapeHtml(item.id)}"><div class="auto-ut-live-head"><strong>Pi 实时执行</strong><span>${escapeHtml(current.status)}</span></div><details class="auto-ut-thinking" data-auto-ut-thinking="${escapeHtml(item.id)}" ${current.thinkingOpen ? 'open' : ''}><summary>${current.thinkingActive ? '正在思考…' : '思考过程'}${current.thinking ? ` · ${current.thinking.length} 字符` : ''}</summary><pre class="auto-ut-stream-text" data-auto-ut-stream="${escapeHtml(item.id + '-thinking')}">${escapeHtml(current.thinking || '等待模型返回思考内容…')}</pre></details><div class="auto-ut-stream-block"><strong>Pi 回复</strong><pre class="auto-ut-stream-text" data-auto-ut-stream="${escapeHtml(item.id + '-message')}">${escapeHtml(current.message || '等待 Pi 回复…')}</pre></div>${tools ? `<div class="auto-ut-stream-block"><strong>执行过程</strong><div class="auto-ut-tool-list">${tools}</div></div>` : ''}</section>`;
+      const hasPi = current.thinkingActive || current.thinking || current.message || Object.keys(current.tools).length;
+      return `<section class="auto-ut-live" data-auto-ut-live="${escapeHtml(item.id)}"><div class="auto-ut-live-head"><strong>实时执行</strong><span>${escapeHtml(current.status)}</span></div>${operations ? `<div class="auto-ut-stream-block"><strong>流程进度</strong><div class="auto-ut-operation-list">${operations}</div></div>` : ''}${hasPi ? `<details class="auto-ut-thinking" data-auto-ut-thinking="${escapeHtml(item.id)}" ${current.thinkingOpen ? 'open' : ''}><summary>${current.thinkingActive ? 'Pi 正在思考…' : 'Pi 思考过程'}${current.thinking ? ` · ${current.thinking.length} 字符` : ''}</summary><pre class="auto-ut-stream-text" data-auto-ut-stream="${escapeHtml(item.id + '-thinking')}">${escapeHtml(current.thinking || '等待模型返回思考内容…')}</pre></details><div class="auto-ut-stream-block"><strong>Pi 回复</strong><pre class="auto-ut-stream-text" data-auto-ut-stream="${escapeHtml(item.id + '-message')}">${escapeHtml(current.message || '等待 Pi 回复…')}</pre></div>` : ''}${tools ? `<div class="auto-ut-stream-block"><strong>Pi 工具执行</strong><div class="auto-ut-tool-list">${tools}</div></div>` : ''}</section>`;
     }
 
     function autoUtRows(items, planned = false) {

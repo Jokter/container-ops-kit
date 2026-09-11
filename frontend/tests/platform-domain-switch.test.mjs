@@ -236,3 +236,38 @@ test('Pi思考和回复实时展示且回复开始后折叠思考', async () => 
 
   页面实例.window.close()
 })
+
+test('基线阶段展示细分流程且不提前显示Pi等待内容', async () => {
+  const 任务 = {
+    id: 'task-baseline', repository: 'FMInsightService', status: 'BASELINE_RUNNING', nextStage: 'BASELINE', progress: 25,
+    message: '正在执行基线 UT。', repairBranch: 'master_user_ticket', workspaceRoot: 'D:\\Projects\\HWTest'
+  }
+  class 模拟事件源 {
+    static instances = []
+    constructor() { 模拟事件源.instances.push(this) }
+    close() {}
+    emit(event) { this.onmessage?.({data: JSON.stringify(event)}) }
+  }
+  const 请求 = async 地址 => {
+    if (地址 === '/api/auto-ut/tasks') return {ok: true, status: 200, json: async () => [任务]}
+    if (地址 === '/api/auto-ut/schedule') return {ok: true, status: 204}
+    return {ok: true, status: 200, json: async () => ({})}
+  }
+  const 页面实例 = 打开页面(请求, 模拟事件源)
+  const 文档 = 页面实例.window.document
+
+  文档.querySelector('[data-platform-domain="automation"]').click()
+  文档.querySelector('[data-automation-capability="auto-ut"]').click()
+  await new Promise(完成 => setTimeout(完成, 10))
+  模拟事件源.instances[0].emit({
+    sequence: 1, type: 'operation_start', content: '基线测试', toolCallId: 'operation-1', toolName: 'mvn -B -ntp clean test'
+  })
+  await new Promise(完成 => setTimeout(完成, 70))
+
+  const 实时面板 = 文档.querySelector('[data-auto-ut-live="task-baseline"]')
+  assert.match(实时面板.textContent, /基线测试.*执行中/)
+  assert.match(实时面板.textContent, /mvn -B -ntp clean test/)
+  assert.doesNotMatch(实时面板.textContent, /等待 Pi 输出|等待 Pi 回复|等待模型/)
+
+  页面实例.window.close()
+})
