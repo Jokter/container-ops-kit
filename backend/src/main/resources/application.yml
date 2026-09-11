@@ -59,6 +59,7 @@ auto-ut:
   pl-group: Access_智能监控组
   repair:
     command: pi
+    thinking-level: medium
     timeout-minutes: 30
     max-attempts-per-run: 3
   guard:
@@ -66,23 +67,26 @@ auto-ut:
       - "@Disabled"
       - "@Ignore"
   scm:
-    command: gh
-    create-pull-request: true
-  repositories:
-    coder:
-      url: https://github.com/Jokter/Coder.git
-      test-command:
-        - mvn
-        - -B
-        - -ntp
-        - clean
-        - test
-      verification-command:
-        - mvn
-        - -B
-        - -ntp
-        - clean
-        - org.jacoco:jacoco-maven-plugin:0.8.12:prepare-agent
-        - test
-        - org.jacoco:jacoco-maven-plugin:0.8.12:report
-      coverage-report: target/site/jacoco/jacoco.xml
+    command: codehub-cli
+    create-merge-request: true
+    reviewers: ${AUTO_UT_CODEHUB_REVIEWERS:}
+    approvers: ${AUTO_UT_CODEHUB_APPROVERS:}
+    assignees: ${AUTO_UT_CODEHUB_ASSIGNEES:}
+  repository-template:
+    url: "ssh://git@szv-y.codehub.huawei.com:2222/MAE-M/Access/{repository}.git"
+    test-command:
+      - mvn
+      - -B
+      - -ntp
+      - clean
+      - test
+    verification-command:
+      - mvn
+      - -B
+      - -ntp
+      - clean
+      - org.jacoco:jacoco-maven-plugin:0.8.12:prepare-agent
+      - test
+      - org.jacoco:jacoco-maven-plugin:0.8.12:report
+    coverage-report: target/site/jacoco/jacoco.xml
+  repositories: {}

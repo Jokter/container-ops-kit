@@ -1,5 +1,7 @@
 package com.jokter.containerops.autout.infrastructure.workflow;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jokter.containerops.autout.application.AutoUtRepositoryDefinition;
 import com.jokter.containerops.autout.application.AutoUtSettings;
 import com.jokter.containerops.autout.application.AutoUtWorkflow;
@@ -31,10 +33,14 @@ public class LocalAutoUtWorkflow implements AutoUtWorkflow {
     private static final Pattern TRIVIAL_ASSERTION = Pattern.compile("assertTrue\\s*\\(\\s*true\\s*\\)|assertFalse\\s*\\(\\s*false\\s*\\)");
     private final AutoUtSettings settings;
     private final AutoUtCommandPort commands;
+    private final PiAgentPort piAgent;
+    private final ObjectMapper json;
 
-    public LocalAutoUtWorkflow(AutoUtSettings settings, AutoUtCommandPort commands) {
+    public LocalAutoUtWorkflow(AutoUtSettings settings, AutoUtCommandPort commands, PiAgentPort piAgent, ObjectMapper json) {
         this.settings = settings;
         this.commands = commands;
+        this.piAgent = piAgent;
+        this.json = json;
     }
 
     @Override
@@ -68,7 +74,7 @@ public class LocalAutoUtWorkflow implements AutoUtWorkflow {
                 } else if (stage == AutoUtStage.VERIFY) {
                     verify(task, repository, workspace);
                 } else if (stage == AutoUtStage.PUBLISH) {
-                    publish(task, repository, workspace);
+                    publish(task, workspace);
                 }
                 checkpoint.accept(task);
             } while (task.executionMode() == AutoUtExecutionMode.AUTOMATIC
@@ -112,11 +118,8 @@ public class LocalAutoUtWorkflow implements AutoUtWorkflow {
         int attempt = task.attempts();
         TestEvidence evidence = readSurefire(workspace);
         Path prompt = writePrompt(task, evidence, attempt);
-        AutoUtCommandResult pi = run(
-                List.of(settings.piCommand(), "-p", "--mode", "json", "--no-context-files", "--approve", "--session-id",
-                        "auto-ut-" + task.id(), "@" + prompt, "执行修复并在完成后简要说明修改。"),
-                workspace, Duration.ofSeconds(settings.piTimeoutSeconds()), task, "第" + attempt + "轮-Pi"
-        );
+        AutoUtCommandResult pi = piAgent.repair(task.id(), workspace, prompt,
+                Duration.ofSeconds(settings.piTimeoutSeconds()), "第" + attempt + "轮-Pi");
         if (!pi.succeeded()) {
             retry(task, "第 " + attempt + " 轮 Pi 执行失败。");
             return;
@@ -238,7 +241,10 @@ public class LocalAutoUtWorkflow implements AutoUtWorkflow {
         return new GuardResult(violations.isEmpty(), List.copyOf(changed), List.copyOf(violations));
     }
 
-    private void publish(AutoUtTask task, AutoUtRepositoryDefinition repository, Path workspace) {
+    private void publish(AutoUtTask task, Path workspace) {
+        if (!settings.createMergeRequest()) {
+            throw new IllegalStateException("CodeHub MR 创建已被配置关闭。");
+        }
         GuardResult finalGuard = inspectChanges(task, workspace, "发布前");
         if (!finalGuard.accepted()) throw new IllegalStateException("发布前修改保护未通过：" + String.join("；", finalGuard.violations()));
         List<String> add = new ArrayList<>(List.of("git", "add", "--"));
@@ -246,17 +252,73 @@ public class LocalAutoUtWorkflow implements AutoUtWorkflow {
         required(add, workspace, SHORT_COMMAND, task, "暂存修改");
         required(List.of("git", "commit", "-m", "[" + task.ticket() + "] 修复 " + task.repository() + " 单元测试"),
                 workspace, SHORT_COMMAND, task, "提交修改");
-        required(List.of("git", "push", "-u", "origin", task.repairBranch()), workspace, NETWORK_COMMAND, task, "推送修复分支");
-        String url = required(List.of(settings.ghCommand(), "pr", "list", "--head", task.repairBranch(), "--base",
-                task.baseBranch(), "--state", "open", "--json", "url", "--jq", ".[0].url"), workspace, SHORT_COMMAND, task, "查询PullRequest").output().trim();
-        if (url.isBlank() && settings.createPullRequest()) {
-            url = required(List.of(settings.ghCommand(), "pr", "create", "--head", task.repairBranch(), "--base", task.baseBranch(),
-                    "--title", "[" + task.ticket() + "] 修复 " + task.repository() + " 单元测试",
-                    "--body", "自动修复 " + task.reportedFailedTests() + " 个失败单元测试。\n\n完整 UT 与覆盖率验证已通过。"),
-                    workspace, SHORT_COMMAND, task, "创建PullRequest").output().trim();
+        String title = "[" + task.ticket() + "] 修复 " + task.repository() + " 单元测试";
+        String description = "自动修复 " + task.reportedFailedTests() + " 个失败单元测试。\n\n完整 UT 与覆盖率验证已通过。";
+        List<String> upload = new ArrayList<>(List.of(
+                settings.codeHubCommand(), "mr", "upload",
+                "--dest", task.baseBranch(),
+                "--br", task.repairBranch(),
+                "--topic", task.repairBranch(),
+                "-T", title,
+                "-D", description
+        ));
+        addOption(upload, "--reviewers", settings.codeHubReviewers());
+        addOption(upload, "--approvers", settings.codeHubApprovers());
+        addOption(upload, "--assignees", settings.codeHubAssignees());
+        upload.add("-y");
+        AutoUtCommandResult uploaded = required(upload, workspace, NETWORK_COMMAND, task, "创建CodeHub-MR");
+        CodeHubMergeRequest mergeRequest = parseMergeRequest(uploaded.output());
+        verifyReviewers(task, workspace, mergeRequest.iid());
+        task.resolve(mergeRequest.url());
+    }
+
+    private CodeHubMergeRequest parseMergeRequest(String output) {
+        CodeHubMergeRequest complete = mergeRequestFromJson(output);
+        if (complete != null) return complete;
+        for (String line : output.lines().toList().reversed()) {
+            CodeHubMergeRequest response = mergeRequestFromJson(line);
+            if (response != null) return response;
         }
-        if (url.isBlank()) throw new IllegalStateException("未创建 Pull Request，且未找到对应的未关闭 Pull Request。");
-        task.resolve(url.lines().reduce((first, second) -> second).orElse(url));
+        throw new IllegalStateException("CodeHub MR 已上传，但无法从 codehub-cli 输出中读取 id 和 mr_url。");
+    }
+
+    private CodeHubMergeRequest mergeRequestFromJson(String value) {
+        try {
+            JsonNode response = json.readTree(value);
+            String url = response.path("mr_url").asText("").trim();
+            String iid = response.path("id").asText("").trim();
+            return url.isBlank() || iid.isBlank() ? null : new CodeHubMergeRequest(iid, url);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private void addOption(List<String> command, String option, String value) {
+        if (value != null && !value.isBlank()) {
+            command.add(option);
+            command.add(value.trim());
+        }
+    }
+
+    private void verifyReviewers(AutoUtTask task, Path workspace, String iid) {
+        AutoUtCommandResult result = run(List.of(
+                settings.codeHubCommand(), "mr", "view", iid,
+                "--columns", "iid,title,approval_merge_request_reviewers,approval_merge_request_approvers"
+        ), workspace, NETWORK_COMMAND, task, "检查CodeHub-MR评审人");
+        if (!result.succeeded()) {
+            task.record("CodeHub MR 已创建，但评审人检查失败，请在 CodeHub 中确认。");
+            return;
+        }
+        try {
+            JsonNode response = json.readTree(result.output());
+            JsonNode reviewers = response.path("approval_merge_request_reviewers");
+            JsonNode approvers = response.path("approval_merge_request_approvers");
+            if (reviewers.isArray() && reviewers.isEmpty() && approvers.isArray() && approvers.isEmpty()) {
+                task.record("CodeHub MR 已创建，但尚未配置评审人或批准人。");
+            }
+        } catch (Exception exception) {
+            task.record("CodeHub MR 已创建，但无法解析评审人检查结果。");
+        }
     }
 
     private TestEvidence readSurefire(Path workspace) {
@@ -379,5 +441,8 @@ public class LocalAutoUtWorkflow implements AutoUtWorkflow {
     }
 
     private record GuardResult(boolean accepted, List<String> changedFiles, List<String> violations) {
+    }
+
+    private record CodeHubMergeRequest(String iid, String url) {
     }
 }

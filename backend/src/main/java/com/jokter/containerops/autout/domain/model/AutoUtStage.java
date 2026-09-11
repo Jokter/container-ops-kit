@@ -5,7 +5,7 @@ public enum AutoUtStage {
     BASELINE(AutoUtTaskStatus.BASELINE_RUNNING, 25, "正在执行基线 UT。"),
     REPAIR(AutoUtTaskStatus.REPAIRING, 45, "正在执行 Pi 修复。"),
     VERIFY(AutoUtTaskStatus.VERIFYING, 70, "正在执行完整验证。"),
-    PUBLISH(AutoUtTaskStatus.PR_CREATING, 90, "正在提交并创建 Pull Request。"),
+    PUBLISH(AutoUtTaskStatus.PR_CREATING, 90, "正在提交并创建 CodeHub MR。"),
     DONE(AutoUtTaskStatus.RESOLVED, 100, "任务已完成。");
 
     private final AutoUtTaskStatus status;

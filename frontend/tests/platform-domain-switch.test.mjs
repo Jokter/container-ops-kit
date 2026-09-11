@@ -6,13 +6,14 @@ import {JSDOM} from 'jsdom'
 const 页面路径 = new URL('../../index.html', import.meta.url)
 const 页面 = await readFile(页面路径, 'utf8')
 
-function 打开页面(请求) {
+function 打开页面(请求, 事件源) {
   return new JSDOM(页面, {
     runScripts: 'dangerously',
     url: 'http://localhost/',
     beforeParse(窗口) {
       窗口.scrollTo = () => {}
       if (请求) 窗口.fetch = 请求
+      if (事件源) 窗口.EventSource = 事件源
     }
   })
 }
@@ -122,6 +123,55 @@ test('外部错误任务可以从页面重试当前阶段', async () => {
   页面实例.window.close()
 })
 
+test('扫描使用默认CodeHub仓库且修改后保存映射', async () => {
+  let 保存请求
+  const 默认地址 = 'ssh://git@szv-y.codehub.huawei.com:2222/MAE-M/Access/FMInsightService.git'
+  const 修改地址 = 'ssh://git@szv-y.codehub.huawei.com:2222/MAE-M/Special/FMInsightService.git'
+  const 请求 = async (地址, 选项 = {}) => {
+    if (地址 === '/api/auto-ut/tasks') return {ok: true, status: 200, json: async () => []}
+    if (地址 === '/api/auto-ut/schedule') return {ok: true, status: 204}
+    if (地址 === '/api/auto-ut/scan') return {ok: true, status: 200, json: async () => [{
+      repository: 'FMInsightService', failedTests: 2, lineCoverage: .75, lineGoal: .8,
+      configured: true, repositoryUrl: 默认地址, repositoryCustomized: false,
+      repairBranch: 'develop_user_DTS1'
+    }]}
+    if (地址.includes('/api/auto-ut/repositories/')) {
+      保存请求 = JSON.parse(选项.body)
+      return {ok: true, status: 200, json: async () => ({
+        repository: 'FMInsightService', url: 保存请求.url, customized: true
+      })}
+    }
+    return {ok: true, status: 200, json: async () => ({})}
+  }
+  const 页面实例 = 打开页面(请求)
+  const 文档 = 页面实例.window.document
+
+  文档.querySelector('[data-platform-domain="automation"]').click()
+  文档.querySelector('[data-automation-capability="auto-ut"]').click()
+  await 等待界面更新()
+  文档.querySelector('#auto-ut-username').value = 'user'
+  文档.querySelector('#auto-ut-ticket').value = 'DTS1'
+  文档.querySelector('#auto-ut-base-branch').value = 'develop'
+  const 文件输入 = 文档.querySelector('#auto-ut-report')
+  Object.defineProperty(文件输入, 'files', {value: [new 页面实例.window.File(['csv'], 'report.csv')]})
+  文件输入.dispatchEvent(new 页面实例.window.Event('change'))
+  文档.querySelector('[data-auto-ut-scan]').click()
+  await 等待界面更新()
+  await 等待界面更新()
+
+  const 仓库输入 = 文档.querySelector('[data-auto-ut-repository-url="FMInsightService"]')
+  assert.equal(仓库输入.value, 默认地址)
+  assert.match(文档.querySelector('[data-auto-ut-repository-save="FMInsightService"]').parentElement.parentElement.textContent, /默认仓库/)
+  仓库输入.value = 修改地址
+  文档.querySelector('[data-auto-ut-repository-save="FMInsightService"]').click()
+  await 等待界面更新()
+
+  assert.equal(保存请求.url, 修改地址)
+  assert.match(文档.querySelector('[data-auto-ut-repository-save="FMInsightService"]').parentElement.parentElement.textContent, /已保存/)
+
+  页面实例.window.close()
+})
+
 test('项目进度只显示每个仓库的最新任务和当前信息', async () => {
   const 最新任务 = {
     id: 'new-task', repository: 'coder', status: 'REPAIRING', nextStage: 'REPAIR', progress: 45,
@@ -144,6 +194,45 @@ test('项目进度只显示每个仓库的最新任务和当前信息', async ()
   assert.equal(文档.querySelectorAll('[data-auto-ut-task]').length, 1)
   assert.match(文档.querySelector('[data-auto-ut-task]').textContent, /正在执行 Pi 修复/)
   assert.doesNotMatch(文档.querySelector('[data-auto-ut-task]').textContent, /旧任务错误|不应显示的历史信息/)
+
+  页面实例.window.close()
+})
+
+test('Pi思考和回复实时展示且回复开始后折叠思考', async () => {
+  const 任务 = {
+    id: 'task-live', repository: 'coder', status: 'REPAIRING', nextStage: 'REPAIR', progress: 45,
+    message: '正在执行 Pi 修复。', repairBranch: 'repair', workspaceRoot: 'E:\\AutoUT', createdAt: '2026-09-11T00:08:00Z'
+  }
+  class 模拟事件源 {
+    static instances = []
+    constructor(url) { this.url = url; 模拟事件源.instances.push(this) }
+    close() {}
+    emit(event) { this.onmessage?.({data: JSON.stringify(event)}) }
+  }
+  const 请求 = async 地址 => {
+    if (地址 === '/api/auto-ut/tasks') return {ok: true, status: 200, json: async () => [任务]}
+    if (地址 === '/api/auto-ut/schedule') return {ok: true, status: 204}
+    return {ok: true, status: 200, json: async () => ({})}
+  }
+  const 页面实例 = 打开页面(请求, 模拟事件源)
+  const 文档 = 页面实例.window.document
+
+  文档.querySelector('[data-platform-domain="automation"]').click()
+  文档.querySelector('[data-automation-capability="auto-ut"]').click()
+  await new Promise(完成 => setTimeout(完成, 10))
+  assert.match(模拟事件源.instances[0].url, /task-live\/events/)
+
+  模拟事件源.instances[0].emit({sequence: 1, type: 'thinking_start'})
+  模拟事件源.instances[0].emit({sequence: 2, type: 'thinking_delta', content: '正在定位失败用例'})
+  await new Promise(完成 => setTimeout(完成, 70))
+  assert.equal(文档.querySelector('[data-auto-ut-thinking="task-live"]').open, true)
+  assert.match(文档.querySelector('[data-auto-ut-thinking="task-live"]').textContent, /正在定位失败用例/)
+
+  模拟事件源.instances[0].emit({sequence: 3, type: 'message_start'})
+  模拟事件源.instances[0].emit({sequence: 4, type: 'message_delta', content: '已修复测试'})
+  await new Promise(完成 => setTimeout(完成, 70))
+  assert.equal(文档.querySelector('[data-auto-ut-thinking="task-live"]').open, false)
+  assert.match(文档.querySelector('[data-auto-ut-live="task-live"]').textContent, /已修复测试/)
 
   页面实例.window.close()
 })

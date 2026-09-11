@@ -65,7 +65,11 @@ _避免使用_：部署服务、工作负载
 容器环境中按服务归集的实时 Kubernetes 资源集合。资源类型由 API Discovery 识别，服务归属由 Helm 清单和 Kubernetes 推荐标签派生；公共资源、未归属资源和集群级资源是无法唯一归属到单个服务的派生范围。具体接口和写入规则见 [服务资源工作区](container-resource-workspace.md)。
 
 **Auto-UT 任务**：
-从 Grafana UT CSV 中发现的单仓库自动修复执行。用户为一次报告统一指定基础分支，任务在本机独立工作目录中运行，只有测试修改门禁、完整 UT 和覆盖率目标全部通过后才推送派生修复分支并创建 Pull Request；运行规则与接口见 [Auto-UT 工作区](auto-ut-workspace.md)。
+从 Grafana UT CSV 中发现的单仓库自动修复执行。用户为一次报告统一指定基础分支，任务在本机独立工作目录中运行，只有测试修改门禁、完整 UT 和覆盖率目标全部通过后才通过 `codehub-cli` 上传提交并创建 CodeHub MR；运行规则与接口见 [Auto-UT 工作区](auto-ut-workspace.md)。
+
+### AutoUtRepositoryMapping
+
+保存 CSV 代码仓名称对应的 CodeHub clone URL。未保存映射时使用配置中的 URL 模板生成默认地址；保存后扫描和执行均优先使用持久化地址。
 
 **手动 Auto-UT**：
 默认执行方式。每完成一个关键阶段即暂停，由研发查看进度和关键事件后继续下一阶段。

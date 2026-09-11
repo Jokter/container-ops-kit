@@ -1,5 +1,6 @@
 package com.jokter.containerops.autout.infrastructure.workflow;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jokter.containerops.autout.application.AutoUtRepositoryDefinition;
 import com.jokter.containerops.autout.application.AutoUtSettings;
 import com.jokter.containerops.autout.domain.model.AutoUtReportItem;
@@ -35,7 +36,8 @@ class LocalAutoUtWorkflowTest {
                 temporary.resolve("manual").toString(), AutoUtExecutionMode.MANUAL
         );
 
-        new LocalAutoUtWorkflow(new TestSettings(repository, temporary), commands).execute(task, repository, ignored -> {});
+        new LocalAutoUtWorkflow(new TestSettings(repository, temporary), commands, piAgent(commands), new ObjectMapper())
+                .execute(task, repository, ignored -> {});
 
         assertThat(task.status()).isEqualTo(AutoUtTaskStatus.WAITING_CONFIRMATION);
         assertThat(task.nextStage().name()).isEqualTo("BASELINE");
@@ -43,7 +45,7 @@ class LocalAutoUtWorkflowTest {
     }
 
     @Test
-    void 只有完整验证和修改门禁通过后才创建PullRequest() throws Exception {
+    void 只有完整验证和修改门禁通过后才创建CodeHubMergeRequest() throws Exception {
         Path workspace = temporary.resolve("workspaces/coder");
         Files.createDirectories(workspace.resolve(".git"));
         Path testFile = workspace.resolve("src/test/java/SampleTest.java");
@@ -61,13 +63,26 @@ class LocalAutoUtWorkflowTest {
                 temporary.resolve("workspaces").toString(), AutoUtExecutionMode.AUTOMATIC
         );
 
-        new LocalAutoUtWorkflow(new TestSettings(repository, temporary), commands).execute(task, repository, ignored -> {});
+        new LocalAutoUtWorkflow(new TestSettings(repository, temporary), commands, piAgent(commands), new ObjectMapper())
+                .execute(task, repository, ignored -> {});
 
         assertThat(task.status()).isEqualTo(AutoUtTaskStatus.RESOLVED);
-        assertThat(task.pullRequestUrl()).isEqualTo("https://example.test/pull/1");
-        assertThat(commands.labels).containsSubsequence("基线测试", "第1轮-Pi", "第1轮-完整验证", "创建PullRequest");
-        assertThat(commands.commands.stream().filter(command -> command.contains("--session-id")).findFirst())
-                .hasValueSatisfying(command -> assertThat(command).contains("--approve"));
+        assertThat(task.pullRequestUrl()).isEqualTo("https://codehub.example.test/org/repo/merge_requests/1");
+        assertThat(commands.labels).containsSubsequence("基线测试", "第1轮-Pi", "第1轮-完整验证", "创建CodeHub-MR", "检查CodeHub-MR评审人");
+        assertThat(commands.commands).anySatisfy(command -> assertThat(command)
+                .containsExactly("codehub-cli", "mr", "upload", "--dest", "master_test", "--br",
+                        "master_test_w00789509_DTS1234", "--topic", "master_test_w00789509_DTS1234",
+                        "-T", "[DTS1234] 修复 coder 单元测试", "-D",
+                        "自动修复 2 个失败单元测试。\n\n完整 UT 与覆盖率验证已通过。",
+                        "--reviewers", "u001,u002", "--approvers", "u003", "--assignees", "u004", "-y"));
+        assertThat(commands.commands).allSatisfy(command -> assertThat(command).doesNotContain("push"));
+        assertThat(commands.commands.stream().filter(command -> command.contains("--mode")).findFirst())
+                .hasValueSatisfying(command -> assertThat(command).contains("rpc"));
+    }
+
+    private PiAgentPort piAgent(RecordingCommands commands) {
+        return (taskId, workspace, prompt, timeout, label) -> commands.run(
+                List.of("pi", "--mode", "rpc"), workspace, timeout, taskId, label);
     }
 
     private AutoUtRepositoryDefinition repository() {
@@ -123,8 +138,10 @@ class LocalAutoUtWorkflowTest {
                 }
                 return new AutoUtCommandResult(0, "成功");
             }
-            if (label.equals("查询PullRequest")) return new AutoUtCommandResult(0, "");
-            if (label.equals("创建PullRequest")) return new AutoUtCommandResult(0, "https://example.test/pull/1\n");
+            if (label.equals("创建CodeHub-MR")) return new AutoUtCommandResult(0,
+                    "warning: using inferred project\n{\"id\":1,\"mr_url\":\"https://codehub.example.test/org/repo/merge_requests/1\",\"mode\":\"MR\"}\n");
+            if (label.equals("检查CodeHub-MR评审人")) return new AutoUtCommandResult(0,
+                    "{\"iid\":1,\"title\":\"UT\",\"approval_merge_request_reviewers\":[],\"approval_merge_request_approvers\":[]}\n");
             return new AutoUtCommandResult(0, "");
         }
     }
@@ -137,8 +154,11 @@ class LocalAutoUtWorkflowTest {
         @Override public int piTimeoutSeconds() { return 1800; }
         @Override public int maxAttempts() { return 3; }
         @Override public List<String> forbiddenMarkers() { return List.of("@Disabled", "@Ignore"); }
-        @Override public String ghCommand() { return "gh"; }
-        @Override public boolean createPullRequest() { return true; }
+        @Override public String codeHubCommand() { return "codehub-cli"; }
+        @Override public boolean createMergeRequest() { return true; }
+        @Override public String codeHubReviewers() { return "u001,u002"; }
+        @Override public String codeHubApprovers() { return "u003"; }
+        @Override public String codeHubAssignees() { return "u004"; }
         @Override public Optional<AutoUtRepositoryDefinition> repository(String name) { return Optional.of(repository); }
     }
 }

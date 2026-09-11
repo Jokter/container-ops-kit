@@ -125,7 +125,7 @@ public final class AutoUtTask {
         this.pullRequestUrl = pullRequestUrl;
         this.nextStage = AutoUtStage.DONE;
         this.progress = 100;
-        changeStatus(AutoUtTaskStatus.RESOLVED, "修复验证通过且 Pull Request 已创建。");
+        changeStatus(AutoUtTaskStatus.RESOLVED, "修复验证通过且 CodeHub MR 已创建。");
     }
 
     public String id() { return id; }

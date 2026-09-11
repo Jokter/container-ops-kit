@@ -57,8 +57,8 @@ class LocalAutoUtCommandAdapterTest {
         @Override public int piTimeoutSeconds() { return 1800; }
         @Override public int maxAttempts() { return 3; }
         @Override public List<String> forbiddenMarkers() { return List.of(); }
-        @Override public String ghCommand() { return "gh"; }
-        @Override public boolean createPullRequest() { return true; }
+        @Override public String codeHubCommand() { return "codehub-cli"; }
+        @Override public boolean createMergeRequest() { return true; }
         @Override public Optional<AutoUtRepositoryDefinition> repository(String name) { return Optional.empty(); }
     }
 }

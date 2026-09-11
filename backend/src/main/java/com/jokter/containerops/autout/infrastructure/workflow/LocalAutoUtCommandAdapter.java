@@ -35,7 +35,6 @@ public class LocalAutoUtCommandAdapter implements AutoUtCommandPort {
                     .directory(directory.toFile())
                     .redirectErrorStream(true);
             builder.environment().put("GIT_TERMINAL_PROMPT", "0");
-            builder.environment().put("GH_PROMPT_DISABLED", "1");
             Process process = builder.start();
             process.getOutputStream().close();
             StringBuilder output = new StringBuilder();

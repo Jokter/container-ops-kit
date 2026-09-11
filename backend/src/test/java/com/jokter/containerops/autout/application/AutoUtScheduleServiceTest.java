@@ -3,6 +3,7 @@ package com.jokter.containerops.autout.application;
 import com.jokter.containerops.autout.domain.model.AutoUtReportItem;
 import com.jokter.containerops.autout.domain.model.AutoUtSchedule;
 import com.jokter.containerops.autout.domain.model.AutoUtTask;
+import com.jokter.containerops.autout.domain.model.AutoUtRepositoryMapping;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -29,8 +30,10 @@ class AutoUtScheduleServiceTest {
         InMemoryTasks tasks = new InMemoryTasks();
         AutoUtReportParser parser = (content, language, group) -> List.of(
                 new AutoUtReportItem("unknown", "Java", group, 1, .8, 1, .7, 1));
+        FixedSettings settings = new FixedSettings();
         AutoUtApplicationService autoUt = new AutoUtApplicationService(
-                parser, new FixedSettings(), tasks, (task, repository, checkpoint) -> {}, Runnable::run);
+                parser, settings, new AutoUtRepositoryCatalog(settings, new InMemoryMappings()),
+                tasks, (task, repository, checkpoint) -> {}, Runnable::run);
         InMemorySchedules schedules = new InMemorySchedules();
         Clock clock = Clock.fixed(Instant.parse("2026-09-11T00:30:00Z"), ZoneId.of("Asia/Shanghai"));
         AutoUtScheduleService service = new AutoUtScheduleService(schedules, autoUt, clock);
@@ -59,6 +62,11 @@ class AutoUtScheduleServiceTest {
         @Override public List<AutoUtTask> findAll() { return new ArrayList<>(values.values()); }
     }
 
+    private static final class InMemoryMappings implements AutoUtRepositoryMappingRepository {
+        @Override public Optional<AutoUtRepositoryMapping> find(String repository) { return Optional.empty(); }
+        @Override public AutoUtRepositoryMapping save(AutoUtRepositoryMapping mapping) { return mapping; }
+    }
+
     private static final class FixedSettings implements AutoUtSettings {
         @Override public String language() { return "Java"; }
         @Override public String plGroup() { return "Access_智能监控组"; }
@@ -67,8 +75,8 @@ class AutoUtScheduleServiceTest {
         @Override public int piTimeoutSeconds() { return 1800; }
         @Override public int maxAttempts() { return 3; }
         @Override public List<String> forbiddenMarkers() { return List.of("@Disabled", "@Ignore"); }
-        @Override public String ghCommand() { return "gh"; }
-        @Override public boolean createPullRequest() { return true; }
+        @Override public String codeHubCommand() { return "codehub-cli"; }
+        @Override public boolean createMergeRequest() { return true; }
         @Override public Optional<AutoUtRepositoryDefinition> repository(String name) { return Optional.empty(); }
     }
 }

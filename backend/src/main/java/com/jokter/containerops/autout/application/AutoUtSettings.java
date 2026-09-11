@@ -9,10 +9,14 @@ public interface AutoUtSettings {
     String plGroup();
     Path logDirectory();
     String piCommand();
+    default String piThinkingLevel() { return "medium"; }
     int piTimeoutSeconds();
     int maxAttempts();
     List<String> forbiddenMarkers();
-    String ghCommand();
-    boolean createPullRequest();
+    String codeHubCommand();
+    boolean createMergeRequest();
+    default String codeHubReviewers() { return ""; }
+    default String codeHubApprovers() { return ""; }
+    default String codeHubAssignees() { return ""; }
     Optional<AutoUtRepositoryDefinition> repository(String name);
 }

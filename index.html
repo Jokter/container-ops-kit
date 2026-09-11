@@ -163,6 +163,8 @@
     .auto-ut-row:last-child { border-bottom: 0; }
     .auto-ut-row p { margin-top: 3px; color: var(--muted); font-size: 12px; }
     .auto-ut-row code { overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; }
+    .auto-ut-repository-editor { min-width: 0; display: flex; align-items: center; gap: 7px; }
+    .auto-ut-repository-editor input { min-width: 0; width: 100%; border: 1px solid var(--line); border-radius: 7px; padding: 8px 9px; color: var(--ink); background: white; font: 11px/1.4 "Cascadia Code",Consolas,monospace; }
     .auto-ut-workspace { width: 100%; display: flex; align-items: center; gap: 10px; margin-top: 14px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-soft); text-align: left; }
     .auto-ut-workspace span:last-child { overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; }
     .auto-ut-mode-control { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 12px; }
@@ -188,6 +190,23 @@
     .auto-ut-progress { height: 6px; margin-top: 9px; overflow: hidden; border-radius: 999px; background: var(--surface-soft); }
     .auto-ut-progress span { display: block; height: 100%; border-radius: inherit; background: var(--brand); transition: width .25s ease; }
     .auto-ut-task-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+    .auto-ut-live { grid-column: 1 / -1; min-width: 0; display: grid; gap: 8px; margin-top: 4px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-soft); }
+    .auto-ut-live-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .auto-ut-live-head span { color: var(--muted); font-size: 12px; }
+    .auto-ut-thinking { border: 1px solid var(--line); border-radius: 7px; background: white; }
+    .auto-ut-thinking summary { padding: 9px 11px; color: var(--muted); cursor: pointer; user-select: none; }
+    .auto-ut-thinking[open] summary { border-bottom: 1px solid var(--line); }
+    .auto-ut-stream-block { min-width: 0; }
+    .auto-ut-stream-block > strong { display: block; margin-bottom: 6px; font-size: 12px; }
+    .auto-ut-stream-text { max-height: 260px; overflow: auto; margin: 0; padding: 10px 11px; color: var(--ink); background: white; border: 1px solid var(--line); border-radius: 7px; font: 12px/1.65 "Cascadia Code",Consolas,"Microsoft YaHei UI",monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .auto-ut-thinking .auto-ut-stream-text { border: 0; border-radius: 0 0 7px 7px; }
+    .auto-ut-tool-list { display: grid; gap: 6px; }
+    .auto-ut-tool { padding: 8px 10px; border: 1px solid var(--line); border-radius: 7px; background: white; }
+    .auto-ut-tool-head { display: flex; align-items: center; gap: 8px; }
+    .auto-ut-tool-head strong { font-size: 12px; }
+    .auto-ut-tool-head span { margin-left: auto; color: var(--muted); font-size: 11px; }
+    .auto-ut-tool.error .auto-ut-tool-head span { color: var(--red); }
+    .auto-ut-tool pre { max-height: 180px; overflow: auto; margin: 7px 0 0; color: var(--muted); font: 11px/1.55 "Cascadia Code",Consolas,monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
     .overview-card { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 14px 16px; }
     .overview-card p { margin-top: 3px; color: var(--muted); font-size: 12px; }
     .overview-card-meta { display: flex; align-items: center; gap: 14px; color: var(--muted); font-size: 12px; }
@@ -303,7 +322,7 @@
 <body>
   <div id="app"></div>
   <script>
-    const state = { platformDomain: 'container', page: 'dashboard', automationPage: 'catalog', buildTab: 'single', resourceVersion: 'r27c10', resourceType: 'build', resourceStatus: 'all', resourceQuery: '', resourceDrawer: null, batch: null, selectedBuildEnvironment: 'build-27b-01', selectedContainerEnvironment: 'container-27b-01', autoUtReport: null, autoUtUsername: '', autoUtTicket: '', autoUtBaseBranch: '', autoUtWorkspace: '', autoUtMode: 'MANUAL', autoUtPlan: [], autoUtTasks: [], autoUtBusy: false, autoUtDirectory: null, autoUtSchedule: null, autoUtScheduleEnabled: false, autoUtDailyTime: '' };
+    const state = { platformDomain: 'container', page: 'dashboard', automationPage: 'catalog', buildTab: 'single', resourceVersion: 'r27c10', resourceType: 'build', resourceStatus: 'all', resourceQuery: '', resourceDrawer: null, batch: null, selectedBuildEnvironment: 'build-27b-01', selectedContainerEnvironment: 'container-27b-01', autoUtReport: null, autoUtUsername: '', autoUtTicket: '', autoUtBaseBranch: '', autoUtWorkspace: '', autoUtMode: 'MANUAL', autoUtPlan: [], autoUtTasks: [], autoUtBusy: false, autoUtDirectory: null, autoUtSchedule: null, autoUtScheduleEnabled: false, autoUtDailyTime: '', autoUtLive: {} };
 
     const releaseVersions = [
       { id: 'r27c10', code: 'R27C10', name: '27B', locked: false },
@@ -541,23 +560,91 @@
     const autoUtStatus = {
       DISCOVERED: '待执行', WAITING_REPOSITORY: '仓库未配置', PREPARING: '准备工作区', BASELINE_RUNNING: '基线测试',
       REPAIRING: '修复中', VERIFYING: '验证中', WAITING_CONFIRMATION: '等待继续', RETRY_PENDING: '等待重试', WAITING_EXTERNAL: '等待处理',
-      PR_CREATING: '创建 PR', RESOLVED: '已解决'
+      PR_CREATING: '创建 MR', RESOLVED: '已解决'
     };
-    const autoUtStage = { PREPARE: '准备工作区', BASELINE: '基线 UT', REPAIR: 'Pi 修复', VERIFY: '完整验证', PUBLISH: '创建 Pull Request', DONE: '已完成' };
+    const autoUtStage = { PREPARE: '准备工作区', BASELINE: '基线 UT', REPAIR: 'Pi 修复', VERIFY: '完整验证', PUBLISH: '创建 CodeHub MR', DONE: '已完成' };
     const autoUtActiveStatus = new Set(['DISCOVERED', 'PREPARING', 'BASELINE_RUNNING', 'REPAIRING', 'VERIFYING', 'PR_CREATING']);
+    const autoUtStreamableStatus = new Set([...autoUtActiveStatus, 'WAITING_CONFIRMATION', 'WAITING_EXTERNAL']);
     let autoUtPollTimer;
+    let autoUtLiveRenderTimer;
+    const autoUtEventSources = new Map();
+
+    function autoUtLiveState(taskId) {
+      return state.autoUtLive[taskId] ||= { sequence: 0, thinking: '', message: '', thinkingOpen: true, thinkingActive: false, status: '等待 Pi 输出', tools: {} };
+    }
+
+    function trimAutoUtOutput(value) {
+      return value.length > 120000 ? value.slice(-120000) : value;
+    }
+
+    function applyAutoUtLiveEvent(taskId, event) {
+      const live = autoUtLiveState(taskId);
+      if (event.sequence && event.sequence <= live.sequence) return;
+      live.sequence = Math.max(live.sequence, event.sequence || 0);
+      if (event.type === 'thinking_start') { live.thinkingActive = true; live.thinkingOpen = true; }
+      if (event.type === 'thinking_delta') live.thinking = trimAutoUtOutput(live.thinking + (event.content || ''));
+      if (event.type === 'thinking_end') live.thinkingActive = false;
+      if (event.type === 'message_start') live.thinkingOpen = false;
+      if (event.type === 'message_delta') live.message = trimAutoUtOutput(live.message + (event.content || ''));
+      if (event.type === 'status' || event.type === 'completed') live.status = event.content || live.status;
+      if (event.type === 'error') { live.status = event.content || 'Pi 执行失败'; live.error = true; }
+      if (event.type === 'tool_start') {
+        live.tools[event.toolCallId] = { id: event.toolCallId, name: event.toolName, args: event.content, output: '', status: '执行中', error: false };
+      }
+      if (event.type === 'tool_output' || event.type === 'tool_end') {
+        const tool = live.tools[event.toolCallId] ||= { id: event.toolCallId, name: event.toolName, args: '', output: '', status: '执行中', error: false };
+        tool.output = trimAutoUtOutput(event.replace ? (event.content || '') : tool.output + (event.content || ''));
+        if (event.type === 'tool_end') { tool.status = event.error ? '失败' : '完成'; tool.error = Boolean(event.error); }
+      }
+      clearTimeout(autoUtLiveRenderTimer);
+      autoUtLiveRenderTimer = setTimeout(() => render(false), 50);
+    }
+
+    function connectAutoUtStream(taskId) {
+      if (typeof EventSource !== 'function' || autoUtEventSources.has(taskId)) return;
+      const after = autoUtLiveState(taskId).sequence || 0;
+      const source = new EventSource(`/api/auto-ut/tasks/${encodeURIComponent(taskId)}/events?afterSequence=${after}`);
+      source.onmessage = message => {
+        try { applyAutoUtLiveEvent(taskId, JSON.parse(message.data)); }
+        catch (error) { autoUtLiveState(taskId).status = '无法解析 Pi 实时事件'; }
+      };
+      autoUtEventSources.set(taskId, source);
+    }
+
+    function ensureAutoUtStreams() {
+      if (state.platformDomain !== 'automation' || state.automationPage !== 'auto-ut') return;
+      const latest = state.autoUtTasks.filter((task, index, tasks) => tasks.findIndex(candidate => candidate.repository === task.repository) === index);
+      const streamableIds = new Set(latest.filter(task => autoUtStreamableStatus.has(task.status)).map(task => task.id));
+      autoUtEventSources.forEach((source, taskId) => {
+        if (!streamableIds.has(taskId)) { source.close(); autoUtEventSources.delete(taskId); }
+      });
+      latest.filter(task => streamableIds.has(task.id)).forEach(task => connectAutoUtStream(task.id));
+    }
+
+    function closeAutoUtStreams() {
+      autoUtEventSources.forEach(source => source.close());
+      autoUtEventSources.clear();
+    }
+
+    function autoUtLivePanel(item) {
+      const live = state.autoUtLive[item.id];
+      if (!live && item.status !== 'REPAIRING') return '';
+      const current = live || autoUtLiveState(item.id);
+      const tools = Object.values(current.tools).map(tool => `<div class="auto-ut-tool ${tool.error ? 'error' : ''}"><div class="auto-ut-tool-head"><strong>${escapeHtml(tool.name || '工具')}</strong><span>${escapeHtml(tool.status)}</span></div>${tool.args ? `<pre>${escapeHtml(tool.args)}</pre>` : ''}${tool.output ? `<pre class="auto-ut-stream-text" data-auto-ut-stream="${escapeHtml(item.id + '-tool-' + tool.id)}">${escapeHtml(tool.output)}</pre>` : ''}</div>`).join('');
+      return `<section class="auto-ut-live" data-auto-ut-live="${escapeHtml(item.id)}"><div class="auto-ut-live-head"><strong>Pi 实时执行</strong><span>${escapeHtml(current.status)}</span></div><details class="auto-ut-thinking" data-auto-ut-thinking="${escapeHtml(item.id)}" ${current.thinkingOpen ? 'open' : ''}><summary>${current.thinkingActive ? '正在思考…' : '思考过程'}${current.thinking ? ` · ${current.thinking.length} 字符` : ''}</summary><pre class="auto-ut-stream-text" data-auto-ut-stream="${escapeHtml(item.id + '-thinking')}">${escapeHtml(current.thinking || '等待模型返回思考内容…')}</pre></details><div class="auto-ut-stream-block"><strong>Pi 回复</strong><pre class="auto-ut-stream-text" data-auto-ut-stream="${escapeHtml(item.id + '-message')}">${escapeHtml(current.message || '等待 Pi 回复…')}</pre></div>${tools ? `<div class="auto-ut-stream-block"><strong>执行过程</strong><div class="auto-ut-tool-list">${tools}</div></div>` : ''}</section>`;
+    }
 
     function autoUtRows(items, planned = false) {
       if (!items.length) return `<p style="color:var(--muted)">${planned ? '上传报告并扫描后显示执行计划。' : '暂无 Auto-UT 任务。'}</p>`;
       const visibleItems = planned ? items : items.filter((item, index) => items.findIndex(candidate => candidate.repository === item.repository) === index);
       return `<div class="auto-ut-list">${visibleItems.map(item => {
-        if (planned) return `<div class="auto-ut-row"><div><strong>${escapeHtml(item.repository)}</strong><p>失败 ${item.failedTests} · 行覆盖率 ${Math.round(item.lineCoverage * 100)}%/${Math.round(item.lineGoal * 100)}%</p></div><code>${escapeHtml(item.repairBranch || '仓库未配置')}</code><span class="badge ${item.configured ? 'green' : 'red'}">${item.configured ? '可执行' : '未配置'}</span></div>`;
+        if (planned) return `<div class="auto-ut-row"><div><strong>${escapeHtml(item.repository)}</strong><p>失败 ${item.failedTests} · 行覆盖率 ${Math.round(item.lineCoverage * 100)}%/${Math.round(item.lineGoal * 100)}%</p><p>${escapeHtml(item.repairBranch || '仓库未配置')}</p></div><div class="auto-ut-repository-editor"><input value="${escapeHtml(item.repositoryUrl || '')}" aria-label="${escapeHtml(item.repository)} CodeHub 仓库" data-auto-ut-repository-url="${escapeHtml(item.repository)}"><button type="button" class="button small" data-auto-ut-repository-save="${escapeHtml(item.repository)}">保存</button></div><span class="badge ${item.repositoryCustomized ? 'green' : item.configured ? 'brand' : 'red'}">${item.repositoryCustomized ? '已保存' : item.configured ? '默认仓库' : '未配置'}</span></div>`;
         const action = item.pullRequestUrl
-          ? `<a class="button small" href="${escapeHtml(item.pullRequestUrl)}" target="_blank" rel="noopener noreferrer">打开 Pull Request ↗</a>`
+          ? `<a class="button small" href="${escapeHtml(item.pullRequestUrl)}" target="_blank" rel="noopener noreferrer">打开 CodeHub MR ↗</a>`
           : item.status === 'WAITING_CONFIRMATION' || item.status === 'WAITING_EXTERNAL'
             ? `<button class="button small primary" data-auto-ut-continue="${escapeHtml(item.id)}">${item.status === 'WAITING_EXTERNAL' ? '重试' : '继续'}：${escapeHtml(autoUtStage[item.nextStage] || item.nextStage)}</button>`
             : `<code>${escapeHtml(item.repairBranch)}</code>`;
-        return `<div class="auto-ut-row" data-auto-ut-task="${escapeHtml(item.id)}"><div><strong>${escapeHtml(item.repository)}</strong><p>${escapeHtml(item.message)}</p><p>📁 ${escapeHtml(item.workspaceRoot)} / ${escapeHtml(item.repository)}</p><div class="auto-ut-progress" data-auto-ut-progress="${item.progress || 0}"><span style="width:${item.progress || 0}%"></span></div></div><div class="auto-ut-task-actions">${action}</div><span class="badge ${item.status === 'RESOLVED' ? 'green' : item.status === 'WAITING_EXTERNAL' || item.status === 'WAITING_REPOSITORY' || item.status === 'RETRY_PENDING' ? 'red' : 'brand'}">${autoUtStatus[item.status] || item.status} · ${item.progress || 0}%</span></div>`;
+        return `<div class="auto-ut-row" data-auto-ut-task="${escapeHtml(item.id)}"><div><strong>${escapeHtml(item.repository)}</strong><p>${escapeHtml(item.message)}</p><p>📁 ${escapeHtml(item.workspaceRoot)} / ${escapeHtml(item.repository)}</p><div class="auto-ut-progress" data-auto-ut-progress="${item.progress || 0}"><span style="width:${item.progress || 0}%"></span></div></div><div class="auto-ut-task-actions">${action}</div><span class="badge ${item.status === 'RESOLVED' ? 'green' : item.status === 'WAITING_EXTERNAL' || item.status === 'WAITING_REPOSITORY' || item.status === 'RETRY_PENDING' ? 'red' : 'brand'}">${autoUtStatus[item.status] || item.status} · ${item.progress || 0}%</span>${autoUtLivePanel(item)}</div>`;
       }).join('')}</div>`;
     }
 
@@ -583,7 +670,7 @@
 
     function automationContent() {
       if (state.automationPage === 'catalog') {
-        return `${pageTitle('自动化工具', '集中运行可观测、可控制的自动化任务。')}<div class="capability-grid"><button class="panel capability-card" data-automation-capability="auto-ut"><div class="capability-card-top"><div class="capability-symbol">UT</div><span class="status ok">可用</span></div><h2 style="margin-top:16px">Auto-UT</h2><p>扫描 UT 报告，按项目修复测试并在验证通过后创建 Pull Request。</p></button></div>`;
+        return `${pageTitle('自动化工具', '集中运行可观测、可控制的自动化任务。')}<div class="capability-grid"><button class="panel capability-card" data-automation-capability="auto-ut"><div class="capability-card-top"><div class="capability-symbol">UT</div><span class="status ok">可用</span></div><h2 style="margin-top:16px">Auto-UT</h2><p>扫描 UT 报告，按项目修复测试并在验证通过后创建 CodeHub MR。</p></button></div>`;
       }
       const selected = state.autoUtReport ? escapeHtml(state.autoUtReport.name) : '尚未选择 CSV';
       return `${pageTitle('Auto-UT', '从一份报告创建多个项目任务，并持续展示关键执行信息。','<button class="button" data-automation-back>返回自动化工具</button>')}<div class="auto-ut-layout"><section class="panel"><div class="panel-head"><h2>执行输入</h2>${autoUtModeControl()}</div><form id="auto-ut-form" class="panel-body"><div class="form-grid"><div class="field"><label>用户名</label><input id="auto-ut-username" value="${escapeHtml(state.autoUtUsername)}" required></div><div class="field"><label>单号</label><input id="auto-ut-ticket" value="${escapeHtml(state.autoUtTicket)}" required></div><div class="field wide"><label>基础分支</label><input id="auto-ut-base-branch" value="${escapeHtml(state.autoUtBaseBranch)}" required></div></div><button type="button" class="auto-ut-workspace" data-auto-ut-workspace-picker><span>📁</span><span>${escapeHtml(state.autoUtWorkspace || '选择工作目录')}</span></button><label class="auto-ut-file"><span>Grafana UT CSV</span><input id="auto-ut-report" type="file" accept=".csv,text/csv"><small id="auto-ut-file-name" style="color:var(--muted)">${selected}</small></label>${autoUtScheduleControl()}<div class="auto-ut-actions"><button type="button" class="button" data-auto-ut-scan ${state.autoUtBusy ? 'disabled' : ''}>扫描报告</button><button type="button" class="button primary" data-auto-ut-start ${state.autoUtBusy || !state.autoUtWorkspace || !state.autoUtPlan.some(item => item.configured) ? 'disabled' : ''}>开始修复</button></div></form></section><div class="summary-stack"><section class="panel"><div class="panel-head"><h2>执行计划</h2><span class="badge brand">${state.autoUtPlan.length} 个项目</span></div><div class="panel-body">${autoUtRows(state.autoUtPlan, true)}</div></section><section class="panel"><div class="panel-head"><h2>项目进度</h2><button class="button small ghost" data-auto-ut-refresh ${state.autoUtBusy ? 'disabled' : ''}>刷新</button></div><div class="panel-body">${autoUtRows(state.autoUtTasks)}</div></section></div></div>${autoUtDirectoryDialog()}`;
@@ -655,6 +742,28 @@
       } finally {
         state.autoUtBusy = false;
         render(false);
+      }
+    }
+
+    async function saveAutoUtRepository(repository) {
+      const input = [...document.querySelectorAll('[data-auto-ut-repository-url]')]
+        .find(item => item.dataset.autoUtRepositoryUrl === repository);
+      const url = input?.value.trim();
+      if (!url) return showToast('请输入 CodeHub 仓库地址');
+      try {
+        const saved = await autoUtCall(`/api/auto-ut/repositories/${encodeURIComponent(repository)}`, {
+          method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({url})
+        });
+        const plan = state.autoUtPlan.find(item => item.repository === repository);
+        if (plan) {
+          plan.repositoryUrl = saved.url;
+          plan.repositoryCustomized = true;
+          plan.configured = true;
+        }
+        render(false);
+        showToast(`${repository} 仓库映射已保存`);
+      } catch (error) {
+        showToast(error.message || '仓库映射保存失败');
       }
     }
 
@@ -945,13 +1054,13 @@
     }
 
     function bindInteractions() {
-      document.querySelectorAll('[data-platform-domain]').forEach(item => item.addEventListener('click', () => { state.platformDomain = item.dataset.platformDomain; render(); }));
+      document.querySelectorAll('[data-platform-domain]').forEach(item => item.addEventListener('click', () => { state.platformDomain = item.dataset.platformDomain; if (state.platformDomain !== 'automation') closeAutoUtStreams(); render(); }));
       document.querySelectorAll('[data-page]').forEach(item => item.addEventListener('click', () => { state.page = item.dataset.page; render(); }));
       document.querySelectorAll('[data-build-tab]').forEach(item => item.addEventListener('click', () => { state.buildTab = item.dataset.buildTab; render(); }));
       document.querySelector('#build-environment-selector')?.addEventListener('change', event => { state.selectedBuildEnvironment = event.target.value; render(false); });
       document.querySelector('#container-environment-selector')?.addEventListener('change', event => { state.selectedContainerEnvironment = event.target.value; render(false); });
       document.querySelector('[data-automation-capability="auto-ut"]')?.addEventListener('click', () => { state.automationPage = 'auto-ut'; render(); if (typeof fetch === 'function') { loadAutoUtTasks(); loadAutoUtSchedule(); } });
-      document.querySelector('[data-automation-back]')?.addEventListener('click', () => { state.automationPage = 'catalog'; clearTimeout(autoUtPollTimer); render(); });
+      document.querySelector('[data-automation-back]')?.addEventListener('click', () => { state.automationPage = 'catalog'; clearTimeout(autoUtPollTimer); closeAutoUtStreams(); render(); });
       document.querySelector('#auto-ut-report')?.addEventListener('change', event => {
         state.autoUtReport = event.target.files?.[0] || null;
         const name = document.querySelector('#auto-ut-file-name');
@@ -959,6 +1068,7 @@
       });
       document.querySelector('[data-auto-ut-scan]')?.addEventListener('click', scanAutoUt);
       document.querySelector('[data-auto-ut-start]')?.addEventListener('click', startAutoUt);
+      document.querySelectorAll('[data-auto-ut-repository-save]').forEach(item => item.addEventListener('click', () => saveAutoUtRepository(item.dataset.autoUtRepositorySave)));
       document.querySelector('[data-auto-ut-refresh]')?.addEventListener('click', loadAutoUtTasks);
       document.querySelector('[data-auto-ut-workspace-picker]')?.addEventListener('click', () => browseAutoUtDirectories());
       document.querySelector('[data-auto-ut-mode-switch]')?.addEventListener('click', () => { captureAutoUtInputs(); state.autoUtMode = state.autoUtMode === 'MANUAL' ? 'AUTOMATIC' : 'MANUAL'; render(false); });
@@ -970,14 +1080,24 @@
       document.querySelector('[data-auto-ut-directory-close]')?.addEventListener('click', () => { state.autoUtDirectory = null; render(false); });
       document.querySelector('[data-auto-ut-directory-backdrop]')?.addEventListener('click', event => { if (event.target === event.currentTarget) { state.autoUtDirectory = null; render(false); } });
       document.querySelectorAll('[data-auto-ut-continue]').forEach(item => item.addEventListener('click', () => continueAutoUt(item.dataset.autoUtContinue)));
+      document.querySelectorAll('[data-auto-ut-thinking]').forEach(item => item.addEventListener('toggle', () => { autoUtLiveState(item.dataset.autoUtThinking).thinkingOpen = item.open; }));
       bindResourceInteractions();
     }
 
     function render(resetScroll = true) {
       const scrollPosition = window.scrollY;
+      const liveScroll = new Map([...document.querySelectorAll('[data-auto-ut-stream]')].map(element => [
+        element.dataset.autoUtStream,
+        { top: element.scrollTop, follow: element.scrollHeight - element.clientHeight - element.scrollTop < 32 }
+      ]));
       document.querySelector('#app').innerHTML = variantA();
       bindInteractions();
       window.scrollTo(0, resetScroll ? 0 : scrollPosition);
+      document.querySelectorAll('[data-auto-ut-stream]').forEach(element => {
+        const previous = liveScroll.get(element.dataset.autoUtStream);
+        element.scrollTop = !previous || previous.follow ? element.scrollHeight : previous.top;
+      });
+      queueMicrotask(ensureAutoUtStreams);
     }
     render();
   </script>

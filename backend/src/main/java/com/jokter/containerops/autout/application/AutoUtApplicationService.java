@@ -19,6 +19,7 @@ import java.util.concurrent.Executor;
 public class AutoUtApplicationService {
     private final AutoUtReportParser reports;
     private final AutoUtSettings settings;
+    private final AutoUtRepositoryCatalog repositoryCatalog;
     private final AutoUtTaskRepository tasks;
     private final AutoUtWorkflow workflow;
     private final Executor executor;
@@ -26,12 +27,14 @@ public class AutoUtApplicationService {
     public AutoUtApplicationService(
             AutoUtReportParser reports,
             AutoUtSettings settings,
+            AutoUtRepositoryCatalog repositoryCatalog,
             AutoUtTaskRepository tasks,
             AutoUtWorkflow workflow,
             @Qualifier("buildExecutor") Executor executor
     ) {
         this.reports = reports;
         this.settings = settings;
+        this.repositoryCatalog = repositoryCatalog;
         this.tasks = tasks;
         this.workflow = workflow;
         this.executor = executor;
@@ -61,7 +64,8 @@ public class AutoUtApplicationService {
 
     public AutoUtTask continueTask(String id) {
         AutoUtTask task = get(id);
-        AutoUtRepositoryDefinition repository = settings.repository(task.repository())
+        AutoUtRepositoryDefinition repository = repositoryCatalog.resolve(task.repository())
+                .map(AutoUtRepositoryCatalog.ResolvedRepository::definition)
                 .orElseThrow(() -> new IllegalStateException("代码仓未配置，任务无法继续。"));
         task.requestContinuation();
         tasks.save(task);
@@ -86,10 +90,12 @@ public class AutoUtApplicationService {
     }
 
     private AutoUtPlan plan(AutoUtReportItem item, String username, String ticket, String baseBranch) {
-        var repository = settings.repository(item.repository());
+        var repository = repositoryCatalog.resolve(item.repository());
         return new AutoUtPlan(
                 item.repository(), item.failedTests(), item.lineCoverage(), item.lineGoal(),
                 item.branchCoverage(), item.branchGoal(), repository.isPresent(),
+                repository.map(value -> value.definition().url()).orElse(""),
+                repository.map(AutoUtRepositoryCatalog.ResolvedRepository::customized).orElse(false),
                 baseBranch,
                 repository.map(value -> repairBranch(baseBranch, username, ticket)).orElse("")
         );
@@ -99,7 +105,7 @@ public class AutoUtApplicationService {
             AutoUtReportItem item, String username, String ticket, String baseBranch, Path workspaceRoot,
             AutoUtExecutionMode executionMode
     ) {
-        var repository = settings.repository(item.repository());
+        var repository = repositoryCatalog.resolve(item.repository());
         AutoUtTask task = new AutoUtTask(
                 UUID.randomUUID().toString(), item, username, ticket,
                 baseBranch,
@@ -112,7 +118,7 @@ public class AutoUtApplicationService {
             return task;
         }
         tasks.save(task);
-        schedule(task, repository.get());
+        schedule(task, repository.get().definition());
         return task;
     }
 

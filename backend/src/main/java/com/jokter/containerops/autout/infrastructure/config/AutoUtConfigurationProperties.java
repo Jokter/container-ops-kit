@@ -13,15 +13,22 @@ public record AutoUtConfigurationProperties(
         Repair repair,
         Guard guard,
         Scm scm,
+        Repository repositoryTemplate,
         Map<String, Repository> repositories
 ) {
-    public record Repair(String command, int timeoutMinutes, int maxAttemptsPerRun) {
+    public record Repair(String command, String thinkingLevel, int timeoutMinutes, int maxAttemptsPerRun) {
     }
 
     public record Guard(List<String> forbiddenMarkers) {
     }
 
-    public record Scm(String command, boolean createPullRequest) {
+    public record Scm(
+            String command,
+            boolean createMergeRequest,
+            String reviewers,
+            String approvers,
+            String assignees
+    ) {
     }
 
     public record Repository(

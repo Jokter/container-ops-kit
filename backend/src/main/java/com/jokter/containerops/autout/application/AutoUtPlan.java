@@ -8,6 +8,8 @@ public record AutoUtPlan(
         double branchCoverage,
         double branchGoal,
         boolean configured,
+        String repositoryUrl,
+        boolean repositoryCustomized,
         String baseBranch,
         String repairBranch
 ) {
