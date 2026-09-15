@@ -1,76 +1,70 @@
 @echo off
 setlocal
-set "ROOT=%~dp0"
-cd /d "%ROOT%"
-
-where java >nul 2>nul
-if errorlevel 1 (
-  echo Java 21 is required.
-  pause
-  exit /b 1
-)
-
-where mvn >nul 2>nul
-if errorlevel 1 (
-  echo Maven is required.
-  pause
-  exit /b 1
-)
+set "PROJECT_ROOT=%~dp0"
+cd /d "%PROJECT_ROOT%"
+set "PLATFORM_PORT=8080"
+set "LEGACY_BACKEND_URL=http://127.0.0.1:8081"
 
 where node >nul 2>nul
-if errorlevel 1 (
-  echo Node.js is required.
-  pause
-  exit /b 1
-)
-
+if errorlevel 1 goto missing_node
+node -e "const [major,minor]=process.versions.node.split('.').map(Number);process.exit(major===24 && minor>=15 ? 0 : 1)"
+if errorlevel 1 goto missing_node
 where npm >nul 2>nul
-if errorlevel 1 (
-  echo npm is required.
-  pause
-  exit /b 1
-)
+if errorlevel 1 goto missing_node
+where java >nul 2>nul
+if errorlevel 1 goto missing_java
+where mvn >nul 2>nul
+if errorlevel 1 goto missing_java
 
-if not exist "%ROOT%frontend\node_modules" (
-  echo Installing frontend dependencies...
-  call npm install --prefix "%ROOT%frontend"
-  if errorlevel 1 (
-    echo Frontend dependency installation failed.
-    pause
-    exit /b 1
-  )
-)
+echo Installing locked TypeScript backend dependencies...
+call npm ci
+if errorlevel 1 goto install_failed
+call npm run build
+if errorlevel 1 goto install_failed
+echo Installing locked frontend dependencies...
+call npm ci --prefix frontend
+if errorlevel 1 goto install_failed
 
-start "Container Ops Kit Backend" cmd /k "cd /d ""%ROOT%"" && mvn -pl backend spring-boot:run"
+rem Preserve Maven's working directory and the existing H2 data location.
+start "Container Ops Kit Java Compatibility" cmd /k "cd /d ""%PROJECT_ROOT%"" && mvn -pl backend spring-boot:run -Dspring-boot.run.arguments=""--server.port=8081 --server.address=127.0.0.1"""
+start "Container Ops Kit TypeScript Backend" cmd /k "cd /d ""%PROJECT_ROOT%"" && npm start"
 
-echo Waiting for backend on http://localhost:8080...
-for /l %%I in (1,1,90) do (
-  powershell -NoProfile -Command "try { $response = Invoke-WebRequest -UseBasicParsing -Uri 'http://localhost:8080/api/health' -TimeoutSec 1; if ($response.StatusCode -eq 200) { exit 0 } else { exit 1 } } catch { exit 1 }"
+echo Waiting for both backends on http://127.0.0.1:8080...
+for /l %%I in (1,1,120) do (
+  powershell -NoProfile -Command "try { $r = Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:8080/api/health' -TimeoutSec 2; if ($r.StatusCode -eq 200) { exit 0 } else { exit 1 } } catch { exit 1 }"
   if not errorlevel 1 goto backend_ready
   timeout /t 1 /nobreak >nul
 )
-
-echo Backend failed to start within 90 seconds.
-echo Check the Container Ops Kit Backend window for the Maven or Spring Boot error.
+echo Backend startup failed. Check both backend windows. Do not start a second copy.
 pause
 exit /b 1
 
 :backend_ready
-echo Backend is ready.
-start "Container Ops Kit Frontend" cmd /k "cd /d ""%ROOT%frontend"" && npm run dev -- --host 0.0.0.0"
-
-echo Waiting for frontend on http://localhost:5173...
+start "Container Ops Kit Frontend" cmd /k "cd /d ""%PROJECT_ROOT%frontend"" && npm run dev -- --host 127.0.0.1 --strictPort"
 for /l %%I in (1,1,60) do (
-  powershell -NoProfile -Command "try { $response = Invoke-WebRequest -UseBasicParsing -Uri 'http://localhost:5173' -TimeoutSec 1; if ($response.StatusCode -eq 200) { exit 0 } else { exit 1 } } catch { exit 1 }"
+  powershell -NoProfile -Command "try { $r = Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:5173' -TimeoutSec 1; if ($r.StatusCode -eq 200) { exit 0 } else { exit 1 } } catch { exit 1 }"
   if not errorlevel 1 goto frontend_ready
   timeout /t 1 /nobreak >nul
 )
-
-echo Frontend failed to start within 60 seconds.
-echo Check the Container Ops Kit Frontend window for the Vite error.
+echo Frontend startup failed. Check the frontend window.
 pause
 exit /b 1
 
 :frontend_ready
-start "" "http://localhost:5173"
-endlocal
+start "" "http://127.0.0.1:5173"
+exit /b 0
+
+:missing_node
+echo Node.js 24.15 or newer within the 24.x line, with npm, is required.
+pause
+exit /b 1
+
+:missing_java
+echo Migration stage 1 still requires Java 21 and Maven for existing workflows.
+pause
+exit /b 1
+
+:install_failed
+echo Dependency installation or TypeScript build failed. No new backend was started.
+pause
+exit /b 1

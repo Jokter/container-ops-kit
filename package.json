@@ -1,0 +1,24 @@
+{
+  "name": "container-ops-kit",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "engines": {"node": ">=24.15.0 <25"},
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && node --test dist/backend-ts/tests/*.test.js",
+    "start": "node dist/backend-ts/src/main.js",
+    "dev": "npm run build && npm start",
+    "check": "npm run typecheck && npm test"
+  },
+  "dependencies": {
+    "@fastify/http-proxy": "^11.0.0",
+    "fastify": "^5.0.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "~5.9.3"
+  }
+}

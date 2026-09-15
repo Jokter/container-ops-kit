@@ -4,13 +4,19 @@
 
 ## 一键启动
 
-Windows 双击根目录的 `start.bat`。脚本会检查 Java 21、Maven、Node.js 和 npm，首次运行自动安装前端依赖，随后分别启动后端和前端并打开浏览器。
+Windows 双击根目录的 `start.bat`。当前为 TypeScript 渐进迁移第一阶段，需要 Node.js 24.15+（24.x）、npm、Java 21 和 Maven。脚本通过锁文件安装依赖并编译 TypeScript，然后启动 TypeScript 入口（8080）、Java 兼容后端（8081）和前端（5173）。
+
+**本阶段不是全部 Java 功能的重写。** 原构建、部署、资源中心、Auto-UT 修复仍由 Java 执行，TypeScript 负责统一入口、原生目录浏览和新的持久化只读任务。迁移边界、数据位置、验证和回退方式见 [TypeScript 迁移说明](docs/typescript-migration.md)。
+
+保留原 Java 启动方式：停止上述三个进程后运行 `start-java.bat`。不要同时运行两套启动方式。
 
 ## 前端页面源
 
 根目录的 `index.html` 是页面样式和交互的唯一来源，文件保持不变。Vite 启动时直接加载该页面，并注入 `frontend/src/prototype-runtime.js`，将资源中心的模拟数据和操作替换为后端 API。
 
 ## 后端架构
+
+新增 `backend-ts/src/modules` 按业务组织原生能力，`backend-ts/src/platform` 提供 SQLite 任务事件日志与独立 Worker；`shared` 只承载数据约定。尚未迁移的 `/api` 请求通过流式兼容层交给 Java，不改变原请求体和数据存储。
 
 资源中心位于 `com.jokter.containerops.environment` 领域模块：
 
@@ -27,7 +33,28 @@ Windows 双击根目录的 `start.bat`。脚本会检查 Java 21、Maven、Node.
 
 Auto-UT 工作区位于 `com.jokter.containerops.autout`，从用户上传的 Grafana UT CSV 创建本机修复任务。运行边界和 API 索引见 [Auto-UT 工作区](docs/auto-ut-workspace.md)。
 
-## 手动启动后端
+## 手动启动后端（迁移模式）
+
+在仓库根目录安装并编译：
+
+```bash
+npm ci
+npm run build
+```
+
+分别打开两个终端，均从仓库根目录启动：
+
+```bash
+mvn -pl backend spring-boot:run -Dspring-boot.run.arguments="--server.port=8081 --server.address=127.0.0.1"
+```
+
+```bash
+npm start
+```
+
+`/api/health` 检查整个兼容模式是否就绪；`/api/platform/health` 只检查 TypeScript 进程。
+
+## 手动启动后端（原 Java 模式）
 
 需要 JDK 21 和 Maven：
 

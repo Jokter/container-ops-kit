@@ -7,3 +7,6 @@
 /backend/target/
 /frontend/dist/
 /frontend/node_modules/
+/node_modules/
+/dist/
+/data/platform/
