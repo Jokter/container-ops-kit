@@ -10,3 +10,5 @@
 /node_modules/
 /dist/
 /data/platform/
+/data/auto-ut/
+/data/deployment-preparations/

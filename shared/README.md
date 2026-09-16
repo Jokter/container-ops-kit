@@ -2,4 +2,4 @@
 
 这里只放跨前后端的数据结构和运行时校验，不依赖数据库、文件系统或后端实现。
 
-当前 `contracts.ts` 覆盖 TypeScript 原生任务。旧构建、部署和 Auto-UT 任务仍沿用 Java API，不能混用两套任务 ID 或状态。前端尚未添加新任务操作页，可在后续迁移时通过 `import type` 引用这些类型。
+当前 `contracts.ts` 覆盖通用 TypeScript 平台任务。构建、部署和 Auto-UT 使用各自业务状态机与任务 ID，并由对应 TypeScript 模块持久化。

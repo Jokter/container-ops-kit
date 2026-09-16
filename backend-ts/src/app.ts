@@ -1,11 +1,15 @@
 import Fastify from 'fastify';
-import proxy from '@fastify/http-proxy';
-import {z, ZodError} from 'zod';
+import {ZodError} from 'zod';
 import type {Config} from './config.js';
-import {browse} from './modules/workspace/directories.js';
 import {TaskStore} from './platform/store.js';
 import {TaskRunner} from './platform/tasks.js';
 import {taskRoutes} from './platform/routes.js';
+import {SshOperations} from './infrastructure/ssh.js';
+import {EnvironmentService,environmentRoutes} from './modules/environment/environment.js';
+import {BuildService,buildRoutes} from './modules/build/build.js';
+import {AutoUtService,autoUtRoutes} from './modules/autout/autout.js';
+import {ContainerResourceService,containerResourceRoutes} from './modules/containerresource/containerresource.js';
+import {DeploymentService,deploymentRoutes} from './modules/deployment/deployment.js';
 
 export async function createApp(config: Config) {
   const app = Fastify({bodyLimit: 1024 * 1024, forceCloseConnections: true, logger: {
@@ -15,7 +19,8 @@ export async function createApp(config: Config) {
   }});
   const store = new TaskStore(config.database);
   const runner = new TaskRunner(store, config.workers, config.taskTimeoutMs);
-  app.addHook('onClose', async () => {await runner.close(); store.close();});
+  const ssh=new SshOperations(),environments=new EnvironmentService(store,ssh),builds=new BuildService(store,environments,ssh),autoUt=new AutoUtService(store),containers=new ContainerResourceService(environments,ssh),deployments=new DeploymentService(store,builds,environments,ssh);
+  app.addHook('onClose', async () => {autoUt.close();await builds.close();await runner.close();store.close();});
   app.addHook('onRequest', async (request, reply) => {
     // Local tools are not an authenticated multi-user service. Reject browser requests from remote origins.
     const local = (host: string) => ['localhost', '127.0.0.1', '[::1]'].includes(host);
@@ -32,31 +37,9 @@ export async function createApp(config: Config) {
     if (status >= 500) request.log.error({status}, 'Request failed');
     return reply.code(status).send({message: status >= 500 ? '服务暂不可用，请检查后端日志' : error instanceof Error ? error.message : '请求失败'});
   });
-  app.get('/api/platform/health', async () => ({status: 'UP', backend: 'typescript', migrationStage: 1}));
-  // Preserve the old health response, but do not report ready before the remaining Java APIs are ready.
-  app.get('/api/health', async (_request, reply) => {
-    try {
-      const response = await fetch(`${config.legacyUrl}/api/health`, {signal: AbortSignal.timeout(2000), redirect: 'error'});
-      const body: unknown = await response.json();
-      if (response.ok && z.object({status: z.literal('UP')}).safeParse(body).success) return {status: 'UP'};
-    } catch { /* readiness is false while the legacy process is starting */ }
-    return reply.code(503).send({status: 'DOWN', message: 'Java 兼容后端尚未就绪'});
-  });
-  app.get('/api/auto-ut/workspace-directories', async request => {
-    const {path} = z.object({path: z.string().max(4096).optional()}).parse(request.query);
-    return browse(path);
-  });
+  app.get('/api/platform/health', async () => ({status:'UP',backend:'typescript',migrationStage:'complete'}));
+  app.get('/api/health', async () => ({status:'UP'}));
   taskRoutes(app, runner);
-  // Encapsulated streaming proxy preserves multipart bodies, errors, and legacy SSE without buffering/retries.
-  await app.register(proxy, {
-    upstream: config.legacyUrl,
-    prefix: '/api',
-    rewritePrefix: '/api',
-    http2: false,
-    retryMethods: [],
-    maxRetriesOn503: 0,
-    replyOptions: {retriesCount: 0},
-    undici: {connections: 64, headersTimeout: 1800000, bodyTimeout: 0},
-  });
+  environmentRoutes(app,environments,ssh);buildRoutes(app,builds);await autoUtRoutes(app,autoUt);containerResourceRoutes(app,containers);deploymentRoutes(app,deployments);
   return app;
 }

@@ -3,9 +3,12 @@
   "version": "0.2.0",
   "private": true,
   "type": "module",
-  "engines": {"node": ">=24.15.0 <25"},
+  "engines": {
+    "node": ">=24.15.0 <25"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "migrate": "node scripts/migrate-legacy-h2.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "npm run build && node --test dist/backend-ts/tests/*.test.js",
     "start": "node dist/backend-ts/src/main.js",
@@ -13,12 +16,17 @@
     "check": "npm run typecheck && npm test"
   },
   "dependencies": {
-    "@fastify/http-proxy": "^11.0.0",
+    "@fastify/multipart": "^10.1.1",
+    "csv-parse": "^7.0.2",
+    "fast-xml-parser": "^5.11.1",
     "fastify": "^5.0.0",
+    "ssh2": "^1.17.0",
+    "yaml": "^2.9.1",
     "zod": "^4.0.0"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
+    "@types/ssh2": "^1.15.6",
     "typescript": "~5.9.3"
   }
 }

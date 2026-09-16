@@ -29,10 +29,7 @@ test('blank path lists platform roots', async () => {
   assert.equal(roots.writable, false);
   assert.ok(roots.directories.length > 0);
 });
-test('configuration rejects loops, remote upstreams and invalid limits', () => {
-  assert.equal(readConfig({}).legacyUrl, 'http://127.0.0.1:8081');
-  assert.throws(() => readConfig({LEGACY_BACKEND_URL: 'http://127.0.0.1:8080'}));
-  assert.throws(() => readConfig({LEGACY_BACKEND_URL: 'https://example.com'}));
-  assert.throws(() => readConfig({LEGACY_BACKEND_URL: 'http://user:secret@localhost:8081'}));
+test('configuration resolves storage and validates worker limits', () => {
+  assert.match(readConfig({}).database, /data[/\\]platform[/\\]tasks\.sqlite$/);
   assert.throws(() => readConfig({PLATFORM_WORKERS: '0'}));
 });

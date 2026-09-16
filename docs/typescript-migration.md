@@ -1,82 +1,41 @@
-# TypeScript 渐进迁移：第一阶段
+# TypeScript 重构与数据迁移
 
-## 本次交付边界
+## 完成状态
 
-这是可回退的第一阶段，不是已经去掉 Java 的最终版本。
+Java 兼容代理已经移除，全部 `/api` 业务由 TypeScript/Fastify 原生实现。运行时只需要 Node.js 24.15+（24.x）；不再启动 8081 端口，也不需要 JDK 或 Maven。
 
-| 能力 | 当前实现 |
-| --- | --- |
-| `/api/health` | TypeScript 聚合就绪检查，要求 Java 兼容后端也健康 |
-| `/api/platform/health` | TypeScript 存活检查 |
-| `/api/auto-ut/workspace-directories` | TypeScript 原生，保持原 JSON 结构 |
-| `/api/platform/tasks` | 新增只读工作区检查任务，SQLite + 独立进程 |
-| 构建配置、资源中心、SSH、构建、部署、Auto-UT | 仍由 Java 实现，通过流式代理承接 |
-| 前端 | 保留现有页面与 API 调用；未新增平台任务页面 |
+SQLite 默认位于 `data/platform/tasks.sqlite`，保存环境、构建历史与产物、Auto-UT 配置/任务、部署任务及可重放事件。数据库使用 WAL 和独占锁，避免两个进程同时认领任务。服务重启不会自动重复构建、部署或提交 MR。
 
-目录浏览不需要 Java，原任务及部署流程仍然需要。目录浏览保持原能力，可以浏览启动机器上的目录；这是本机工具，不应暴露为公共网络服务。
+## 旧 H2 数据
 
-## 结构和依赖方向
+`npm run migrate` 会检查 `backend/data/resource-center.mv.db`。没有旧库时直接成功返回；SQLite 已有环境数据时不会覆盖。
 
-- `shared/contracts.ts`：接口类型、Zod 校验、任务状态，不依赖后端。
-- `backend-ts/src/modules/workspace`：本机目录浏览用例。
-- `backend-ts/src/platform/store.ts`：SQLite 任务和事件的事务写入。
-- `backend-ts/src/platform/tasks.ts`：排队、并发限制、超时、取消与 Worker 生命周期。
-- `backend-ts/src/platform/worker.ts`：独立进程执行只读检查，只扫描一级目录，不读取文件内容。
-- `backend-ts/src/platform/routes.ts`：原生任务 API 和可重放 SSE。
-- `backend-ts/src/app.ts`：模块装配与临时 Java 兼容边界。
+首次迁移旧库需要本机仍能执行 `java`，并能在 Maven 本地缓存中找到 H2 JDBC jar（通常旧版项目运行过即已存在）。脚本只读取 H2，迁移环境、构建历史/产物和 Auto-UT 仓库映射；旧 H2 文件不会删除。迁移使用临时 CSV，完成或失败后均清理。
 
-暂不提供任意 shell 命令执行 API。下一阶段应先迁移并测试确定的命令适配器，再接入构建与 Pi；不要让 HTTP 请求直接指定 executable/args。
+如果检测到旧库但缺少 JDBC jar，启动会停止并保留数据。可临时运行旧提交以准备 Maven 缓存，然后回到当前版本再次执行 `npm run migrate`。
 
-## 数据与进程
-
-旧 H2、仓库映射、调度和历史记录完全保留，由 Java 原逻辑读写。本次不导出、转换或删除 H2。必须沿用原启动工作目录，避免意外创建新的空 H2。
-
-SQLite 默认位于仓库根目录 `data/platform/tasks.sqlite`，仅记录新平台任务和事件，不能将其当作旧 Java 数据库的替代品。备份时先停止 TypeScript 进程，再备份该目录。数据库使用 WAL 和进程独占锁，禁止多个后端同时打开同一数据库，避免误中断另一进程的任务；崩溃后操作系统释放锁。
-
-任务生命周期：QUEUED → RUNNING → SUCCEEDED/FAILED；排队或运行中可取消。停止或重启后未完成任务变为 INTERRUPTED，绝不自动重试。旧 Java 任务的恢复能力没有因本次迁移而改变。
-
-Worker 数量默认 2，执行超时默认 5 分钟；进程退出前等待已启动 Worker 清理。当前 Worker 不创建外部命令子进程，不能把其取消实现直接视为未来 Maven/Pi 进程树取消方案。
+迁移成功并核对页面前，请备份 `backend/data/resource-center.mv.db`。Auto-UT 运行中的 Pi 事件、旧部署内存任务和旧定时任务二进制报告无法可靠转换；它们不会被自动重放，需重新发起或重新设置定时任务。
 
 ## 配置
 
 | 环境变量 | 默认值 | 说明 |
 | --- | --- | --- |
-| PLATFORM_PORT | 8080 | TypeScript 端口 |
-| LEGACY_BACKEND_URL | http://127.0.0.1:8081 | 仅接受本机 HTTP origin，不能与入口端口相同 |
-| PLATFORM_DATA_DIR | data/platform | 相对启动目录解析 |
-| PLATFORM_WORKERS | 2 | 1–16 个 Worker |
-| PLATFORM_TASK_TIMEOUT_MS | 300000 | 100–3600000 毫秒 |
+| `PLATFORM_PORT` | `8080` | 后端监听端口 |
+| `PLATFORM_DATA_DIR` | `data/platform` | SQLite 数据目录 |
+| `PLATFORM_WORKERS` | `2` | 通用只读任务 Worker 数，范围 1–16 |
+| `PLATFORM_TASK_TIMEOUT_MS` | `300000` | 通用任务超时，单位毫秒 |
+| `AUTO_UT_CODEHUB_REVIEWERS` | 空 | CodeHub reviewers |
+| `AUTO_UT_CODEHUB_APPROVERS` | 空 | CodeHub approvers |
+| `AUTO_UT_CODEHUB_ASSIGNEES` | 空 | CodeHub assignees |
 
-`start.bat` 固定入口与兼容端口为 8080/8081；自定义端口请手动启动并调整 Vite 代理。TypeScript 和批处理启动的 Java 只监听本机。无账号体系，不支持作为多用户网络服务直接发布。远程站点 Origin 与跨站浏览器请求会被拒绝。
+## 安全与运行边界
 
-## 新任务 API
+- HTTP 入口只接受本机 Host/Origin，未实现公网认证。
+- SSH、Git、Maven、Pi、kubectl、Helm 和 CodeHub 命令由后端固定生成，HTTP 调用者不能传入任意 executable。
+- 部署和资源变更不自动重试；更新 Kubernetes 资源时校验 `resourceVersion`。
+- 关闭或超时时会终止本地子进程树；远端 SSH 命令使用固定超时和取消信号。
+- 密码存放在本机 SQLite 以兼容原产品行为，应限制文件系统权限并纳入受控备份。
 
-- `POST /api/platform/tasks`：`{"kind":"workspace-inspect","path":"D:/Projects"}`，返回 202 和排队任务。
-- `GET /api/platform/tasks?limit=100`：最近任务，最多 200 条。
-- `GET /api/platform/tasks/{id}`：任务状态。
-- `POST /api/platform/tasks/{id}/cancel`：幂等取消，不改变已完成结果。
-- `GET /api/platform/tasks/{id}/events`：SSE，支持 Last-Event-ID 或 afterSequence，断线后读取持久化事件。
+## 验证范围
 
-SSE 有背压控制和心跳，原生终态重放完毕后关闭。旧 Java SSE 直接流式转发，保持其现有关闭语义。代理不自动重试任何请求，避免重复部署或重复提交修复。
-
-## 验证与交付
-
-```bash
-npm ci
-npm run check
-npm ci --prefix frontend
-npm run test --prefix frontend
-npm run build --prefix frontend
-```
-
-测试覆盖目录接口、输入校验、任务持久化、重启中断、取消、超时、SSE 重放、代理的 JSON/multipart/状态码/查询参数/中文 SSE，以及变更请求不重试。真实 SSH、公司网络、Windows 批处理和 Pi/CodeHub 执行仍需在用户环境验证，不能用代理桩测试声称已验证生产部署。
-
-Node 日志输出到进程控制台，不记录请求体和查询参数；任务事件持久化到 SQLite。Java 原日志文件位置不变。
-
-本次开发环境只有 Java 17，未安装 Maven，不能运行要求 Java 21 的原后端测试；原 Java 源码未修改。提交前已验证根目录类型检查、11 项后端测试、11 项前端测试、前端类型检查和生产构建。兼容代理测试使用本机 HTTP 测试服务器，不等于真实 Java/SSH 联调。
-
-## 回退与后续阶段
-
-停止 TypeScript、Java 和前端后，使用 `start-java.bat`，或原 `mvn -pl backend spring-boot:run` 加前端。无需回滚数据库，也不要删除 SQLite 或 H2。
-
-后续依次迁移：环境配置/SSH → 构建 → Auto-UT/Pi → 部署。每个模块先建立接口和业务契约测试，再切换所有权；不要同时让两个实现写同一业务数据。H2 到 SQLite 的迁移必须单独实现导出、校验、备份和回退，完成前不删除 Java。最后才移除兼容代理、Maven 和 JDK 运行依赖。
+自动测试覆盖本机 API、运行时校验、SQLite 生命周期、取消/超时、SSE 重放、目录边界及前端交互。SSH/Kubernetes/Helm/Pi/CodeHub 需要在具有公司网络和对应 CLI 的目标机器做一次验收；自动测试不会假装执行生产部署。

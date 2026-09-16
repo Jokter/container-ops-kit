@@ -6,7 +6,7 @@ import {taskInput, taskStatus, terminal} from '../../../shared/contracts.js';
 import type {Task, TaskEvent, TaskInput, TaskStatus} from '../../../shared/contracts.js';
 
 export class TaskStore {
-  private readonly db: DatabaseSync;
+  readonly db: DatabaseSync;
   constructor(filename: string) {
     if (filename !== ':memory:') mkdirSync(dirname(filename), {recursive: true});
     this.db = new DatabaseSync(filename);
@@ -24,6 +24,22 @@ export class TaskStore {
         status TEXT NOT NULL, message TEXT NOT NULL, time TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS events_task_sequence ON events(task_id, sequence);
       CREATE INDEX IF NOT EXISTS tasks_status ON tasks(status);
+      CREATE TABLE IF NOT EXISTS release_versions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT NOT NULL UNIQUE, name TEXT NOT NULL, sort_order INTEGER NOT NULL);
+      INSERT OR IGNORE INTO release_versions(code,name,sort_order) VALUES ('R27C10','R27C10',1),('R27C00','R27C00',2);
+      CREATE TABLE IF NOT EXISTS environments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, release_version_id INTEGER NOT NULL REFERENCES release_versions(id),
+        type TEXT NOT NULL, name TEXT NOT NULL, host TEXT NOT NULL, ssh_port INTEGER NOT NULL,
+        password TEXT NOT NULL, root_password TEXT, work_directory TEXT, architecture TEXT,
+        business_plane_url TEXT, business_plane_user TEXT, business_plane_password TEXT,
+        management_plane_url TEXT, management_plane_user TEXT, management_plane_password TEXT,
+        connection_status TEXT NOT NULL DEFAULT 'UNTESTED', last_tested_at TEXT,
+        last_test_latency_ms INTEGER, last_test_error TEXT, created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL, version INTEGER NOT NULL DEFAULT 0);
+      CREATE TABLE IF NOT EXISTS domain_records (
+        domain TEXT NOT NULL, id TEXT NOT NULL, payload TEXT NOT NULL, created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL, PRIMARY KEY(domain,id));
+      CREATE INDEX IF NOT EXISTS domain_records_list ON domain_records(domain,created_at DESC);
       COMMIT;`);
     } catch (error) {this.db.close(); throw error;}
   }
@@ -76,4 +92,22 @@ export class TaskStore {
     }
   }
   close(): void {this.db.close();}
+
+  putRecord(domain: string, id: string, value: unknown, createdAt = new Date().toISOString()): void {
+    const now = new Date().toISOString();
+    this.db.prepare(`INSERT INTO domain_records(domain,id,payload,created_at,updated_at) VALUES(?,?,?,?,?)
+      ON CONFLICT(domain,id) DO UPDATE SET payload=excluded.payload,updated_at=excluded.updated_at`)
+      .run(domain, id, JSON.stringify(value), createdAt, now);
+  }
+  getRecord<T>(domain: string, id: string): T | undefined {
+    const row = this.db.prepare('SELECT payload FROM domain_records WHERE domain=? AND id=?').get(domain, id);
+    return row ? JSON.parse(String(row.payload)) as T : undefined;
+  }
+  records<T>(domain: string): T[] {
+    return this.db.prepare('SELECT payload FROM domain_records WHERE domain=? ORDER BY created_at DESC').all(domain)
+      .map(row => JSON.parse(String(row.payload)) as T);
+  }
+  deleteRecord(domain: string, id: string): void {
+    this.db.prepare('DELETE FROM domain_records WHERE domain=? AND id=?').run(domain, id);
+  }
 }

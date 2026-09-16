@@ -1,64 +1,31 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createServer} from 'node:http';
-import {once} from 'node:events';
 import {tmpdir} from 'node:os';
 import {createApp} from '../src/app.js';
 import type {Task} from '../../shared/contracts.js';
 
-test('gateway preserves old API payloads, status codes, uploads, queries and SSE', async t => {
-  let calls = 0, ready = true;
-  const upstream = createServer(async (req, res) => {
-    calls++;
-    if (req.url === '/api/health') {res.writeHead(ready ? 200 : 503, {'content-type': 'application/json'}); res.end(JSON.stringify({status: ready ? 'UP' : 'DOWN'})); return;}
-    if (req.url === '/api/build-tasks/id/events') {
-      res.writeHead(200, {'content-type': 'text/event-stream'});
-      res.write(`id: 2\ndata: ${JSON.stringify({message: '中文日志', cursor: req.headers['last-event-id']})}\n\n`);
-      setTimeout(() => res.end('id: 3\ndata: {"done":true}\n\n'), 50);
-      return;
-    }
-    if (req.url === '/api/deployment-tasks') {res.writeHead(503, {'content-type': 'application/json'}); res.end('{"message":"busy"}'); return;}
-    if (req.url === '/api/auto-ut/schedule' && req.method === 'DELETE') {res.writeHead(204); res.end(); return;}
-    const chunks: Buffer[] = [];
-    for await (const chunk of req) chunks.push(Buffer.from(chunk));
-    res.writeHead(201, {'content-type': 'application/json'});
-    res.end(JSON.stringify({method: req.method, url: req.url, contentType: req.headers['content-type'], body: Buffer.concat(chunks).toString()}));
-  });
-  upstream.listen(0, '127.0.0.1');
-  await once(upstream, 'listening');
-  const address = upstream.address();
-  assert.ok(address && typeof address !== 'string');
-  const app = await createApp({port: 8080, legacyUrl: `http://127.0.0.1:${address.port}`, database: ':memory:', workers: 1, taskTimeoutMs: 5000});
-  t.after(async () => {await app.close(); await new Promise<void>(resolve => upstream.close(() => resolve()));});
-
+test('native service exposes health and validates environment API', async t => {
+  const app = await createApp({port: 8080,database: ':memory:',workers:1,taskTimeoutMs:5000});
+  t.after(()=>app.close());
   assert.deepEqual((await app.inject('/api/health')).json(), {status: 'UP'});
-  ready = false;
-  assert.equal((await app.inject('/api/health')).statusCode, 503);
-  assert.equal((await app.inject('/api/platform/health')).statusCode, 200);
-  const before = calls;
+  assert.equal((await app.inject('/api/platform/health')).json().migrationStage,'complete');
   assert.equal((await app.inject('/api/auto-ut/workspace-directories')).statusCode, 200);
-  assert.equal(calls, before, 'directory browsing must be served natively');
-
-  const upload = '--boundary\r\nContent-Disposition: form-data; name="report"; filename="ut.csv"\r\nContent-Type: text/csv\r\n\r\n服务,结果\r\nFM,失败\r\n--boundary--\r\n';
-  const result = await app.inject({method: 'POST', url: '/api/auto-ut/scan?username=test', headers: {'content-type': 'multipart/form-data; boundary=boundary'}, payload: upload});
-  assert.equal(result.statusCode, 201);
-  assert.equal(result.json().body, upload);
-  assert.equal(result.json().url, '/api/auto-ut/scan?username=test');
-  assert.equal(result.json().contentType, 'multipart/form-data; boundary=boundary');
-  const update = await app.inject({method: 'PUT', url: '/api/environments/42', payload: {name: '测试', rootPassword: 'test-only'}});
-  assert.deepEqual(JSON.parse(update.json().body), {name: '测试', rootPassword: 'test-only'});
+  assert.equal((await app.inject('/api/release-versions')).json().length,2);
+  assert.equal((await app.inject({method:'POST',url:'/api/environments',payload:{}})).statusCode,400);
   assert.equal((await app.inject({method: 'DELETE', url: '/api/auto-ut/schedule'})).statusCode, 204);
-  const attempts = calls;
-  assert.equal((await app.inject({method: 'POST', url: '/api/deployment-tasks', payload: {}})).statusCode, 503);
-  assert.equal(calls, attempts + 1, 'a mutating request must never be retried');
-  const events = await app.inject({url: '/api/build-tasks/id/events', headers: {'last-event-id': '1'}});
-  assert.match(events.body, /中文日志/);
-  assert.match(events.body, /"cursor":"1"/);
-  assert.match(events.body, /id: 3/);
+});
+
+test('environment CRUD persists the existing API contract and optimistic revision', async t => {
+  const app=await createApp({port:8080,database:':memory:',workers:1,taskTimeoutMs:5000});t.after(()=>app.close());
+  const base={releaseVersionId:1,type:'CONTAINER',name:'OM 测试环境',host:'127.0.0.1',sshPort:22,password:'sop-test',rootPassword:'root-test',workDirectory:null,architecture:'X86_64',businessPlaneUrl:null,businessPlaneUser:null,businessPlanePassword:null,managementPlaneUrl:null,managementPlaneUser:null,managementPlanePassword:null,version:null};
+  const created=await app.inject({method:'POST',url:'/api/environments',payload:base});assert.equal(created.statusCode,201);const value=created.json();assert.equal(value.releaseVersion.code,'R27C10');assert.equal(value.version,0);
+  const stale=await app.inject({method:'PUT',url:`/api/environments/${value.id}`,payload:{...base,name:'更新',version:1}});assert.equal(stale.statusCode,409);
+  const updated=await app.inject({method:'PUT',url:`/api/environments/${value.id}`,payload:{...base,name:'更新',version:0}});assert.equal(updated.statusCode,200);assert.equal(updated.json().version,1);assert.equal(updated.json().name,'更新');
+  assert.equal((await app.inject(`/api/environments/${value.id}`)).json().rootPassword,'root-test');assert.equal((await app.inject({method:'DELETE',url:`/api/environments/${value.id}`})).statusCode,204);assert.equal((await app.inject(`/api/environments/${value.id}`)).statusCode,404);
 });
 
 test('native task API validates input, persists lifecycle and replays SSE', async t => {
-  const app = await createApp({port: 8080, legacyUrl: 'http://127.0.0.1:1', database: ':memory:', workers: 1, taskTimeoutMs: 5000});
+  const app = await createApp({port: 8080,database: ':memory:',workers:1,taskTimeoutMs:5000});
   t.after(() => app.close());
   assert.equal((await app.inject({method: 'POST', url: '/api/platform/tasks', payload: {kind: 'shell', command: 'anything'}})).statusCode, 400);
   assert.equal((await app.inject({method: 'POST', url: '/api/platform/tasks', headers: {origin: 'https://example.com'}, payload: {kind: 'workspace-inspect', path: tmpdir()}})).statusCode, 403);
@@ -78,31 +45,4 @@ test('native task API validates input, persists lifecycle and replays SSE', asyn
   const cancelled = await app.inject({method: 'POST', url: `/api/platform/tasks/${task.id}/cancel`});
   assert.equal(cancelled.json<Task>().status, 'SUCCEEDED', 'cancel cannot rewrite a terminal result');
   assert.equal((await app.inject(`/api/platform/tasks/${task.id}/events?afterSequence=-1`)).statusCode, 400);
-});
-
-test('real HTTP SSE is streamed before upstream completion and shutdown releases connections', {timeout: 5000}, async () => {
-  const upstream = createServer((_req, res) => {
-    res.writeHead(200, {'content-type': 'text/event-stream'});
-    res.write('id: 1\ndata: {"message":"live"}\n\n');
-    // Intentionally never finish: the gateway must stream now, and shut down without waiting forever.
-  });
-  upstream.listen(0, '127.0.0.1');
-  await once(upstream, 'listening');
-  const address = upstream.address();
-  assert.ok(address && typeof address !== 'string');
-  const app = await createApp({port: 8080, legacyUrl: `http://127.0.0.1:${address.port}`, database: ':memory:', workers: 1, taskTimeoutMs: 5000});
-  try {
-    const base = await app.listen({port: 0, host: '127.0.0.1'});
-    const response = await fetch(`${base}/api/build-tasks/id/events`, {signal: AbortSignal.timeout(2000)});
-    const reader = response.body!.getReader();
-    const first = await reader.read();
-    assert.equal(first.done, false);
-    assert.match(new TextDecoder().decode(first.value), /live/);
-    await app.close();
-    await reader.cancel().catch(() => {});
-  } finally {
-    upstream.closeAllConnections();
-    await app.close();
-    await new Promise<void>(resolve => upstream.close(() => resolve()));
-  }
 });
