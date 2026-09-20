@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {DeploymentService} from '../src/modules/deployment/deployment.js';
+import {DeploymentService,hasBlockingDeploymentPlaceholders} from '../src/modules/deployment/deployment.js';
 import {TaskStore} from '../src/platform/store.js';
 
 function reviewTask(values:string) {
@@ -25,4 +25,9 @@ test('修改 values 后重算阻塞项且仅增加一次 revision', t => {
   assert.deepEqual(updated.services.swmfrontendservice?.unresolvedImages,[]);
   assert.equal(updated.services.swmfrontendservice?.stage,'ANALYZED');
   assert.match(service.get('task').events[0]!.message,/可以确认配置并部署/);
+});
+
+test('审阅部署允许保留可选镜像版本占位符', () => {
+  assert.equal(hasBlockingDeploymentPlaceholders('zenith: {version:zenith}\nredis: {version:redis}'),false);
+  assert.equal(hasBlockingDeploymentPlaceholders('value: replaceByOssDiy'),true);
 });
