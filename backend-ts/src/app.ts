@@ -10,6 +10,8 @@ import {BuildService,buildRoutes} from './modules/build/build.js';
 import {AutoUtService,autoUtRoutes} from './modules/autout/autout.js';
 import {ContainerResourceService,containerResourceRoutes} from './modules/containerresource/containerresource.js';
 import {DeploymentService,deploymentRoutes} from './modules/deployment/deployment.js';
+import {QualityService,qualityRoutes} from './modules/quality/quality.js';
+import {AutoUtReports,autoUtReportRoutes} from './modules/autout/reports.js';
 import {FileLogs} from './infrastructure/file-logs.js';
 
 export async function createApp(config: Config) {
@@ -22,8 +24,10 @@ export async function createApp(config: Config) {
   const store = new TaskStore(config.database,logs);
   const runner = new TaskRunner(store, config.workers, config.taskTimeoutMs);
   const ssh=new SshOperations(),environments=new EnvironmentService(store,ssh),builds=new BuildService(store,environments,ssh,logs),autoUt=new AutoUtService(store,logs),containers=new ContainerResourceService(environments,ssh,config.kubectlKubeconfig,config.helmKubeconfig),deployments=new DeploymentService(store,builds,environments,ssh,config.kubectlKubeconfig,config.helmKubeconfig,logs);
+  const quality=new QualityService(store,logs),reports=new AutoUtReports(store,quality,autoUt,logs);
+  qualityRoutes(app,quality);autoUtReportRoutes(app,reports);
   await deployments.cleanupPreparations();
-  app.addHook('onClose', async () => {autoUt.close();await builds.close();await runner.close();store.close();});
+  app.addHook('onClose', async () => {await quality.close();await reports.close();autoUt.close();await builds.close();await runner.close();store.close();});
   app.addHook('onRequest', async (request, reply) => {
     // Local tools are not an authenticated multi-user service. Reject browser requests from remote origins.
     const local = (host: string) => ['localhost', '127.0.0.1', '[::1]'].includes(host);

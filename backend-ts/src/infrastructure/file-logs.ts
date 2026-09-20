@@ -1,7 +1,7 @@
 import {appendFileSync,mkdirSync} from 'node:fs';
 import {dirname,resolve} from 'node:path';
 
-export type LogCategory='platform'|'build'|'deployment'|'auto-ut';
+export type LogCategory='platform'|'build'|'deployment'|'auto-ut'|'quality';
 export interface LogSink{task(category:LogCategory,id:string,event:unknown):void}
 
 const sensitive=/password|authorization|cookie|token|secret|privatekey|rootpassword/i;
