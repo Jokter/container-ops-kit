@@ -40,7 +40,7 @@ SQLite 默认写入 `data/platform/tasks.sqlite`。数据库使用进程独占�
 
 ## 日志
 
-运行日志统一写入项目根目录的 `data/logs`，同时继续显示在启动窗口和页面中：
+运行日志统一写入项目根目录的 `data/logs`，同时继续显示在启动窗口和页面中。每次运行 `start.bat` 都会先清空该目录，确保导出的日志只包含本次运行：
 
 - `startup/startup.log`：依赖安装、数据迁移和编译
 - `backend/process.log`：Node.js 后端进程启动输出
