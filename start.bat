@@ -1,10 +1,10 @@
 @echo off
 setlocal
-set "PROJECT_ROOT=%~dp0"
+for %%I in ("%~dp0.") do set "PROJECT_ROOT=%%~fI"
 cd /d "%PROJECT_ROOT%"
 set "PLATFORM_PORT=8080"
-set "LOG_ROOT=%PROJECT_ROOT%data\logs"
-set "LOG_RUNNER=%PROJECT_ROOT%scripts\run-logged.ps1"
+set "LOG_ROOT=%PROJECT_ROOT%\data\logs"
+set "LOG_RUNNER=%PROJECT_ROOT%\scripts\run-logged.ps1"
 if not exist "%LOG_ROOT%\startup" mkdir "%LOG_ROOT%\startup"
 
 where node >nul 2>nul
@@ -36,7 +36,7 @@ pause
 exit /b 1
 
 :backend_ready
-start "Container Ops Kit Frontend" powershell -NoExit -NoProfile -ExecutionPolicy Bypass -File "%LOG_RUNNER%" -WorkingDirectory "%PROJECT_ROOT%frontend" -LogFile "%LOG_ROOT%\frontend\frontend.log" -LoggedCommand "npm run dev -- --host 127.0.0.1 --strictPort"
+start "Container Ops Kit Frontend" powershell -NoExit -NoProfile -ExecutionPolicy Bypass -File "%LOG_RUNNER%" -WorkingDirectory "%PROJECT_ROOT%\frontend" -LogFile "%LOG_ROOT%\frontend\frontend.log" -LoggedCommand "npm run dev -- --host 127.0.0.1 --strictPort"
 for /l %%I in (1,1,60) do (
   powershell -NoProfile -Command "try { $r = Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:5173' -TimeoutSec 1; if ($r.StatusCode -eq 200) { exit 0 } else { exit 1 } } catch { exit 1 }"
   if not errorlevel 1 goto frontend_ready

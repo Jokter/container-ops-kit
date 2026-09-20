@@ -1,10 +1,16 @@
 param(
-    [Parameter(Mandatory = $true)][string]$WorkingDirectory,
-    [Parameter(Mandatory = $true)][string]$LogFile,
-    [Parameter(Mandatory = $true)][string]$LoggedCommand
+    [string]$WorkingDirectory = '',
+    [string]$LogFile = '',
+    [string]$LoggedCommand = ''
 )
 
 $ErrorActionPreference = 'Stop'
+if ([string]::IsNullOrWhiteSpace($WorkingDirectory) -or
+    [string]::IsNullOrWhiteSpace($LogFile) -or
+    [string]::IsNullOrWhiteSpace($LoggedCommand)) {
+    Write-Error '日志启动参数缺失，请更新 start.bat 与 scripts/run-logged.ps1 后重试。'
+    exit 2
+}
 Set-Location -LiteralPath $WorkingDirectory
 $logDirectory = Split-Path -Parent $LogFile
 New-Item -ItemType Directory -Force -Path $logDirectory | Out-Null
