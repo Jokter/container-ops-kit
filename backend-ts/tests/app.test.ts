@@ -1,11 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {tmpdir} from 'node:os';
+import {readConfig} from '../src/config.js';
 import {createApp} from '../src/app.js';
 import type {Task} from '../../shared/contracts.js';
 
 test('native service exposes health and validates environment API', async t => {
-  const app = await createApp({port: 8080,database: ':memory:',workers:1,taskTimeoutMs:5000});
+  const app = await createApp({...readConfig({}),port: 8080,database: ':memory:',workers:1,taskTimeoutMs:5000});
   t.after(()=>app.close());
   assert.deepEqual((await app.inject('/api/health')).json(), {status: 'UP'});
   assert.equal((await app.inject('/api/platform/health')).json().migrationStage,'complete');
@@ -16,7 +17,7 @@ test('native service exposes health and validates environment API', async t => {
 });
 
 test('environment CRUD persists the existing API contract and optimistic revision', async t => {
-  const app=await createApp({port:8080,database:':memory:',workers:1,taskTimeoutMs:5000});t.after(()=>app.close());
+  const app=await createApp({...readConfig({}),port:8080,database:':memory:',workers:1,taskTimeoutMs:5000});t.after(()=>app.close());
   const base={releaseVersionId:1,type:'CONTAINER',name:'OM 测试环境',host:'127.0.0.1',sshPort:22,password:'sop-test',rootPassword:'root-test',workDirectory:null,architecture:'X86_64',businessPlaneUrl:null,businessPlaneUser:null,businessPlanePassword:null,managementPlaneUrl:null,managementPlaneUser:null,managementPlanePassword:null,version:null};
   const created=await app.inject({method:'POST',url:'/api/environments',payload:base});assert.equal(created.statusCode,201);const value=created.json();assert.equal(value.releaseVersion.code,'R27C10');assert.equal(value.version,0);
   const stale=await app.inject({method:'PUT',url:`/api/environments/${value.id}`,payload:{...base,name:'更新',version:1}});assert.equal(stale.statusCode,409);
@@ -25,7 +26,7 @@ test('environment CRUD persists the existing API contract and optimistic revisio
 });
 
 test('native task API validates input, persists lifecycle and replays SSE', async t => {
-  const app = await createApp({port: 8080,database: ':memory:',workers:1,taskTimeoutMs:5000});
+  const app = await createApp({...readConfig({}),port: 8080,database: ':memory:',workers:1,taskTimeoutMs:5000});
   t.after(() => app.close());
   assert.equal((await app.inject({method: 'POST', url: '/api/platform/tasks', payload: {kind: 'shell', command: 'anything'}})).statusCode, 400);
   assert.equal((await app.inject({method: 'POST', url: '/api/platform/tasks', headers: {origin: 'https://example.com'}, payload: {kind: 'workspace-inspect', path: tmpdir()}})).statusCode, 403);

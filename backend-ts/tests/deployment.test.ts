@@ -12,7 +12,7 @@ test('相同 values 重复保存不会增加部署 revision', t => {
   const store=new TaskStore(':memory:');t.after(()=>store.close());
   const values='image: repo/swm:{version:swmfrontendservice}';
   store.putRecord('deployment-task','task',reviewTask(values));
-  const service=new DeploymentService(store,undefined as never,undefined as never,undefined as never);
+  const service=new DeploymentService(store,undefined as never,undefined as never,undefined as never,'/root/.kube/config','/opt/kubeconfig/kubeconfig.txt');
   assert.equal(service.updateValues('task','swmfrontendservice',values).revision,1);
   assert.equal(service.get('task').events.length,0);
 });
@@ -20,7 +20,7 @@ test('相同 values 重复保存不会增加部署 revision', t => {
 test('修改 values 后重算阻塞项且仅增加一次 revision', t => {
   const store=new TaskStore(':memory:');t.after(()=>store.close());
   store.putRecord('deployment-task','task',reviewTask('image: repo/swm:{version:swmfrontendservice}'));
-  const service=new DeploymentService(store,undefined as never,undefined as never,undefined as never);
+  const service=new DeploymentService(store,undefined as never,undefined as never,undefined as never,'/root/.kube/config','/opt/kubeconfig/kubeconfig.txt');
   const updated=service.updateValues('task','swmfrontendservice','image: repo/swm:1.2.3');
   assert.equal(updated.revision,2);
   assert.deepEqual(updated.services.swmfrontendservice?.unresolvedImages,[]);

@@ -2,6 +2,8 @@ import {resolve} from 'node:path';
 import {z} from 'zod';
 
 const environment = z.object({
+  DEPLOYMENT_KUBECTL_KUBECONFIG: z.string().trim().min(1).default('/root/.kube/config'),
+  DEPLOYMENT_HELM_KUBECONFIG: z.string().trim().min(1).default('/opt/kubeconfig/kubeconfig.txt'),
   PLATFORM_PORT: z.coerce.number().int().min(1).max(65535).default(8080),
   PLATFORM_DATA_DIR: z.string().min(1).default('data/platform'),
   PLATFORM_WORKERS: z.coerce.number().int().min(1).max(16).default(2),
@@ -10,6 +12,8 @@ const environment = z.object({
 export function readConfig(env: NodeJS.ProcessEnv = process.env) {
   const parsed = environment.parse(env);
   return {
+    kubectlKubeconfig: parsed.DEPLOYMENT_KUBECTL_KUBECONFIG,
+    helmKubeconfig: parsed.DEPLOYMENT_HELM_KUBECONFIG,
     port: parsed.PLATFORM_PORT,
     database: resolve(parsed.PLATFORM_DATA_DIR, 'tasks.sqlite'),
     workers: parsed.PLATFORM_WORKERS,
