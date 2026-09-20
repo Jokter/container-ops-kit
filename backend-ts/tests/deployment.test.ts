@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {parse} from 'yaml';
-import {chartTemplatePlan,DeploymentService,hasBlockingDeploymentPlaceholders,normalizeOptionalVersions,optionalVersionMarker,replaceBuildMetadata,usedOptionalVersions} from '../src/modules/deployment/deployment.js';
+import {chartTemplatePlan,DeploymentService,hasBlockingDeploymentPlaceholders,hasDeploymentAnalysisFailures,normalizeOptionalVersions,optionalVersionMarker,replaceBuildMetadata,usedOptionalVersions} from '../src/modules/deployment/deployment.js';
 import {TaskStore} from '../src/platform/store.js';
 
 function reviewTask(values:string) {
@@ -31,6 +31,11 @@ test('修改 values 后重算阻塞项且仅增加一次 revision', t => {
 test('审阅部署允许保留可选镜像版本占位符', () => {
   assert.equal(hasBlockingDeploymentPlaceholders('zenith: {version:zenith}\nredis: {version:redis}'),false);
   assert.equal(hasBlockingDeploymentPlaceholders('value: replaceByOssDiy'),true);
+});
+
+test('快速部署分析也允许保留可选镜像版本占位符', () => {
+  assert.equal(hasDeploymentAnalysisFailures([{values:'zenith: {version:zenith}',errors:[]}]),false);
+  assert.equal(hasDeploymentAnalysisFailures([{values:'value: replaceByOssDiy',errors:['存在未解析占位符']}]),true);
 });
 
 test('写入 Chart 前将可选版本转换为合法 YAML 标记', () => {

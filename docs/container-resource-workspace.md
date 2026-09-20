@@ -1,6 +1,6 @@
 # 服务资源工作区
 
-服务资源工作区以容器环境和命名空间为实时数据边界，以服务为资源归集入口。页面由 `frontend/src/container-resource-runtime.js` 提供，后端边界位于 `backend/src/main/java/com/jokter/containerops/containerresource`。
+服务资源工作区以容器环境和命名空间为实时数据边界，以服务为资源归集入口。页面由 `frontend/src/container-resource-runtime.js` 提供，后端边界位于 `backend-ts/src/modules/containerresource/containerresource.ts`。
 
 ## 数据来源
 

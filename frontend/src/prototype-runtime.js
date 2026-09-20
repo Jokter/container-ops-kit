@@ -801,7 +801,18 @@ import {canConvertFailedQuickDeploymentToReview, canDeployReviewedTask, deployme
     const selectable = visible.filter(item => item.deployable)
     const rows = visible.map(item => '<label class="deployment-service-option ' + (item.deployable ? '' : 'unavailable') + '"><input type="checkbox" name="deploymentService" value="' + escapeHtml(item.name) + '" ' + (selected.has(item.name) ? 'checked' : '') + ' ' + (item.deployable ? '' : 'disabled') + '><span><strong>' + escapeHtml(item.name) + '</strong><small>' + (item.kind === 'STATEFUL_SET' ? 'StatefulSet' : item.kind === 'DEPLOYMENT' ? 'Deployment' : '工作负载') + (item.deployable ? '' : ' · 不可部署') + '</small></span></label>').join('')
     const empty = candidate.workloads.length ? '没有匹配的工作负载' : '当前命名空间没有 Deployment 或 StatefulSet'
-    return '<div class="deployment-service-picker"><div class="deployment-service-toolbar"><input id="deployment-service-search" value="' + escapeHtml(deploymentRuntime.serviceQuery) + '" placeholder="搜索工作负载名称"><span>已选 ' + selected.size + ' / ' + deployable.length + ' 个可部署服务</span><button type="button" class="button small ghost" data-select-visible-services ' + (!selectable.length ? 'disabled' : '') + '>选择搜索结果</button><button type="button" class="button small ghost" data-clear-deployment-services ' + (!selected.size ? 'disabled' : '') + '>清空</button></div><div class="deployment-service-options">' + (rows || '<div class="environment-empty">' + empty + '</div>') + '</div></div>'
+    return '<div class="deployment-service-picker"><div class="deployment-service-toolbar"><input id="deployment-service-search" value="' + escapeHtml(deploymentRuntime.serviceQuery) + '" placeholder="搜索工作负载名称"><span data-deployment-selection-count>已选 ' + selected.size + ' / ' + deployable.length + ' 个可部署服务</span><button type="button" class="button small ghost" data-select-visible-services ' + (!selectable.length ? 'disabled' : '') + '>选择搜索结果</button><button type="button" class="button small ghost" data-clear-deployment-services ' + (!selected.size ? 'disabled' : '') + '>清空</button></div><div class="deployment-service-options">' + (rows || '<div class="environment-empty">' + empty + '</div>') + '</div></div>'
+  }
+
+  function updateDeploymentPickerSelection() {
+    const selected = deploymentRuntime.selectedServices
+    const deployableCount = (deploymentRuntime.candidates?.workloads || []).filter(item => item.deployable).length
+    document.querySelectorAll('input[name="deploymentService"]').forEach(input => { input.checked = selected.has(input.value) })
+    const count = document.querySelector('[data-deployment-selection-count]')
+    if (count) count.textContent = '已选 ' + selected.size + ' / ' + deployableCount + ' 个可部署服务'
+    const clear = document.querySelector('[data-clear-deployment-services]')
+    if (clear) clear.disabled = !selected.size
+    document.querySelectorAll('[data-create-deploy-task]').forEach(button => { button.disabled = deploymentRuntime.busy || !selected.size })
   }
 
   function deploymentServiceRows(task) {
@@ -1047,7 +1058,7 @@ import {canConvertFailedQuickDeploymentToReview, canDeployReviewedTask, deployme
       if (event.target.checked) deploymentRuntime.selectedServices.add(event.target.value)
       else deploymentRuntime.selectedServices.delete(event.target.value)
       saveDeploymentSelection()
-      render(false)
+      updateDeploymentPickerSelection()
     }
   })
 
@@ -1073,12 +1084,14 @@ import {canConvertFailedQuickDeploymentToReview, canDeployReviewedTask, deployme
   document.addEventListener('click', function (event) {
     if (event.target.closest?.('[data-select-visible-services]')) {
       visibleDeploymentWorkloads().filter(item => item.deployable).forEach(item => deploymentRuntime.selectedServices.add(item.name))
-      render(false)
+      saveDeploymentSelection()
+      updateDeploymentPickerSelection()
       return
     }
     if (event.target.closest?.('[data-clear-deployment-services]')) {
       deploymentRuntime.selectedServices.clear()
-      render(false)
+      saveDeploymentSelection()
+      updateDeploymentPickerSelection()
       return
     }
     const containerDetailsButton = event.target.closest?.('[data-toggle-container-details]')

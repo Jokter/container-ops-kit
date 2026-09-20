@@ -1,3 +1,5 @@
+import {environmentOptionLabel} from './environment-presentation.js'
+
 (function () {
   const runtime = {
     environmentId: '', namespace: 'mae', services: [], groups: [], resources: [], types: [],
@@ -9,6 +11,9 @@
   const groupKeys = {SHARED: 'group:shared', UNASSIGNED: 'group:unassigned', CLUSTER: 'group:cluster'}
   const categoryNames = {WORKLOAD: '工作负载', CONFIG: '配置', CONFIGURATION: '配置', NETWORK: '网络', CUSTOM: '自定义资源', OTHER: '其它资源'}
   const sourceNames = {HELM: 'Helm Release', HELM_RELEASE: 'Helm Release', WORKLOAD: '工作负载', LABEL: '标签识别'}
+
+  let workspaceRequest = 0
+  let workspaceController = null
 
   async function api(url, options) {
     const response = await fetch(url, Object.assign({headers: {'Content-Type': 'application/json'}}, options || {}))
@@ -41,37 +46,47 @@
   async function loadWorkspace(refresh = false) {
     const available = containerEnvironments()
     if (!runtime.environmentId) runtime.environmentId = available.find(item => item.id === state.selectedContainerEnvironment)?._apiId || available[0]?._apiId || ''
-    if (!runtime.environmentId || !runtime.namespace.trim() || runtime.loading) return
+    if (!runtime.environmentId || !runtime.namespace.trim()) return
+    const requestId = ++workspaceRequest
+    workspaceController?.abort()
+    workspaceController = new AbortController()
     runtime.loading = true
     runtime.error = ''
     render(false)
     try {
-      const result = await api('/api/container-resource-services?' + query({environmentId: runtime.environmentId, namespace: runtime.namespace.trim(), refresh}))
+      const result = await api('/api/container-resource-services?' + query({environmentId: runtime.environmentId, namespace: runtime.namespace.trim(), refresh}), {signal: workspaceController.signal})
+      if (requestId !== workspaceRequest) return
       runtime.services = result.services
       runtime.groups = result.groups
       const keys = new Set([...runtime.services.map(item => item.key), ...runtime.groups.map(item => groupKeys[item.type])])
       if (!keys.has(runtime.serviceKey)) runtime.serviceKey = runtime.services[0]?.key || groupKeys[runtime.groups[0]?.type] || ''
-      await loadResources(false)
+      await loadResources(false, requestId, workspaceController.signal)
       if (refresh) showToast('环境资源已重新发现')
     } catch (error) {
+      if (error?.name === 'AbortError') return
       message(error)
     } finally {
-      runtime.loading = false
-      render(false)
+      if (requestId === workspaceRequest) {
+        runtime.loading = false
+        workspaceController = null
+        render(false)
+      }
     }
   }
 
-  async function loadResources(shouldRender = true) {
+  async function loadResources(shouldRender = true, expectedWorkspaceRequest = null, signal = null) {
     if (!runtime.environmentId || !runtime.serviceKey) return
     runtime.busy = true
     if (shouldRender) render(false)
     try {
-      const result = await api('/api/container-service-resources?' + query({environmentId: runtime.environmentId, namespace: runtime.namespace.trim(), serviceKey: runtime.serviceKey}))
+      const result = await api('/api/container-service-resources?' + query({environmentId: runtime.environmentId, namespace: runtime.namespace.trim(), serviceKey: runtime.serviceKey}), signal ? {signal} : undefined)
+      if (expectedWorkspaceRequest != null && expectedWorkspaceRequest !== workspaceRequest) return
       runtime.resources = result.resources
       runtime.resource = runtime.resources[0] || null
-      if (runtime.resource) await readResource(false)
+      if (runtime.resource) await readResource(false, expectedWorkspaceRequest, signal)
       else clearEditor()
     } catch (error) {
+      if (error?.name === 'AbortError') return
       clearEditor()
       message(error)
     } finally {
@@ -80,7 +95,7 @@
     }
   }
 
-  async function readResource(shouldRender = true) {
+  async function readResource(shouldRender = true, expectedWorkspaceRequest = null, signal = null) {
     if (!runtime.resource) return
     runtime.busy = true
     runtime.preview = null
@@ -91,9 +106,12 @@
         environmentId: runtime.environmentId, namespace: runtime.namespace.trim(), group: runtime.resource.group,
         version: runtime.resource.version, resource: runtime.resource.resource, name: runtime.resource.name
       }
-      runtime.editable = await api('/api/container-resources?' + query(coordinates))
+      const editable = await api('/api/container-resources?' + query(coordinates), signal ? {signal} : undefined)
+      if (expectedWorkspaceRequest != null && expectedWorkspaceRequest !== workspaceRequest) return
+      runtime.editable = editable
       runtime.yaml = runtime.editable.yaml
     } catch (error) {
+      if (error?.name === 'AbortError') return
       clearEditor()
       message(error)
     } finally {
@@ -266,10 +284,10 @@
   }
 
   function resourceOperationContent() {
-    const options = containerEnvironments().map(item => '<option value="' + item._apiId + '" ' + (String(runtime.environmentId) === String(item._apiId) ? 'selected' : '') + '>' + escapeHtml(item.name + ' · ' + item.ip) + '</option>').join('')
+    const options = containerEnvironments().map(item => '<option value="' + item._apiId + '" ' + (String(runtime.environmentId) === String(item._apiId) ? 'selected' : '') + '>' + escapeHtml(environmentOptionLabel(item)) + '</option>').join('')
     const addDisabled = !runtime.serviceKey || runtime.serviceKey.startsWith('group:')
     return pageTitle('服务资源', '发现、查看并修改容器环境中的 Kubernetes 资源。', '<span class="badge green">API Discovery</span>')
-      + '<section class="cr-context"><label><span>容器环境</span><select id="resource-environment">' + options + '</select></label><label><span>命名空间</span><input id="resource-namespace" value="' + escapeHtml(runtime.namespace) + '"></label><button class="button" data-refresh-resource-discovery ' + (runtime.loading ? 'disabled' : '') + '>刷新 Discovery</button></section>'
+      + '<section class="cr-context"><label><span>容器环境</span><select id="resource-environment">' + options + '</select></label><label><span>命名空间</span><input id="resource-namespace" value="' + escapeHtml(runtime.namespace) + '"></label><button class="button" data-refresh-resource-discovery>' + (runtime.loading ? '重新刷新 Discovery' : '刷新 Discovery') + '</button></section>'
       + (runtime.error ? '<div class="cr-error">' + escapeHtml(runtime.error) + '</div>' : '')
       + '<section class="cr-workbench"><aside class="cr-services"><div class="cr-pane-title"><strong>服务</strong><span>' + runtime.services.length + '</span></div><div class="cr-search"><input id="resource-service-search" value="' + escapeHtml(runtime.serviceQuery) + '" placeholder="搜索服务名称"></div><div class="cr-scroll">' + serviceRows() + '</div></aside>'
       + '<aside class="cr-resources"><div class="cr-pane-title"><div><strong>' + escapeHtml(selectedServiceName()) + ' 的资源</strong><span>按服务归集</span></div><button class="button primary small" data-open-resource-create ' + (addDisabled ? 'disabled' : '') + '>＋ 新增</button></div><div class="cr-search"><input id="resource-item-search" value="' + escapeHtml(runtime.resourceQuery) + '" placeholder="搜索该服务的资源"></div><div class="cr-scroll">' + resourceRows() + '</div></aside>'
