@@ -6,6 +6,8 @@ import type {EnvironmentService} from '../environment/environment.js';
 import {shellQuote} from '../../infrastructure/ssh.js';
 import type {SshOperations, SshTarget} from '../../infrastructure/ssh.js';
 import {durableSse} from '../../infrastructure/sse.js';
+import {noFileLogs} from '../../infrastructure/file-logs.js';
+import type {LogSink} from '../../infrastructure/file-logs.js';
 
 const CBB='https://szv-y.codehub.huawei.com/MAE-M/Common/CBB-Web-Dev.git';
 const ARCH='https://szv-y.codehub.huawei.com/MAE-M/CI/ArchDesign.git';
@@ -31,7 +33,7 @@ export interface BuildArtifact {id:number;buildTaskId:string;buildEnvironmentId:
 
 export class BuildService {
   private readonly controllers=new Map<string,AbortController>();
-  constructor(private readonly store:TaskStore,private readonly environments:EnvironmentService,private readonly ssh:SshOperations) {
+  constructor(private readonly store:TaskStore,private readonly environments:EnvironmentService,private readonly ssh:SshOperations,private readonly logs:LogSink=noFileLogs) {
     for(const task of store.records<BuildTask>('build-task').filter(item=>!['SUCCEEDED','FAILED'].includes(item.status))) this.fail(task,'服务重启，原构建进程状态已丢失，任务按整体失败处理');
   }
   configuration(){return {cbbWebDevRepository:CBB,archDesignRepository:ARCH,defaultBranch:'master',buildCommand:BUILD,modules:buildModules.map(({name,chartsPath})=>({name,chartsPath}))};}
@@ -73,6 +75,7 @@ export class BuildService {
     if(mode==='SINGLE')add('single','单分支');else{add('baseline','基准版本 A');add('candidate','验证版本 B');values.push({id:'compare:diff',label:'对比 ArchDesign 产物',status:'PENDING'});}return values;}
   private save(task:BuildTask){this.store.putRecord('build-task',task.id,task,task.createdAt);}
   private event(task:BuildTask,type:BuildEvent['type'],stepId:string|null,message:string){task.events.push({sequence:++task.sequence,occurredAt:new Date().toISOString(),type,stepId,message,progress:task.progress,taskStatus:task.status});
+    this.logs.task('build',task.id,task.events.at(-1));
     while(task.events.length>10000){const index=task.events.findIndex(e=>e.type==='LOG');if(index<0)break;task.events.splice(index,1);}}
   private setStep(task:BuildTask,id:string,status:StepStatus,message?:string){const step=task.steps.find(item=>item.id===id);if(!step)throw new Error('构建步骤不存在');step.status=status;
     if(status==='SUCCEEDED'){task.completedSteps++;task.progress=Math.min(100,Math.floor(task.completedSteps*100/task.steps.length));}this.event(task,'STEP',id,message??`${step.label}${status==='RUNNING'?'开始':'完成'}`);this.save(task);}

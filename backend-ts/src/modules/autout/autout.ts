@@ -7,6 +7,8 @@ import {parse} from 'csv-parse/sync';
 import {XMLParser} from 'fast-xml-parser';
 import {z} from 'zod';
 import type {TaskStore} from '../../platform/store.js';
+import {noFileLogs} from '../../infrastructure/file-logs.js';
+import type {LogSink} from '../../infrastructure/file-logs.js';
 import {runProcess} from '../../infrastructure/process.js';
 import {durableSse} from '../../infrastructure/sse.js';
 import {browse} from '../workspace/directories.js';
@@ -19,20 +21,20 @@ interface Repository{name:string;url:string;testCommand:string[];verificationCom
 export interface AutoUtTask{id:string;repository:string;username:string;ticket:string;baseBranch:string;repairBranch:string;reportedFailedTests:number;lineGoal:number;branchGoal:number;workspaceRoot:string;executionMode:Mode;status:Status;nextStage:Stage;progress:number;attempts:number;message:string;pullRequestUrl:string;createdAt:string;updatedAt:string;history:History[];liveEvents:LiveEvent[];liveSequence:number}
 interface Schedule{reportFileName:string;report:string;username:string;ticket:string;baseBranch:string;workspaceRoot:string;dailyTime:string;lastTriggeredOn:string|null;updatedAt:string}
 const identity=z.string().regex(/^[A-Za-z0-9._-]+$/);const branch=z.string().trim().min(1).max(200).regex(/^[A-Za-z0-9][A-Za-z0-9._/-]*$/).refine(v=>!v.includes('..')&&!v.includes('//')&&!v.endsWith('/')&&!v.endsWith('.'));
-const settings={language:'Java',plGroup:'Access_智能驾舱组',logDirectory:resolve('data/auto-ut/logs'),piCommand:'pi',thinkingLevel:'medium',piTimeoutMs:30*60_000,maxAttempts:3,
+const settings={language:'Java',plGroup:'Access_智能驾舱组',logDirectory:resolve(process.env.PLATFORM_LOG_DIR?.trim()||'data/logs','auto-ut','details'),piCommand:'pi',thinkingLevel:'medium',piTimeoutMs:30*60_000,maxAttempts:3,
  forbiddenMarkers:['@Disabled','@Ignore'],codehub:'codehub-cli',createMr:true,reviewers:process.env.AUTO_UT_CODEHUB_REVIEWERS?.trim()??'',approvers:process.env.AUTO_UT_CODEHUB_APPROVERS?.trim()??'',assignees:process.env.AUTO_UT_CODEHUB_ASSIGNEES?.trim()??''};
 const testCommand=['mvn','-B','-ntp','clean','test'];const verificationCommand=['mvn','-B','-ntp','clean','org.jacoco:jacoco-maven-plugin:0.8.12:prepare-agent','test','org.jacoco:jacoco-maven-plugin:0.8.12:report'];
 const stageInfo:Record<Stage,{status:Status;progress:number;message:string}>={PREPARE:{status:'PREPARING',progress:10,message:'正在准备独立 Git 工作区。'},BASELINE:{status:'BASELINE_RUNNING',progress:25,message:'正在执行基线 UT。'},REPAIR:{status:'REPAIRING',progress:45,message:'正在执行 Pi 修复。'},VERIFY:{status:'VERIFYING',progress:70,message:'正在执行完整验证。'},PUBLISH:{status:'PR_CREATING',progress:90,message:'正在提交并创建 CodeHub MR。'},DONE:{status:'RESOLVED',progress:100,message:'任务已完成。'}};
 
 export class AutoUtService{
  private readonly running=new Set<string>();private timer:NodeJS.Timeout;
- constructor(private readonly store:TaskStore){for(const task of this.tasks().filter(t=>['DISCOVERED','PREPARING','BASELINE_RUNNING','REPAIRING','VERIFYING','PR_CREATING'].includes(t.status))){this.change(task,'WAITING_EXTERNAL','服务重启，原执行进程已中断，请重试当前阶段。');this.save(task);}
+ constructor(private readonly store:TaskStore,private readonly logs:LogSink=noFileLogs){for(const task of this.tasks().filter(t=>['DISCOVERED','PREPARING','BASELINE_RUNNING','REPAIRING','VERIFYING','PR_CREATING'].includes(t.status))){this.change(task,'WAITING_EXTERNAL','服务重启，原执行进程已中断，请重试当前阶段。');this.save(task);}
   this.timer=setInterval(()=>void this.triggerDue(),30_000);this.timer.unref();}
  close(){clearInterval(this.timer);}
  private save(task:AutoUtTask){task.updatedAt=new Date().toISOString();this.store.putRecord('auto-ut-task',task.id,task,task.createdAt);}
- private change(task:AutoUtTask,status:Status,message:string){task.status=status;task.message=message;task.updatedAt=new Date().toISOString();task.history.push({time:task.updatedAt,status,message});}
+ private change(task:AutoUtTask,status:Status,message:string){task.status=status;task.message=message;task.updatedAt=new Date().toISOString();const event={time:task.updatedAt,status,message};task.history.push(event);this.logs.task('auto-ut',task.id,{kind:'history',...event});}
  private emit(task:AutoUtTask,type:string,content='',toolCallId='',toolName='',error=false,replace=false){const event={sequence:++task.liveSequence,time:new Date().toISOString(),type,content,toolCallId,toolName,error,replace};
-  if(replace&&toolCallId)task.liveEvents=task.liveEvents.filter(e=>!(e.replace&&e.type===type&&e.toolCallId===toolCallId));task.liveEvents.push(event);if(task.liveEvents.length>10000)task.liveEvents.shift();this.save(task);return event;}
+  if(replace&&toolCallId)task.liveEvents=task.liveEvents.filter(e=>!(e.replace&&e.type===type&&e.toolCallId===toolCallId));task.liveEvents.push(event);this.logs.task('auto-ut',task.id,{kind:'live',...event});if(task.liveEvents.length>10000)task.liveEvents.shift();this.save(task);return event;}
  tasks(){return this.store.records<AutoUtTask>('auto-ut-task');}get(id:string){const task=this.store.getRecord<AutoUtTask>('auto-ut-task',id);if(!task)throw Object.assign(new Error('Auto-UT 任务不存在'),{statusCode:404});return task;}
  private repository(name:string):Repository|undefined{if(!/^[A-Za-z0-9._-]+$/.test(name))return;const key=name.toLowerCase();const custom=this.store.getRecord<{url:string;updatedAt:string}>('auto-ut-repository',key);return{name:key,url:custom?.url??`ssh://git@szv-y.codehub.huawei.com:2222/MAE-M/Access/${name}.git`,testCommand,verificationCommand,coverageReport:'target/site/jacoco/jacoco.xml',customized:!!custom,updatedAt:custom?.updatedAt??null};}
  saveRepository(name:string,url:string){if(!/^[A-Za-z0-9._-]+$/.test(name))throw Object.assign(new Error('代码仓名称格式无效'),{statusCode:400});let parsed:URL;try{parsed=new URL(url.trim());}catch{throw Object.assign(new Error('请输入有效的 CodeHub clone URL'),{statusCode:400});}

@@ -38,6 +38,22 @@ npm run dev --prefix frontend -- --host 127.0.0.1
 
 SQLite 默认写入 `data/platform/tasks.sqlite`。数据库使用进程独占锁，不能同时启动两个后端。服务只允许本机浏览器来源；它没有多用户认证，不能直接暴露到公网。
 
+## 日志
+
+运行日志统一写入项目根目录的 `data/logs`，同时继续显示在启动窗口和页面中：
+
+- `startup/startup.log`：依赖安装、数据迁移和编译
+- `backend/process.log`：Node.js 后端进程启动输出
+- `backend/backend.jsonl`：Fastify 请求与服务异常，JSON Lines 格式
+- `frontend/frontend.log`：Vite 前端进程输出
+- `platform/{taskId}.jsonl`：通用平台任务事件
+- `build/{taskId}.jsonl`：构建步骤和远程命令输出
+- `deployment/{taskId}.jsonl`：分析、编辑、渲染和部署输出
+- `auto-ut/{taskId}.jsonl`：Auto-UT 阶段与实时事件
+- `auto-ut/details/{taskId}/*.log`：Git、Maven、Pi 和 CodeHub 命令的完整输出
+
+JSON 日志会按敏感字段名脱敏。诊断时优先发送对应任务 ID 的日志文件，不要发送包含环境密码的 `data/platform/tasks.sqlite`。
+
 旧 H2 数据的迁移和限制见 [TypeScript 迁移说明](docs/typescript-migration.md)。构建、部署和 Auto-UT 的业务约束见 `docs/` 下对应文档。
 
 ## 验证

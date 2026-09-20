@@ -6,6 +6,8 @@ import {parse} from 'yaml';
 import {z} from 'zod';
 import type {TaskStore} from '../../platform/store.js';
 import {durableSse} from '../../infrastructure/sse.js';
+import {noFileLogs} from '../../infrastructure/file-logs.js';
+import type {LogSink} from '../../infrastructure/file-logs.js';
 import type {SshOperations,SshTarget} from '../../infrastructure/ssh.js';
 import {shellQuote} from '../../infrastructure/ssh.js';
 import type {BuildArtifact,BuildService} from '../build/build.js';
@@ -27,13 +29,13 @@ export function hasBlockingDeploymentPlaceholders(value:string){return /\{[A-Za-
 
 export class DeploymentService{
  private readonly running=new Set<string>();
- constructor(private readonly store:TaskStore,private readonly builds:BuildService,private readonly environments:EnvironmentService,private readonly ssh:SshOperations){for(const task of this.tasks().filter(item=>['ANALYZING','PREPARING','DEPLOYING'].includes(item.status))){task.status='FAILED';task.finishedAt=new Date().toISOString();this.emit(task,'SYSTEM',null,'服务重启，原部署进程已中断');this.save(task);}}
+ constructor(private readonly store:TaskStore,private readonly builds:BuildService,private readonly environments:EnvironmentService,private readonly ssh:SshOperations,private readonly logs:LogSink=noFileLogs){for(const task of this.tasks().filter(item=>['ANALYZING','PREPARING','DEPLOYING'].includes(item.status))){task.status='FAILED';task.finishedAt=new Date().toISOString();this.emit(task,'SYSTEM',null,'服务重启，原部署进程已中断');this.save(task);}}
  private artifact(id:number){return this.builds.artifact(id);}
  private buildTarget(artifact:BuildArtifact){const environment=this.environments.get(artifact.buildEnvironmentId);if(environment.type!=='BUILD')throw new Error('构建产物关联的构建环境不存在');return this.environments.target(environment,'HUAWEI');}
  private deployTarget(id:number){const environment=this.environments.get(id);if(environment.type!=='CONTAINER')throw Object.assign(new Error('部署只能选择容器环境'),{statusCode:400});return this.environments.target(environment,'ROOT');}
  tasks(){return this.store.records<DeploymentTask>('deployment-task');}get(id:string){const task=this.store.getRecord<DeploymentTask>('deployment-task',id);if(!task)throw Object.assign(new Error('部署任务不存在或已过期'),{statusCode:404});return task;}
  private save(task:DeploymentTask){this.store.putRecord('deployment-task',task.id,task,task.createdAt);}
- private emit(task:DeploymentTask,stage:string,service:string|null,message:string){task.events.push({sequence:++task.sequence,occurredAt:new Date().toISOString(),stage,service,message});if(task.events.length>10000)task.events.shift();this.save(task);}
+ private emit(task:DeploymentTask,stage:string,service:string|null,message:string){task.events.push({sequence:++task.sequence,occurredAt:new Date().toISOString(),stage,service,message});this.logs.task('deployment',task.id,task.events.at(-1));if(task.events.length>10000)task.events.shift();this.save(task);}
  events(id:string,after:number){return this.get(id).events.filter(e=>e.sequence>after);}terminal(id:string){return ['SUCCEEDED','FAILED'].includes(this.get(id).status);}
  private async command(target:SshTarget,command:string,timeout=120000,onLine:(line:string)=>void=()=>{}){const result=await this.ssh.execute(target,command,onLine,undefined,timeout);return{code:result.exitCode,output:result.lines.map(line=>line.replace(/^\[stderr\] /,'')).join('\n')};}
  private async require(target:SshTarget,command:string,message:string,task?:DeploymentTask,service?:string,timeout=120000){try{const result=await this.command(target,command,timeout,line=>{if(task)this.emit(task,'LOG',service??null,line);});if(result.code!==0)throw new Error(`${message}：${result.output.slice(-1000)}`);return result.output;}catch(error){throw Object.assign(new Error(error instanceof Error?error.message:message),{statusCode:409});}}

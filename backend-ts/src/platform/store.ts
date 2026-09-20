@@ -4,10 +4,12 @@ import {dirname} from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {taskInput, taskStatus, terminal} from '../../../shared/contracts.js';
 import type {Task, TaskEvent, TaskInput, TaskStatus} from '../../../shared/contracts.js';
+import {noFileLogs} from '../infrastructure/file-logs.js';
+import type {LogSink} from '../infrastructure/file-logs.js';
 
 export class TaskStore {
   readonly db: DatabaseSync;
-  constructor(filename: string) {
+  constructor(filename: string,private readonly logs:LogSink=noFileLogs) {
     if (filename !== ':memory:') mkdirSync(dirname(filename), {recursive: true});
     this.db = new DatabaseSync(filename);
     try {
@@ -49,6 +51,7 @@ export class TaskStore {
     try {
       this.db.prepare('INSERT INTO tasks VALUES (?, ?, ?, ?, ?)').run(id, JSON.stringify(taskInput.parse(input)), 'QUEUED', now, now);
       this.db.prepare('INSERT INTO events(task_id,status,message,time) VALUES (?,?,?,?)').run(id, 'QUEUED', '任务已排队', now);
+      this.logs.task('platform',id,{time:now,status:'QUEUED',message:'任务已排队'});
       this.db.exec('COMMIT');
     } catch (error) {this.db.exec('ROLLBACK'); throw error;}
     return this.get(id)!;
@@ -78,6 +81,7 @@ export class TaskStore {
       const row = this.db.prepare('INSERT INTO events(task_id,status,message,time) VALUES (?,?,?,?)')
         .run(id, status, message.slice(0, 8192), time);
       this.db.exec('COMMIT');
+      this.logs.task('platform',id,{time,status,message:message.slice(0,8192)});
       return {sequence: Number(row.lastInsertRowid), taskId: id, status, message: message.slice(0, 8192), time};
     } catch (error) {this.db.exec('ROLLBACK'); throw error;}
   }
