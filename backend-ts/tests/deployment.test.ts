@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {parse} from 'yaml';
-import {DeploymentService,hasBlockingDeploymentPlaceholders,normalizeOptionalVersions,optionalVersionMarker,replaceBuildMetadata,usedOptionalVersions} from '../src/modules/deployment/deployment.js';
+import {chartTemplatePlan,DeploymentService,hasBlockingDeploymentPlaceholders,normalizeOptionalVersions,optionalVersionMarker,replaceBuildMetadata,usedOptionalVersions} from '../src/modules/deployment/deployment.js';
 import {TaskStore} from '../src/platform/store.js';
 
 function reviewTask(values:string) {
@@ -48,4 +48,10 @@ test('jarlist 替换兼容单双引号且不会生成嵌套引号', () => {
   const values=replaceBuildMetadata('a: "replaceByBuild"\nb: \'replaceByBuild\'\nc: replaceByBuild',jarlist);
   assert.deepEqual(parse(values),{a:jarlist,b:jarlist,c:jarlist});
   assert.deepEqual(parse(replaceBuildMetadata('a: "replaceByBuild"','')),{a:''});
+});
+
+test('Chart 保留服务自己的 helper 模板并用模块模板补缺', () => {
+  assert.deepEqual([...chartTemplatePlan(['deploy.yaml','_helpers.tpl'],['_helpers.tpl','_common.tpl','ignored.yaml'])], [
+    ['deploy.yaml','service'],['_helpers.tpl','service'],['_common.tpl','module']
+  ]);
 });

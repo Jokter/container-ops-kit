@@ -15,6 +15,13 @@ Set-Location -LiteralPath $WorkingDirectory
 $logDirectory = Split-Path -Parent $LogFile
 New-Item -ItemType Directory -Force -Path $logDirectory | Out-Null
 $utf8 = New-Object System.Text.UTF8Encoding($false)
+[Console]::InputEncoding = $utf8
+[Console]::OutputEncoding = $utf8
+$OutputEncoding = $utf8
+$env:NO_COLOR = '1'
+$env:FORCE_COLOR = '0'
+$env:TERM = 'dumb'
+$ansiPattern = "$([char]27)\[[0-?]*[ -/]*[@-~]"
 if (Test-Path -LiteralPath $LogFile) {
     $existingBytes = [System.IO.File]::ReadAllBytes($LogFile)
     if ($existingBytes -contains 0) {
@@ -25,8 +32,9 @@ if (Test-Path -LiteralPath $LogFile) {
 }
 
 function Write-LogLine([string]$Line) {
-    Write-Host $Line
-    [System.IO.File]::AppendAllText($LogFile, $Line + [Environment]::NewLine, $utf8)
+    $cleanLine = [regex]::Replace($Line, $ansiPattern, '')
+    Write-Host $cleanLine
+    [System.IO.File]::AppendAllText($LogFile, $cleanLine + [Environment]::NewLine, $utf8)
 }
 
 Write-LogLine ""
