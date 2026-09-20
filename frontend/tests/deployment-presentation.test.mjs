@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import {canConvertFailedQuickDeploymentToReview, canDeployReviewedTask, deploymentReviewBlockers, deploymentReviewWarnings} from '../src/deployment-presentation.js'
+import {canConvertFailedQuickDeploymentToReview, canDeployReviewedTask, deploymentProgress, deploymentReviewBlockers, deploymentReviewWarnings} from '../src/deployment-presentation.js'
 
 test('仅有未解析镜像时允许将失败的快速部署转为审阅部署', () => {
   assert.equal(canConvertFailedQuickDeploymentToReview({
@@ -50,4 +50,9 @@ test('占位符全部解决后允许确认部署', () => {
   assert.equal(canDeployReviewedTask(task), true)
   assert.deepEqual(deploymentReviewBlockers(task), [])
   assert.deepEqual(deploymentReviewWarnings(task), [])
+})
+
+test('部署日志映射为清晰的阶段进度', () => {
+  assert.deepEqual(deploymentProgress({status: 'PREPARING'}, [{stage: 'RENDER', service: 'swmfrontendservice', message: 'Helm 渲染校验通过'}]), {percent: 55, label: 'swmfrontendservice · 正在执行 Helm 渲染校验'})
+  assert.deepEqual(deploymentProgress({status: 'DEPLOYING'}, [{stage: 'DEPLOY', service: 'swmfrontendservice', message: '[4/5] 安装 Helm release'}]), {percent: 87, label: 'swmfrontendservice · 安装 Helm release'})
 })

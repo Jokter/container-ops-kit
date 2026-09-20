@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {DeploymentService,hasBlockingDeploymentPlaceholders} from '../src/modules/deployment/deployment.js';
+import {parse} from 'yaml';
+import {DeploymentService,hasBlockingDeploymentPlaceholders,normalizeOptionalVersions,optionalVersionMarker,usedOptionalVersions} from '../src/modules/deployment/deployment.js';
 import {TaskStore} from '../src/platform/store.js';
 
 function reviewTask(values:string) {
@@ -30,4 +31,14 @@ test('修改 values 后重算阻塞项且仅增加一次 revision', t => {
 test('审阅部署允许保留可选镜像版本占位符', () => {
   assert.equal(hasBlockingDeploymentPlaceholders('zenith: {version:zenith}\nredis: {version:redis}'),false);
   assert.equal(hasBlockingDeploymentPlaceholders('value: replaceByOssDiy'),true);
+});
+
+test('写入 Chart 前将可选版本转换为合法 YAML 标记', () => {
+  const values=normalizeOptionalVersions('zenith: {version:zenith}\nredis: "{version:redis}"');
+  assert.deepEqual(parse(values),{zenith:optionalVersionMarker('zenith'),redis:optionalVersionMarker('redis')});
+});
+
+test('仅在可选版本实际进入渲染清单时阻止部署', () => {
+  assert.deepEqual(usedOptionalVersions('image: repo/app:1.0',['zenith','redis']),[]);
+  assert.deepEqual(usedOptionalVersions(`image: repo/app:${optionalVersionMarker('zenith')}`,['zenith','redis']),['zenith']);
 });
