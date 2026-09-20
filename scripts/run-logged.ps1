@@ -14,14 +14,31 @@ if ([string]::IsNullOrWhiteSpace($WorkingDirectory) -or
 Set-Location -LiteralPath $WorkingDirectory
 $logDirectory = Split-Path -Parent $LogFile
 New-Item -ItemType Directory -Force -Path $logDirectory | Out-Null
-Add-Content -LiteralPath $LogFile -Encoding utf8 -Value "`n===== $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - $LoggedCommand ====="
+$utf8 = New-Object System.Text.UTF8Encoding($false)
+if (Test-Path -LiteralPath $LogFile) {
+    $existingBytes = [System.IO.File]::ReadAllBytes($LogFile)
+    if ($existingBytes -contains 0) {
+        $backup = "$LogFile.encoding-backup-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+        Move-Item -LiteralPath $LogFile -Destination $backup
+        Write-Host "Previous mixed-encoding log moved to $backup"
+    }
+}
+
+function Write-LogLine([string]$Line) {
+    Write-Host $Line
+    [System.IO.File]::AppendAllText($LogFile, $Line + [Environment]::NewLine, $utf8)
+}
+
+Write-LogLine ""
+Write-LogLine "===== $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - $LoggedCommand ====="
 
 try {
-    & cmd.exe /d /s /c $LoggedCommand 2>&1 | Tee-Object -FilePath $LogFile -Append
+    & cmd.exe /d /s /c $LoggedCommand 2>&1 | ForEach-Object { Write-LogLine ([string]$_) }
     $code = $LASTEXITCODE
     if ($null -eq $code) { $code = 0 }
     exit $code
 } catch {
-    $_ | Out-String | Tee-Object -FilePath $LogFile -Append
+    $errorText = $_ | Out-String
+    Write-LogLine ($errorText.TrimEnd())
     exit 1
 }

@@ -7,8 +7,8 @@
   }
 
   const groupKeys = {SHARED: 'group:shared', UNASSIGNED: 'group:unassigned', CLUSTER: 'group:cluster'}
-  const categoryNames = {WORKLOAD: '工作负载', CONFIGURATION: '配置', NETWORK: '网络', CUSTOM: '自定义资源', OTHER: '其它资源'}
-  const sourceNames = {HELM_RELEASE: 'Helm Release', WORKLOAD: '工作负载', LABEL: '标签识别'}
+  const categoryNames = {WORKLOAD: '工作负载', CONFIG: '配置', CONFIGURATION: '配置', NETWORK: '网络', CUSTOM: '自定义资源', OTHER: '其它资源'}
+  const sourceNames = {HELM: 'Helm Release', HELM_RELEASE: 'Helm Release', WORKLOAD: '工作负载', LABEL: '标签识别'}
 
   async function api(url, options) {
     const response = await fetch(url, Object.assign({headers: {'Content-Type': 'application/json'}}, options || {}))

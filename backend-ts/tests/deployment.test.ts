@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {parse} from 'yaml';
-import {DeploymentService,hasBlockingDeploymentPlaceholders,normalizeOptionalVersions,optionalVersionMarker,usedOptionalVersions} from '../src/modules/deployment/deployment.js';
+import {DeploymentService,hasBlockingDeploymentPlaceholders,normalizeOptionalVersions,optionalVersionMarker,replaceBuildMetadata,usedOptionalVersions} from '../src/modules/deployment/deployment.js';
 import {TaskStore} from '../src/platform/store.js';
 
 function reviewTask(values:string) {
@@ -41,4 +41,11 @@ test('写入 Chart 前将可选版本转换为合法 YAML 标记', () => {
 test('仅在可选版本实际进入渲染清单时阻止部署', () => {
   assert.deepEqual(usedOptionalVersions('image: repo/app:1.0',['zenith','redis']),[]);
   assert.deepEqual(usedOptionalVersions(`image: repo/app:${optionalVersionMarker('zenith')}`,['zenith','redis']),['zenith']);
+});
+
+test('jarlist 替换兼容单双引号且不会生成嵌套引号', () => {
+  const jarlist='{"/opt/app":{"lib":{"demo.jar":"1.0"}}}';
+  const values=replaceBuildMetadata('a: "replaceByBuild"\nb: \'replaceByBuild\'\nc: replaceByBuild',jarlist);
+  assert.deepEqual(parse(values),{a:jarlist,b:jarlist,c:jarlist});
+  assert.deepEqual(parse(replaceBuildMetadata('a: "replaceByBuild"','')),{a:''});
 });
