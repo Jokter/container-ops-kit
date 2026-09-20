@@ -22,6 +22,7 @@ export async function createApp(config: Config) {
   const store = new TaskStore(config.database,logs);
   const runner = new TaskRunner(store, config.workers, config.taskTimeoutMs);
   const ssh=new SshOperations(),environments=new EnvironmentService(store,ssh),builds=new BuildService(store,environments,ssh,logs),autoUt=new AutoUtService(store,logs),containers=new ContainerResourceService(environments,ssh,config.kubectlKubeconfig,config.helmKubeconfig),deployments=new DeploymentService(store,builds,environments,ssh,config.kubectlKubeconfig,config.helmKubeconfig,logs);
+  await deployments.cleanupPreparations();
   app.addHook('onClose', async () => {autoUt.close();await builds.close();await runner.close();store.close();});
   app.addHook('onRequest', async (request, reply) => {
     // Local tools are not an authenticated multi-user service. Reject browser requests from remote origins.
