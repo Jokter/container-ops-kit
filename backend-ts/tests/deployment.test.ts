@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {parse} from 'yaml';
-import {chartTemplatePlan,DeploymentService,hasBlockingDeploymentPlaceholders,hasDeploymentAnalysisFailures,normalizeOptionalVersions,optionalVersionMarker,replaceBuildMetadata,usedOptionalVersions} from '../src/modules/deployment/deployment.js';
+import {chartHelperTemplatePath,chartTemplatePlan,DeploymentService,hasBlockingDeploymentPlaceholders,hasDeploymentAnalysisFailures,normalizeOptionalVersions,optionalVersionMarker,replaceBuildMetadata,usedOptionalVersions} from '../src/modules/deployment/deployment.js';
+import {buildModules} from '../src/modules/build/build.js';
 import {TaskStore} from '../src/platform/store.js';
 
 function reviewTask(values:string) {
@@ -55,8 +56,18 @@ test('jarlist 替换兼容单双引号且不会生成嵌套引号', () => {
   assert.deepEqual(parse(replaceBuildMetadata('a: "replaceByBuild"','')),{a:''});
 });
 
-test('Chart 保留服务自己的 helper 模板并用模块模板补缺', () => {
-  assert.deepEqual([...chartTemplatePlan(['deploy.yaml','_helpers.tpl'],['_helpers.tpl','_common.tpl','ignored.yaml'])], [
-    ['deploy.yaml','service'],['_helpers.tpl','service'],['_common.tpl','module']
+test('Chart 模板优先级为服务、源码 charts 公共模板、模块模板', () => {
+  assert.deepEqual([...chartTemplatePlan(['deploy.yaml','_service.tpl'],['_helpers.tpl','_service.tpl','ignored.yaml'],['_helpers.tpl','_service.tpl','_common.tpl','ignored.yaml'])], [
+    ['deploy.yaml','service'],['_service.tpl','service'],['_helpers.tpl','chartHelper'],['_common.tpl','module']
   ]);
+  assert.equal(chartTemplatePlan(['_helpers.tpl'],['_helpers.tpl'],['_helpers.tpl']).get('_helpers.tpl'),'service');
+});
+
+test('所有构建模块都能从产物路径推导源码 charts 公共模板路径', () => {
+  for(const module of buildModules){
+    const remoteModuleRoot=`/work/ArchDesign/${module.archDirectory}`;
+    assert.equal(chartHelperTemplatePath({remoteModuleRoot,remoteChartsRoot:`${remoteModuleRoot}/target/${module.chartsPath}`}),`${remoteModuleRoot}/charts/${module.chartsPath.split('/')[0]}/templates`);
+  }
+  assert.throws(()=>chartHelperTemplatePath({remoteModuleRoot:'/work/module',remoteChartsRoot:'/other/chartTool/charts'}));
+  assert.throws(()=>chartHelperTemplatePath({remoteModuleRoot:'/work/module',remoteChartsRoot:'/work/module/target/../chartTool/charts'}));
 });
