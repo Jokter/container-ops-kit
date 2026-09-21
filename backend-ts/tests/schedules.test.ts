@@ -35,3 +35,6 @@ test('多条在线计划使用各自版本快照，不覆盖手动查询配置',
 test('重启后未完成记录中断，不重放任务',async()=>{
  const f=fixture();try{const s=f.schedules.create(qualityPlan());const record:ScheduleRun={id:'interrupted',scheduleId:s.id,name:s.name,kind:'quality',trigger:'SCHEDULE',status:'RUNNING',createdAt:new Date().toISOString(),finishedAt:null,message:'',taskIds:[],snapshot:{}};f.store.putRecord('automation-schedule-run',record.id,record);await f.schedules.close();const next=new UnifiedSchedules(f.store,f.quality,f.reports,f.auto);assert.equal(next.runs(s.id)[0]!.status,'INTERRUPTED');assert.equal(f.quality.list().length,0);await next.close();}finally{await f.close();}
 });
+test('UT 定时清理计划可统一创建并立即执行',async()=>{
+ const f=fixture();try{const s=f.schedules.create({name:'UT 任务清理',enabled:true,timing:{frequency:'daily',weekday:1,time:'02:00',timezone:'Asia/Shanghai'},task:{kind:'auto-ut-cleanup',retentionDays:30}});assert.equal(s.task.kind,'auto-ut-cleanup');f.schedules.runNow(s.id);await f.schedules.wait(s.id);const done=f.schedules.runs(s.id)[0]!;assert.equal(done.status,'SUCCEEDED');assert.match(done.message,/已删除 0 个任务/);}finally{await f.close();}
+});
