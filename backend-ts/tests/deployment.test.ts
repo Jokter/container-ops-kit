@@ -58,6 +58,43 @@ test('jarlist 替换兼容单双引号且不会生成嵌套引号', () => {
   assert.deepEqual(parse(replaceBuildMetadata('a: "replaceByBuild"','')),{a:''});
 });
 
+function prepareVersions(t:test.TestContext,values:string,chart=''){
+  const store=new TaskStore(':memory:');t.after(()=>store.close());
+  const service=new DeploymentService(store,undefined as never,undefined as never,undefined as never,'/kubectl-config','/helm-config');
+  return service['prepare']('sensefrontendservice',values,chart,'',{
+    jre:'27.66.12',tomcat:'27.66.271','imap.common':'27.66.88',sensefrontendservice:'272.010.524'
+  },{},{},'');
+}
+
+test('prepare 按包名替换 pkgVersion 段内各包版本',t=>{
+  const prepared=prepareVersions(t,`pkgVersion:
+  sensefrontendservice:
+    jre: {version}
+    tomcat: "{version}"
+    imap.common: {version} # 公共包
+    sensefrontendservice: {version}
+image: jre@{version}`);
+  assert.deepEqual(parse(prepared.values),{
+    pkgVersion:{sensefrontendservice:{jre:'27.66.12',tomcat:'27.66.271','imap.common':'27.66.88',sensefrontendservice:'272.010.524'}},
+    image:'jre@27.66.12'
+  });
+  assert.deepEqual(prepared.replaceItems.filter(item=>item.key.startsWith('pkgVersion.')).map(item=>[item.key,item.newValue]),[
+    ['pkgVersion.jre','27.66.12'],['pkgVersion.tomcat','27.66.271'],['pkgVersion.imap.common','27.66.88']
+  ]);
+});
+
+test('prepare 保留 Chart.yaml 中裸 version 为服务版本',t=>{
+  const prepared=prepareVersions(t,'serviceVersion: {version}','appVersion: {version}\nversion: {version}');
+  assert.equal(prepared.chart,'appVersion: 272.010.524\nversion: 272.010.524');
+  assert.equal(parse(prepared.values).serviceVersion,'272.010.524');
+});
+
+test('prepare 按包名替换后无残留 version 占位符',t=>{
+  const prepared=prepareVersions(t,'pkgVersion:\n  sensefrontendservice:\n    jre: {version}\n    tomcat: {version}\n    sensefrontendservice: {version}');
+  assert.equal(hasBlockingDeploymentPlaceholders(prepared.values),false);
+  assert.deepEqual(prepared.errors,[]);
+});
+
 test('Chart 模板优先级为服务、源码 charts 公共模板、模块模板', () => {
   assert.deepEqual([...chartTemplatePlan(['deploy.yaml','_service.tpl'],['_helpers.tpl','_service.tpl','ignored.yaml'],['_helpers.tpl','_service.tpl','_common.tpl','ignored.yaml'])], [
     ['deploy.yaml','service'],['_service.tpl','service'],['_helpers.tpl','chartHelper'],['_common.tpl','module']
