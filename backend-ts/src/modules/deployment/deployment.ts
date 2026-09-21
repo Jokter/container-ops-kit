@@ -3,7 +3,7 @@ import {randomUUID} from 'node:crypto';
 import {mkdir,readFile,readdir,writeFile} from 'node:fs/promises';
 import {join,relative,resolve} from 'node:path';
 import type {FastifyInstance} from 'fastify';
-import {parse} from 'yaml';
+import {parse,parseAllDocuments} from 'yaml';
 import {z} from 'zod';
 import type {TaskStore} from '../../platform/store.js';
 import {durableSse} from '../../infrastructure/sse.js';
@@ -24,7 +24,20 @@ interface Container{pod:string;container:string;phase:string;ready:boolean;image
 const name=z.string().regex(/^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$/);
 const createInput=z.object({mode:z.enum(['QUICK','REVIEW']),artifactId:z.number().int().positive(),environmentId:z.number().int().positive(),namespace:name,services:z.array(name).min(1)}).strict();
 const chartsRoot=resolve('data/deployment-preparations');
-const groupKinds:Record<string,string>={BeidouLog:'beidoulog',DrPodAutoscaler:'drpodautoscaler',MqsClient:'mqsclient',SOPPub:'soppub',SopSecret:'sopsecret',ResourceClaim:'resourceclaim.resource.sop.huawei.com',LogResourceClaim:'logresourceclaim.resource.sop.huawei.com'};
+const manifestResource=z.object({apiVersion:z.string().regex(/^[A-Za-z0-9.-]+(?:\/[A-Za-z0-9]+)?$/),kind:z.string().regex(/^[A-Za-z][A-Za-z0-9]*$/),metadata:z.object({name:z.string().regex(/^[a-z0-9][a-z0-9._-]*$/),namespace:name.optional()})});
+export function deploymentResources(manifest:string,namespace:string){
+ const resources=new Map<string,{resource:string;name:string;namespace:string}>();
+ const visit=(value:unknown):void=>{
+  if(value==null)return;
+  const list=z.object({kind:z.literal('List'),items:z.array(z.unknown())}).safeParse(value);
+  if(list.success){for(const item of list.data.items)visit(item);return;}
+  const item=manifestResource.parse(value),group=item.apiVersion.includes('/')?item.apiVersion.split('/')[0]:undefined;
+  const resource={resource:`${item.kind.toLowerCase()}${group?`.${group}`:''}`,name:item.metadata.name,namespace:item.metadata.namespace??namespace};
+  resources.set(`${resource.resource}/${resource.namespace}/${resource.name}`,resource);
+ };
+ for(const document of parseAllDocuments(manifest)){if(document.errors.length)throw new Error(`渲染清单 YAML 无效：${document.errors[0]!.message}`);visit(document.toJS());}
+ return [...resources.values()];
+}
 export function hasBlockingDeploymentPlaceholders(value:string){return /\{[A-Za-z0-9_:.-]+}|replaceByOssDiy/.test(value.replaceAll(/\{version:[A-Za-z0-9_.-]+}/g,''));}
 export function optionalVersionMarker(name:string){return`__COK_OPTIONAL_VERSION_${name.replace(/[^A-Za-z0-9_.-]/g,'_')}__`;}
 export function normalizeOptionalVersions(value:string){return value.replace(/\{version:([A-Za-z0-9_.-]+)}/g,(_all,name:string)=>optionalVersionMarker(name));}
@@ -65,7 +78,7 @@ export class DeploymentService{
  private failedService(service:string,error:unknown):PreparedService{return{service,stage:'FAILED',stageError:null,values:'',chart:'',templates:{},replaceItems:[],unresolvedImages:[],errors:[this.failure(error)]};}
  private async prepareAndDeploy(task:DeploymentTask){const artifact=this.artifact(task.artifactId),build=this.buildTarget(artifact),target=this.deployTarget(task.environmentId);for(const[service,item]of Object.entries(task.services)){if(!item||item.stage!=='ANALYZED')continue;try{item.templates=await this.templates(build,artifact,service);await this.writeWorkspace(task.id,item);await this.cleanupPreparations();item.stage='GENERATED';this.emit(task,'APPLY',service,'Chart 已生成到本地工作目录');}catch(error){item.stage='FAILED';item.stageError=this.failure(error);this.emit(task,'APPLY',service,item.stageError);}}
   if(Object.values(task.services).some(item=>item?.stage!=='GENERATED'))return this.finish(task);for(const[service,item]of Object.entries(task.services)){try{const dir=await this.upload(task,target,service,item!),rendered=await this.require(target,`${this.helm} template ${shellQuote(service)} ${shellQuote(dir)} -f ${shellQuote(`${dir}/values.yaml`)} -n ${shellQuote(task.namespace)}`,'Helm 渲染校验失败',task,service);this.assertOptionalVersionsUnused(rendered,item!);item!.stage='RENDERED';this.emit(task,'RENDER',service,'Helm 渲染校验通过');}catch(error){item!.stage='FAILED';item!.stageError=this.failure(error);this.emit(task,'RENDER',service,item!.stageError);}}
-  if(Object.values(task.services).some(item=>item?.stage!=='RENDERED'))return this.finish(task);task.status='DEPLOYING';this.save(task);for(const[service,item]of Object.entries(task.services)){try{item!.stage='DEPLOYING';this.emit(task,'DEPLOY',service,'[1/5] 再次执行渲染校验');const dir=await this.upload(task,target,service,item!),rendered=await this.require(target,`${this.helm} template ${shellQuote(service)} ${shellQuote(dir)} -f ${shellQuote(`${dir}/values.yaml`)} -n ${shellQuote(task.namespace)}`,'渲染校验失败',task,service);this.assertOptionalVersionsUnused(rendered,item!);this.emit(task,'DEPLOY',service,'[2/5] 卸载旧 release');await this.require(target,`if ${this.helm} status ${shellQuote(service)} -n ${shellQuote(task.namespace)} >/dev/null 2>&1; then ${this.helm} uninstall ${shellQuote(service)} -n ${shellQuote(task.namespace)}; fi`,'旧 release 卸载失败',task,service,180000);this.emit(task,'DEPLOY',service,'[3/5] 释放其它 release 占用的同名资源');await this.releaseConflicts(target,task,service,rendered);this.emit(task,'DEPLOY',service,'[4/5] 安装 Helm release');await this.require(target,`${this.helm} install ${shellQuote(service)} ${shellQuote(dir)} -f ${shellQuote(`${dir}/values.yaml`)} -n ${shellQuote(task.namespace)}`,'安装失败',task,service,300000);this.emit(task,'DEPLOY',service,'[5/5] 等待工作负载就绪');await this.waitReady(target,task,service);item!.stage='SUCCEEDED';item!.stageError=null;this.emit(task,'DEPLOY',service,'部署成功');}catch(error){item!.stage='FAILED';item!.stageError=this.failure(error);this.emit(task,'DEPLOY',service,`部署失败：${item!.stageError}`);}}
+  if(Object.values(task.services).some(item=>item?.stage!=='RENDERED'))return this.finish(task);task.status='DEPLOYING';this.save(task);for(const[service,item]of Object.entries(task.services)){try{item!.stage='DEPLOYING';this.emit(task,'DEPLOY',service,'[1/5] 再次执行渲染校验');const dir=await this.upload(task,target,service,item!),rendered=await this.require(target,`${this.helm} template ${shellQuote(service)} ${shellQuote(dir)} -f ${shellQuote(`${dir}/values.yaml`)} -n ${shellQuote(task.namespace)}`,'渲染校验失败',task,service);this.assertOptionalVersionsUnused(rendered,item!);this.emit(task,'DEPLOY',service,'[2/5] 卸载旧 release');await this.require(target,`if ${this.helm} status ${shellQuote(service)} -n ${shellQuote(task.namespace)} >/dev/null 2>&1; then ${this.helm} uninstall ${shellQuote(service)} -n ${shellQuote(task.namespace)}; fi`,'旧 release 卸载失败',task,service,180000);this.emit(task,'DEPLOY',service,'[3/5] 检查待接管资源');await this.inspectTakeoverResources(target,task,service,rendered);this.emit(task,'DEPLOY',service,'[4/5] 安装 Helm release');await this.installRelease(target,task,service,dir);this.emit(task,'DEPLOY',service,'[5/5] 等待工作负载就绪');await this.waitReady(target,task,service);item!.stage='SUCCEEDED';item!.stageError=null;this.emit(task,'DEPLOY',service,'部署成功');}catch(error){item!.stage='FAILED';item!.stageError=this.failure(error);this.emit(task,'DEPLOY',service,`部署失败：${item!.stageError}`);}}
   this.finish(task);}
  private finish(task:DeploymentTask){task.status=Object.values(task.services).every(item=>item?.stage==='SUCCEEDED')?'SUCCEEDED':'FAILED';task.finishedAt=new Date().toISOString();this.emit(task,'SYSTEM',null,task.status==='SUCCEEDED'?'部署任务全部完成':'部署任务失败，请查看服务错误和实时日志');}
  private async templates(target:SshTarget,artifact:BuildArtifact,service:string){const output:Record<string,string>={},servicePath=`${artifact.remoteChartsRoot}/${service}/templates`,chartHelperPath=chartHelperTemplatePath(artifact),modulePath=`${artifact.remoteModuleRoot}/templates`,plan=chartTemplatePlan(await this.list(target,servicePath,'f'),await this.list(target,chartHelperPath,'f'),await this.list(target,modulePath,'f'));for(const[file,source]of plan){const base=source==='service'?servicePath:source==='chartHelper'?chartHelperPath:modulePath;output[file]=await this.ssh.readText(target,`${base}/${file}`);}return output;}
@@ -73,7 +86,24 @@ export class DeploymentService{
  private async files(root:string,prefix=''){const result=new Map<string,Buffer>();for(const item of await readdir(root,{withFileTypes:true})){const name=prefix?`${prefix}/${item.name}`:item.name,path=join(root,item.name);if(item.isDirectory())for(const entry of await this.files(path,name))result.set(entry[0],entry[1]);else result.set(name,await readFile(path));}return result;}
  private async upload(task:DeploymentTask,target:SshTarget,service:string,item:PreparedService){const directory=`/tmp/container-ops-kit/${task.id}/${service}`;await this.require(target,`rm -rf -- ${shellQuote(directory)} && mkdir -p ${shellQuote(directory)}`,'Chart 远程目录准备失败');await this.ssh.uploadFiles(target,directory,await this.files(resolve(chartsRoot,task.id,item.service)));return directory;}
  private assertOptionalVersionsUnused(rendered:string,item:PreparedService){const used=usedOptionalVersions(rendered,item.unresolvedImages);if(used.length)throw new Error(`以下可选版本实际被 Chart 模板使用，必须补充：${used.join('、')}`);}
- private async releaseConflicts(target:SshTarget,task:DeploymentTask,release:string,manifest:string){const seen=new Set<string>(),pattern=/^kind:\s*([^\s]+)[\s\S]*?^metadata:\s*\n(?:^[ \t]+.*\n)*?^[ \t]+name:\s*([^\s#]+)/gm;for(const match of manifest.matchAll(pattern)){const kind=match[1]!,name=match[2]!,resource=groupKinds[kind]??kind.toLowerCase(),key=`${resource}/${name}`;if(seen.has(key))continue;seen.add(key);const owner=(await this.command(target,`${this.kubectl} get ${shellQuote(resource)} ${shellQuote(name)} -n ${shellQuote(task.namespace)} -o jsonpath='{.metadata.annotations.meta\\.helm\\.sh/release-name}' 2>/dev/null || true`)).output.trim();if(owner&&owner!==release)await this.require(target,`${this.kubectl} delete ${shellQuote(resource)} ${shellQuote(name)} -n ${shellQuote(task.namespace)} --ignore-not-found`,'冲突资源删除失败',task,release);}}
+ private async inspectTakeoverResources(target:SshTarget,task:DeploymentTask,release:string,manifest:string){
+  let count=0;
+  const projection='{.kind}{"\\t"}{.metadata.annotations.meta\\.helm\\.sh/release-name}{"\\t"}{.metadata.annotations.meta\\.helm\\.sh/release-namespace}{"\\t"}{.metadata.labels.app\\.kubernetes\\.io/managed-by}';
+  for(const item of deploymentResources(manifest,task.namespace)){
+   const selector=`${shellQuote(item.resource)} ${shellQuote(item.name)} -n ${shellQuote(item.namespace)}`;
+   const output=await this.require(target,`${this.kubectl} get ${selector} --ignore-not-found -o jsonpath=${shellQuote(projection)}`,`资源归属检查失败 ${item.resource}/${item.name}`);
+   if(!output.trim())continue;
+   const[,owner,ownerNamespace,managedBy]=output.split('\t');
+   if(owner===release&&ownerNamespace===task.namespace&&managedBy==='Helm')continue;
+   count++;
+   this.emit(task,'DEPLOY',release,`待接管资源 ${item.resource}/${item.name}（命名空间 ${item.namespace}，原 release ${owner||'未标记'}，目标 release ${release}）`);
+  }
+  this.emit(task,'DEPLOY',release,`检查完成，共 ${count} 个资源待由 Helm 接管`);
+ }
+ private async installRelease(target:SshTarget,task:DeploymentTask,service:string,dir:string){
+  await this.require(target,`${this.helm} install --take-ownership ${shellQuote(service)} ${shellQuote(dir)} -f ${shellQuote(`${dir}/values.yaml`)} -n ${shellQuote(task.namespace)}`,'安装失败',task,service,300000);
+ }
+
  private async waitReady(target:SshTarget,task:DeploymentTask,service:string){const deadline=Date.now()+600000;while(Date.now()<deadline){const value=await this.command(target,`for t in deployment statefulset; do ${this.kubectl} get $t ${shellQuote(service)} -n ${shellQuote(task.namespace)} -o jsonpath='{.status.readyReplicas}/{.status.replicas}' 2>/dev/null && exit 0; done; exit 1`);if(value.code===0&&/^([1-9]\d*)\/\1$/.test(value.output.trim()))return;await new Promise(resolve=>setTimeout(resolve,15000));}throw new Error('等待工作负载就绪超时');}
  private podCommand(namespace:string){return`${this.kubectl} get pods -n ${shellQuote(namespace)} -o go-template=${shellQuote('{{range .items}}{{if not .metadata.deletionTimestamp}}{{$pod := .}}{{range .status.containerStatuses}}{{printf "%s\\t%s\\t%s\\t%t\\t%s\\n" $pod.metadata.name .name $pod.status.phase .ready .imageID}}{{end}}{{end}}{{end}}')}`;}
  private runtimeContainers(text:string){return text.split(/\r?\n/).filter(Boolean).map(line=>{const values=line.split('\t');if(values.length!==5)throw new Error(`Pod 精简列表格式不正确：${line}`);return{pod:values[0]!,container:values[1]!,phase:values[2]!,ready:values[3]==='true',image:values[4]!};});}

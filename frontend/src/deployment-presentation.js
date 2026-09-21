@@ -48,7 +48,7 @@ export function deploymentProgress(task, logs = []) {
   if (latest?.stage === 'RENDER') return {percent: 55, label: latest.service + ' · 正在执行 Helm 渲染校验'}
   if (latest?.stage === 'DEPLOY') {
     const step = Number(String(latest.message || '').match(/^\[(\d)\/5]/)?.[1] || 0)
-    const labels = ['正在准备部署', '再次渲染校验', '卸载旧 release', '释放冲突资源', '安装 Helm release', '等待工作负载就绪']
+    const labels = ['正在准备部署', '再次渲染校验', '卸载旧 release', '检查待接管资源', '安装 Helm release', '等待工作负载就绪']
     return {percent: step ? 55 + step * 8 : 60, label: latest.service + ' · ' + labels[step]}
   }
   return {percent: task.status === 'DEPLOYING' ? 60 : 30, label: task.status === 'DEPLOYING' ? '正在部署' : '正在准备 Chart'}
