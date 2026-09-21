@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {containerKubectlCommand,containerNamespaceNames} from '../src/modules/containerresource/containerresource.js';
+import Fastify from 'fastify';
+import {containerKubectlCommand,containerNamespaceNames,containerResourceRoutes} from '../src/modules/containerresource/containerresource.js';
 import {readConfig} from '../src/config.js';
 
 test('容器资源命令使用独立 kubectl 配置且不会重复 kubectl', () => {
@@ -23,4 +24,10 @@ test('kubectl 与 Helm 配置分别默认、覆盖且拒绝空路径', () => {
   assert.equal(containerKubectlCommand(config.kubectlKubeconfig,'get pods'),"kubectl --kubeconfig='/custom/plain config' get pods");
   assert.throws(()=>readConfig({DEPLOYMENT_KUBECTL_KUBECONFIG:' '}));
   assert.throws(()=>readConfig({DEPLOYMENT_HELM_KUBECONFIG:''}));
+});
+
+test('读取服务资源时只把资源坐标传给严格校验',async()=>{
+ const app=Fastify({logger:false});let received:unknown;
+ containerResourceRoutes(app,{read:async(environmentId:number,value:unknown)=>{received={environmentId,value};return{ok:true};}} as never);
+ try{const response=await app.inject({method:'GET',url:'/api/container-resources?environmentId=3&group=apps&version=v1&resource=deployments&namespace=mae&name=demo'});assert.equal(response.statusCode,200);assert.deepEqual(received,{environmentId:3,value:{group:'apps',version:'v1',resource:'deployments',namespace:'mae',name:'demo'}});}finally{await app.close();}
 });

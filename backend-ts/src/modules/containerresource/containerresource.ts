@@ -62,7 +62,7 @@ export function containerResourceRoutes(app:FastifyInstance,service:ContainerRes
  app.get('/api/container-resource-types',async req=>{const value=query.parse(req.query);return service.types(value.environmentId,value.refresh);});
  app.get('/api/container-resource-services',async req=>{const value=query.parse(req.query);if(!value.namespace)throw Object.assign(new Error('namespace 不能为空'),{statusCode:400});return service.workspace(value.environmentId,value.namespace,value.refresh);});
  app.get('/api/container-service-resources',async req=>{const value=query.parse(req.query);if(!value.namespace||!value.serviceKey)throw Object.assign(new Error('namespace 和 serviceKey 不能为空'),{statusCode:400});return service.serviceResources(value.environmentId,value.namespace,value.serviceKey);});
- app.get('/api/container-resources',async req=>{const value=query.parse(req.query);return service.read(value.environmentId,coordinates.parse(value));});
+ app.get('/api/container-resources',async req=>{const value=query.parse(req.query);return service.read(value.environmentId,coordinates.parse({group:value.group,version:value.version,resource:value.resource,namespace:value.namespace,name:value.name}));});
  app.post('/api/container-resource-changes/preview',async req=>service.previewUpdate(updateInput.parse(req.body)));app.post('/api/container-resource-changes/apply',async req=>service.applyUpdate(updateInput.parse(req.body)));
  app.post('/api/container-resources/preview',async req=>service.previewCreate(createInput.parse(req.body)));app.post('/api/container-resources',async(req,reply)=>reply.code(201).send(await service.create(createInput.parse(req.body))));
 }
