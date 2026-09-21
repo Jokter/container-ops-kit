@@ -218,7 +218,7 @@ test('项目进度只显示每个仓库的最新任务和当前信息', async ()
   页面实例.window.close()
 })
 
-test('Pi思考和回复实时展示且回复开始后折叠思考', async () => {
+test('Agent过程合并增量并在回复到达时保留用户展开选择', async () => {
   const 任务 = {
     id: 'task-live', repository: 'coder', status: 'REPAIRING', nextStage: 'REPAIR', progress: 45,
     message: '正在执行 Pi 修复。', repairBranch: 'repair', workspaceRoot: '/configured/ut', createdAt: '2026-09-11T00:08:00Z'
@@ -247,18 +247,21 @@ test('Pi思考和回复实时展示且回复开始后折叠思考', async () => 
   模拟事件源.instances[0].emit({sequence: 2, type: 'thinking_start'})
   模拟事件源.instances[0].emit({sequence: 3, type: 'thinking_delta', content: '正在定位失败用例'})
   await new Promise(完成 => setTimeout(完成, 160))
-  assert.match(文档.querySelector('[data-auto-ut-live="task-live"]').textContent, /发送给 Pi 的任务.*第 1 轮/)
+  assert.match(文档.querySelector('[data-auto-ut-live="task-live"]').textContent, /任务输入/)
   assert.match(文档.querySelector('[data-auto-ut-live="task-live"]').textContent, /只修改测试代码并修复失败用例/)
-  assert.equal(文档.querySelector('[data-auto-ut-live-part="thinking"]').open, true)
-  assert.match(文档.querySelector('[data-auto-ut-live-part="thinking"]').textContent, /正在定位失败用例/)
-  文档.querySelector('[data-auto-ut-live-part="prompt"] summary').click()
-  assert.equal(文档.querySelector('[data-auto-ut-live-part="prompt"]').open, true)
+  assert.equal(文档.querySelector('[data-ut-entry="entry-2"]').open, false)
+  assert.match(文档.querySelector('[data-ut-entry="entry-2"]').textContent, /正在定位失败用例/)
+  文档.querySelector('[data-ut-entry="entry-1"] summary').click()
+  文档.querySelector('[data-ut-entry="entry-2"] summary').click()
+  assert.equal(文档.querySelector('[data-ut-entry="entry-1"]').open, true)
+  const 页面标题=文档.querySelector('.page-head')
 
   模拟事件源.instances[0].emit({sequence: 4, type: 'message_start'})
   模拟事件源.instances[0].emit({sequence: 5, type: 'message_delta', content: '已修复测试'})
   await new Promise(完成 => setTimeout(完成, 160))
-  assert.equal(文档.querySelector('[data-auto-ut-live-part="thinking"]').open, false)
-  assert.equal(文档.querySelector('[data-auto-ut-live-part="prompt"]').open, true)
+  assert.equal(文档.querySelector('[data-ut-entry="entry-2"]').open, true)
+  assert.equal(文档.querySelector('[data-ut-entry="entry-1"]').open, true)
+  assert.equal(文档.querySelector('.page-head'),页面标题)
   assert.match(文档.querySelector('[data-auto-ut-live="task-live"]').textContent, /已修复测试/)
 
   页面实例.window.close()
