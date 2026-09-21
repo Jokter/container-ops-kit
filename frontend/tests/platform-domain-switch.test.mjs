@@ -41,7 +41,9 @@ test('正式页面可以在三个平台域之间切换', () => {
 
   文档.querySelector('[data-automation-capability="auto-ut"]').click()
   assert.equal(文档.querySelector('.page-head h1').textContent, 'Auto-UT')
+  文档.querySelector('[data-report-source="csv"]').click()
   assert.ok(文档.querySelector('#auto-ut-report'))
+  文档.querySelector('[data-qw-drawer="execution"]').click()
   assert.equal(文档.querySelector('#auto-ut-username').value, '')
   assert.equal(文档.querySelector('#auto-ut-ticket').value, '')
   assert.equal(文档.querySelector('#auto-ut-base-branch').value, '')
@@ -49,8 +51,10 @@ test('正式页面可以在三个平台域之间切换', () => {
   assert.equal(文档.querySelector('#auto-ut-ticket').getAttribute('placeholder'), null)
   assert.equal(文档.querySelector('#auto-ut-base-branch').getAttribute('placeholder'), null)
   assert.ok(文档.querySelector('[data-auto-ut-workspace-picker]'))
+  文档.querySelector('[data-qw-close]').click()
   assert.ok(文档.querySelector('[data-auto-ut-mode-switch]'))
   assert.equal(文档.querySelector('[data-auto-ut-mode-switch]').getAttribute('aria-checked'), 'false')
+  文档.querySelector('[data-qw-drawer="execution"]').click()
   assert.ok(文档.querySelector('#auto-ut-daily-time'))
   assert.ok(文档.querySelector('[data-auto-ut-schedule-toggle]'))
   assert.ok(页面.includes('data-auto-ut-directory-dialog'))
@@ -89,6 +93,7 @@ test('工作目录从此电脑开始在网页内选择', async () => {
   文档.querySelector('[data-platform-domain="automation"]').click()
   文档.querySelector('[data-automation-capability="auto-ut"]').click()
   await 等待界面更新()
+  文档.querySelector('[data-qw-drawer="execution"]').click()
   文档.querySelector('[data-auto-ut-workspace-picker]').click()
   await 等待界面更新()
 
@@ -118,6 +123,7 @@ test('外部错误任务可以从页面重试当前阶段', async () => {
   文档.querySelector('[data-automation-capability="auto-ut"]').click()
   await 等待界面更新()
 
+  文档.querySelector('[data-qw-auto-tab="tasks"]').click()
   assert.match(文档.querySelector('[data-auto-ut-continue="task-1"]').textContent, /重试/)
 
   页面实例.window.close()
@@ -149,9 +155,13 @@ test('扫描使用默认CodeHub仓库且修改后保存映射', async () => {
   文档.querySelector('[data-platform-domain="automation"]').click()
   文档.querySelector('[data-automation-capability="auto-ut"]').click()
   await 等待界面更新()
+  文档.querySelector('[data-report-source="csv"]').click()
+  文档.querySelector('[data-qw-drawer="execution"]').click()
   文档.querySelector('#auto-ut-username').value = 'user'
   文档.querySelector('#auto-ut-ticket').value = 'DTS1'
   文档.querySelector('#auto-ut-base-branch').value = 'develop'
+  页面实例.window.captureAutoUtInputs()
+  页面实例.window.qwClose(true)
   const 文件输入 = 文档.querySelector('#auto-ut-report')
   Object.defineProperty(文件输入, 'files', {value: [new 页面实例.window.File(['csv'], 'report.csv')]})
   文件输入.dispatchEvent(new 页面实例.window.Event('change'))
@@ -159,6 +169,7 @@ test('扫描使用默认CodeHub仓库且修改后保存映射', async () => {
   await 等待界面更新()
   await 等待界面更新()
 
+  文档.querySelector('[data-qw-repository]').click()
   const 仓库输入 = 文档.querySelector('[data-auto-ut-repository-url="FMInsightService"]')
   assert.equal(仓库输入.value, 默认地址)
   assert.match(文档.querySelector('[data-auto-ut-repository-save="FMInsightService"]').parentElement.parentElement.textContent, /默认仓库/)
@@ -191,6 +202,7 @@ test('项目进度只显示每个仓库的最新任务和当前信息', async ()
   文档.querySelector('[data-automation-capability="auto-ut"]').click()
   await 等待界面更新()
 
+  文档.querySelector('[data-qw-auto-tab="tasks"]').click()
   assert.equal(文档.querySelectorAll('[data-auto-ut-task]').length, 1)
   assert.match(文档.querySelector('[data-auto-ut-task]').textContent, /正在执行 Pi 修复/)
   assert.doesNotMatch(文档.querySelector('[data-auto-ut-task]').textContent, /旧任务错误|不应显示的历史信息/)
@@ -220,6 +232,7 @@ test('Pi思考和回复实时展示且回复开始后折叠思考', async () => 
   文档.querySelector('[data-platform-domain="automation"]').click()
   文档.querySelector('[data-automation-capability="auto-ut"]').click()
   await new Promise(完成 => setTimeout(完成, 10))
+  文档.querySelector('[data-qw-auto-tab="tasks"]').click()
   assert.match(模拟事件源.instances[0].url, /task-live\/events/)
 
   模拟事件源.instances[0].emit({sequence: 1, type: 'thinking_start'})
@@ -259,6 +272,7 @@ test('基线阶段展示细分流程且不提前显示Pi等待内容', async () 
   文档.querySelector('[data-platform-domain="automation"]').click()
   文档.querySelector('[data-automation-capability="auto-ut"]').click()
   await new Promise(完成 => setTimeout(完成, 10))
+  文档.querySelector('[data-qw-auto-tab="tasks"]').click()
   模拟事件源.instances[0].emit({
     sequence: 1, type: 'operation_start', content: '基线测试', toolCallId: 'operation-1', toolName: 'mvn -B -ntp clean test'
   })
