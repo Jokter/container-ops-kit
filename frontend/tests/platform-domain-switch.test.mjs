@@ -51,8 +51,9 @@ test('正式页面可以在三个平台域之间切换', () => {
   assert.equal(文档.querySelector('#auto-ut-ticket').getAttribute('placeholder'), null)
   assert.ok(文档.querySelector('[data-auto-ut-workspace-picker]'))
   文档.querySelector('[data-qw-close]').click()
-  assert.ok(文档.querySelector('[data-auto-ut-mode-switch]'))
-  assert.equal(文档.querySelector('[data-auto-ut-mode-switch]').getAttribute('aria-checked'), 'false')
+  assert.equal(文档.querySelector('[data-auto-ut-mode-switch]'), null)
+  assert.match(文档.body.textContent, /全自动执行/)
+  assert.match(文档.body.textContent, /报告数据日期/)
   assert.ok(文档.querySelector('[data-schedule-new="auto-ut"]'))
   assert.ok(文档.querySelector('[data-automation-nav="schedules"]'))
   assert.ok(页面.includes('data-auto-ut-directory-dialog'))
@@ -228,18 +229,47 @@ test('Pi思考和回复实时展示且回复开始后折叠思考', async () => 
   文档.querySelector('[data-qw-auto-tab="tasks"]').click()
   assert.match(模拟事件源.instances[0].url, /task-live\/events/)
 
-  模拟事件源.instances[0].emit({sequence: 1, type: 'thinking_start'})
-  模拟事件源.instances[0].emit({sequence: 2, type: 'thinking_delta', content: '正在定位失败用例'})
+  模拟事件源.instances[0].emit({sequence: 1, type: 'prompt', content: '只修改测试代码并修复失败用例', toolCallId: 'attempt-1'})
+  模拟事件源.instances[0].emit({sequence: 2, type: 'thinking_start'})
+  模拟事件源.instances[0].emit({sequence: 3, type: 'thinking_delta', content: '正在定位失败用例'})
   await new Promise(完成 => setTimeout(完成, 160))
+  assert.match(文档.querySelector('[data-auto-ut-live="task-live"]').textContent, /发送给 Pi 的任务.*第 1 轮/)
+  assert.match(文档.querySelector('[data-auto-ut-live="task-live"]').textContent, /只修改测试代码并修复失败用例/)
   assert.equal(文档.querySelector('[data-auto-ut-thinking="task-live"]').open, true)
   assert.match(文档.querySelector('[data-auto-ut-thinking="task-live"]').textContent, /正在定位失败用例/)
 
-  模拟事件源.instances[0].emit({sequence: 3, type: 'message_start'})
-  模拟事件源.instances[0].emit({sequence: 4, type: 'message_delta', content: '已修复测试'})
+  模拟事件源.instances[0].emit({sequence: 4, type: 'message_start'})
+  模拟事件源.instances[0].emit({sequence: 5, type: 'message_delta', content: '已修复测试'})
   await new Promise(完成 => setTimeout(完成, 160))
   assert.equal(文档.querySelector('[data-auto-ut-thinking="task-live"]').open, false)
   assert.match(文档.querySelector('[data-auto-ut-live="task-live"]').textContent, /已修复测试/)
 
+  页面实例.window.close()
+})
+
+test('刷新任务列表后恢复已保存的 Pi 交互记录', async () => {
+  const 任务 = {
+    id: 'task-history', repository: 'coder', status: 'RESOLVED', nextStage: 'DONE', progress: 100,
+    message: '任务已完成。', repairBranch: 'repair', workspaceRoot: 'E:\\AutoUT',
+    liveEvents: [
+      {sequence: 1, type: 'prompt', content: '修复两个失败用例', toolCallId: 'attempt-1'},
+      {sequence: 2, type: 'thinking_delta', content: '检查失败堆栈'},
+      {sequence: 3, type: 'message_delta', content: '修复完成并通过验证'}
+    ]
+  }
+  const 请求 = async 地址 => 地址 === '/api/auto-ut/tasks'
+    ? {ok: true, status: 200, json: async () => [任务]}
+    : {ok: true, status: 200, json: async () => ({})}
+  const 页面实例 = 打开页面(请求)
+  const 文档 = 页面实例.window.document
+  文档.querySelector('[data-platform-domain="automation"]').click()
+  文档.querySelector('[data-automation-capability="auto-ut"]').click()
+  await new Promise(完成 => setTimeout(完成, 160))
+  文档.querySelector('[data-qw-auto-tab="tasks"]').click()
+  const 面板 = 文档.querySelector('[data-auto-ut-live="task-history"]')
+  assert.match(面板.textContent, /修复两个失败用例/)
+  assert.match(面板.textContent, /检查失败堆栈/)
+  assert.match(面板.textContent, /修复完成并通过验证/)
   页面实例.window.close()
 })
 
