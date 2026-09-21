@@ -71,7 +71,7 @@ test('正式页面可以在三个平台域之间切换', () => {
   assert.ok(文档.querySelector('[data-schedule-new="auto-ut"]'))
   assert.ok(文档.querySelector('[data-automation-nav="schedules"]'))
   assert.ok(页面.includes('data-auto-ut-directory-dialog'))
-  assert.ok(页面.includes('data-auto-ut-progress'))
+  assert.ok(页面.includes('ut-task-progress'))
   assert.ok(页面.includes('data-auto-ut-continue'))
 
   页面实例.window.close()
