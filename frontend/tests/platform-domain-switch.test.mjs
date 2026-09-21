@@ -41,15 +41,14 @@ test('正式页面可以在三个平台域之间切换', () => {
 
   文档.querySelector('[data-automation-capability="auto-ut"]').click()
   assert.equal(文档.querySelector('.page-head h1').textContent, 'UT 自动修复')
-  文档.querySelector('[data-report-source="csv"]').click()
-  assert.ok(文档.querySelector('#auto-ut-report'))
+  assert.equal(文档.querySelector('[data-report-source="csv"]'), null)
+  assert.equal(文档.querySelector('#auto-ut-report'), null)
+  assert.ok(文档.querySelector('[data-report-fetch]'))
   文档.querySelector('[data-qw-drawer="execution"]').click()
   assert.equal(文档.querySelector('#auto-ut-username').value, '')
   assert.equal(文档.querySelector('#auto-ut-ticket').value, '')
-  assert.equal(文档.querySelector('#auto-ut-base-branch').value, '')
   assert.equal(文档.querySelector('#auto-ut-username').getAttribute('placeholder'), null)
   assert.equal(文档.querySelector('#auto-ut-ticket').getAttribute('placeholder'), null)
-  assert.equal(文档.querySelector('#auto-ut-base-branch').getAttribute('placeholder'), null)
   assert.ok(文档.querySelector('[data-auto-ut-workspace-picker]'))
   文档.querySelector('[data-qw-close]').click()
   assert.ok(文档.querySelector('[data-auto-ut-mode-switch]'))
@@ -83,7 +82,8 @@ test('工作目录从此电脑开始在网页内选择', async () => {
   const 请求 = async 地址 => {
     if (地址 === '/api/auto-ut/tasks') return {ok: true, status: 200, json: async () => []}
     if (地址 === '/api/auto-ut/schedule') return {ok: true, status: 204}
-    if (地址.includes('?path=')) return {ok: true, status: 200, json: async () => ({current: 'E:\\', parent: '', writable: true, directories: []})}
+    if (地址.includes('missing')) return {ok: false, status: 400, json: async () => ({message: '目录不存在'})}
+    if (地址.includes('?path=')) return {ok: true, status: 200, json: async () => ({current: decodeURIComponent(地址.split('path=')[1]), parent: '', writable: true, directories: []})}
     return {ok: true, status: 200, json: async () => ({current: '', parent: '', writable: false, directories: [{name: 'E:\\', path: 'E:\\', writable: true}]})}
   }
   const 页面实例 = 打开页面(请求)
@@ -97,10 +97,19 @@ test('工作目录从此电脑开始在网页内选择', async () => {
   await 等待界面更新()
 
   assert.equal(文档.querySelector('[data-auto-ut-directory-dialog] strong').textContent, '此电脑')
-  文档.querySelector('[data-auto-ut-directory-path]').click()
+  let 路径输入 = 文档.querySelector('#auto-ut-directory-path-input')
+  路径输入.value = 'missing'
+  文档.querySelector('[data-auto-ut-directory-go]').dispatchEvent(new 页面实例.window.Event('submit', {bubbles: true, cancelable: true}))
   await 等待界面更新()
+  assert.match(文档.querySelector('[role="alert"]').textContent, /目录不存在/)
+  路径输入 = 文档.querySelector('#auto-ut-directory-path-input')
+  路径输入.value = 'E:\\AutoUT'
+  文档.querySelector('[data-auto-ut-directory-go]').dispatchEvent(new 页面实例.window.Event('submit', {bubbles: true, cancelable: true}))
+  await 等待界面更新()
+  assert.equal(文档.querySelector('#auto-ut-directory-title').textContent, 'E:\\AutoUT')
+  assert.match(文档.querySelector('[data-auto-ut-directory-select]').textContent, /使用当前目录/)
   文档.querySelector('[data-auto-ut-directory-select]').click()
-  assert.match(文档.querySelector('[data-auto-ut-workspace-picker]').textContent, /E:/)
+  assert.match(文档.querySelector('[data-auto-ut-workspace-picker]').textContent, /AutoUT/)
 
   页面实例.window.close()
 })
@@ -128,43 +137,29 @@ test('外部错误任务可以从页面重试当前阶段', async () => {
   页面实例.window.close()
 })
 
-test('扫描使用默认CodeHub仓库且修改后保存映射', async () => {
+test('在线报告使用默认CodeHub仓库且修改后保存映射', async () => {
   let 保存请求
   const 默认地址 = 'ssh://git@szv-y.codehub.huawei.com:2222/MAE-M/Access/FMInsightService.git'
   const 修改地址 = 'ssh://git@szv-y.codehub.huawei.com:2222/MAE-M/Special/FMInsightService.git'
+  const 配置 = {versions: [{version: 'R27C10', baseBranch: 'develop'}], dateMode: 'yesterday', username: 'user', ticket: 'DTS1', workspaceRoot: 'E:\\AutoUT', schedule: {enabled: false, frequency: 'weekdays', weekday: 1, time: '09:00', timezone: 'Asia/Shanghai', action: 'FETCH'}}
+  const 运行 = {id: 'r1', jobId: 'q1', status: 'READY', createdAt: 'now', config: 配置, trigger: 'MANUAL', messages: [], claimed: [], taskIds: [], plan: [{version: 'R27C10', repository: 'FMInsightService', failedTests: 2, lineCoverage: .75, lineGoal: .8, branchCoverage: .6, branchGoal: .7, baseBranch: 'develop', configured: true, repositoryUrl: 默认地址, repositoryCustomized: false, repairBranch: 'develop_user_DTS1_R27C10'}]}
   const 请求 = async (地址, 选项 = {}) => {
     if (地址 === '/api/auto-ut/tasks') return {ok: true, status: 200, json: async () => []}
-    if (地址 === '/api/auto-ut/schedule') return {ok: true, status: 204}
-    if (地址 === '/api/auto-ut/scan') return {ok: true, status: 200, json: async () => [{
-      repository: 'FMInsightService', failedTests: 2, lineCoverage: .75, lineGoal: .8,
-      configured: true, repositoryUrl: 默认地址, repositoryCustomized: false,
-      repairBranch: 'develop_user_DTS1'
-    }]}
+    if (地址 === '/api/auto-ut/report-settings') return {ok: true, status: 200, json: async () => 选项.method === 'PUT' ? {config: JSON.parse(选项.body), nextRunAt: null} : {config: 配置, nextRunAt: null}}
+    if (地址 === '/api/auto-ut/reports') return {ok: true, status: 200, json: async () => 选项.method === 'POST' ? 运行 : []}
     if (地址.includes('/api/auto-ut/repositories/')) {
       保存请求 = JSON.parse(选项.body)
-      return {ok: true, status: 200, json: async () => ({
-        repository: 'FMInsightService', url: 保存请求.url, customized: true
-      })}
+      return {ok: true, status: 200, json: async () => ({repository: 'FMInsightService', url: 保存请求.url, customized: true})}
     }
-    return {ok: true, status: 200, json: async () => ({})}
+    return {ok: true, status: 200, json: async () => []}
   }
   const 页面实例 = 打开页面(请求)
   const 文档 = 页面实例.window.document
-
   文档.querySelector('[data-platform-domain="automation"]').click()
   文档.querySelector('[data-automation-capability="auto-ut"]').click()
   await 等待界面更新()
-  文档.querySelector('[data-report-source="csv"]').click()
-  文档.querySelector('[data-qw-drawer="execution"]').click()
-  文档.querySelector('#auto-ut-username').value = 'user'
-  文档.querySelector('#auto-ut-ticket').value = 'DTS1'
-  文档.querySelector('#auto-ut-base-branch').value = 'develop'
-  页面实例.window.captureAutoUtInputs()
-  页面实例.window.qwClose(true)
-  const 文件输入 = 文档.querySelector('#auto-ut-report')
-  Object.defineProperty(文件输入, 'files', {value: [new 页面实例.window.File(['csv'], 'report.csv')]})
-  文件输入.dispatchEvent(new 页面实例.window.Event('change'))
-  文档.querySelector('[data-auto-ut-scan]').click()
+  await 等待界面更新()
+  文档.querySelector('[data-report-fetch]').click()
   await 等待界面更新()
   await 等待界面更新()
 
@@ -178,7 +173,6 @@ test('扫描使用默认CodeHub仓库且修改后保存映射', async () => {
 
   assert.equal(保存请求.url, 修改地址)
   assert.match(文档.querySelector('[data-auto-ut-repository-save="FMInsightService"]').parentElement.parentElement.textContent, /已保存/)
-
   页面实例.window.close()
 })
 
