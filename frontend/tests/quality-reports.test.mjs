@@ -53,6 +53,12 @@ test('质量表分页、筛选与行详情使用同一份结果',async()=>{
  try{const d=open(dom,'quality');await pause();d.querySelector('[data-q-fetch]').click();await pause();assert.equal(d.querySelectorAll('.qw-table tbody tr').length,20);d.querySelector('[data-qw-pager="quality"][data-step="1"]').click();assert.equal(d.querySelectorAll('.qw-table tbody tr').length,5);d.querySelector('[data-qw-detail]').click();assert.match(d.querySelector('#qw-drawer-title').textContent,/Repo20/);d.querySelector('[data-qw-close]').click();const search=d.querySelector('#q-search');search.value='Repo24';search.dispatchEvent(new dom.window.Event('input'));assert.equal(d.querySelectorAll('.qw-table tbody tr').length,1);assert.match(d.querySelector('.qw-table tbody').textContent,/Repo24/);}finally{dom.window.close();}
 });
 
+test('UT 覆盖率百分数字符串显示当前值和达标线',async()=>{
+ const row={'代码仓':'PercentRepo','PL组':'Access_智能驾舱组','语言':'Java','失败用例':1,'行覆盖率':'75.5%','行覆盖率目标':'85%','分支覆盖率':'60%','分支覆盖率目标':'75%'};
+ const dom=page((path,o)=>path==='/api/quality/jobs'&&o?.method==='POST'?{id:'percent',status:'SUCCEEDED',createdAt:'now',input:JSON.parse(o.body),parts:[{version:'R27C10',kind:'ut',status:'SUCCEEDED',message:'查询完成',rows:[row],columns:Object.keys(row)}]}:undefined);
+ try{const d=open(dom,'quality');await pause();d.querySelector('[data-q-fetch]').click();await pause();const cells=d.querySelector('.qw-table tbody tr').cells;assert.match(cells[4].textContent,/75\.5%\s*\/\s*80%/);assert.match(cells[5].textContent,/60\.0%\s*\/\s*70%/);}finally{dom.window.close();}
+});
+
 test('固定导航、浏览器前进后退保留查询条件与滚动位置',async()=>{
  const dom=page();try{const w=dom.window,d=open(dom,'quality');await pause();let scroll=0;Object.defineProperty(w,'scrollY',{get:()=>scroll});w.scrollTo=(_x,y)=>{scroll=y;};const input=d.querySelector('[data-q-field="domain"]');input.value='Access_Custom';input.dispatchEvent(new w.Event('input'));w.scrollTo(0,320);d.querySelector('[data-automation-nav="auto-ut"]').click();await pause();assert.equal(w.location.hash,'#/automation/auto-ut');assert.equal(d.querySelector('.qw-topnav'),null);assert.equal(d.querySelector('.page-head h1').textContent,'UT 自动修复');w.history.back();await new Promise(r=>setTimeout(r,30));assert.equal(w.location.hash,'#/automation/quality');assert.equal(d.querySelector('[data-q-field="domain"]').value,'Access_Custom');assert.equal(w.scrollY,320);w.history.forward();await new Promise(r=>setTimeout(r,30));assert.equal(d.querySelector('.page-head h1').textContent,'UT 自动修复');}finally{dom.window.close();}
 });

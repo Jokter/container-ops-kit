@@ -44,6 +44,8 @@ export function normalizeQuality(payload:unknown,kind:QualityPart['kind']){
     if(metric(row['总行数'])===0)continue;eligibleCount++;
     const failed=metric(row['失败用例']),line=metric(row['行覆盖率'],true),goal=metric(row['行覆盖率目标'],true),cpp=row['语言']==='Cpp';
     const branch=cpp?1:metric(row['分支覆盖率'],true),branchGoal=cpp?0:metric(row['分支覆盖率目标'],true);
+    row['行覆盖率']=line;row['行覆盖率目标']=goal;
+    if(!cpp){row['分支覆盖率']=branch;row['分支覆盖率目标']=branchGoal;}
     if(failed===0&&line>=Math.min(goal,.8)&&branch>=Math.min(branchGoal,.7))continue;
     row['待补充行数']=Math.ceil(Math.max(0,Math.min(goal,.8)-line)*metric(row['总行数'])-1e-9);row['待补充分支数']=cpp?0:Math.ceil(Math.max(0,Math.min(branchGoal,.7)-branch)*metric(row['总分支数'])-1e-9);
    }else if(kind==='api'){eligibleCount++;if(metric(row['失败用例数'])===0&&metric(row['是否达标'])===0&&metric(row['状态'])===0)continue;}

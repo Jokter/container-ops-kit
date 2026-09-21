@@ -15,6 +15,11 @@ test('UT 门禁与脚本一致；缺失指标不能误判通过；CSV 转义公�
  assert.throws(()=>normalizeQuality({results:{A:{error:'sql error'}}},'ut'),/数据源/);
  assert.match(qualityCsv({columns:['name'],rows:[{name:'=CMD()'}]}),/'=CMD/);
 });
+test('UT 报告将百分数字符串标准化为比例数值',()=>{
+ const result=normalizeQuality(payload([['Percent','Java','Access_智能驾舱组',1,'75.5%','80%','60%','70%',100,20]]),'ut');
+ assert.equal(result.rows[0]?.['行覆盖率'],.755);assert.equal(result.rows[0]?.['行覆盖率目标'],.8);
+ assert.equal(result.rows[0]?.['分支覆盖率'],.6);assert.equal(result.rows[0]?.['分支覆盖率目标'],.7);
+});
 test('限定 SQL 的版本和团队；静态检查排除构建仓且保留零记录团队',()=>{
  assert.throws(()=>qualityInput.parse({...input,versions:['R27C10;DROP']}));assert.throws(()=>qualityInput.parse({...input,teams:["x' or 1=1"]}));
  const sql=qualitySql(input,'R27C10','static');assert.match(sql,/R27C10_lint/);assert.match(sql,/BuildPackageWorkaround/);assert.doesNotMatch(sql,/report_date/);
