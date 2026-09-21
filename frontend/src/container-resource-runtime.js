@@ -2,9 +2,9 @@ import {environmentOptionLabel} from './environment-presentation.js'
 
 (function () {
   const runtime = {
-    environmentId: '', namespace: 'mae', services: [], groups: [], resources: [], types: [],
+    environmentId: '', connectedEnvironmentId: '', namespaces: [], namespace: '', services: [], groups: [], resources: [], types: [],
     serviceKey: '', resource: null, editable: null, yaml: '', preview: null, tab: 'yaml',
-    serviceQuery: '', resourceQuery: '', loading: false, busy: false, createOpen: false,
+    serviceQuery: '', resourceQuery: '', loading: false, busy: false, workspaceLoaded: false, createOpen: false,
     createTypeKey: '', createYaml: '', createPreview: null, error: ''
   }
 
@@ -43,10 +43,64 @@ import {environmentOptionLabel} from './environment-presentation.js'
     showToast(runtime.error)
   }
 
-  async function loadWorkspace(refresh = false) {
+  function clearWorkspace() {
+    runtime.services = []
+    runtime.groups = []
+    runtime.resources = []
+    runtime.serviceKey = ''
+    runtime.resource = null
+    runtime.editable = null
+    runtime.yaml = ''
+    runtime.preview = null
+    runtime.types = []
+    runtime.createOpen = false
+    runtime.createTypeKey = ''
+    runtime.createPreview = null
+    runtime.workspaceLoaded = false
+  }
+
+  function selectDefaultEnvironment() {
     const available = containerEnvironments()
     if (!runtime.environmentId) runtime.environmentId = available.find(item => item.id === state.selectedContainerEnvironment)?._apiId || available[0]?._apiId || ''
-    if (!runtime.environmentId || !runtime.namespace.trim()) return
+    return available
+  }
+
+  async function loadNamespaces() {
+    selectDefaultEnvironment()
+    if (!runtime.environmentId) return message(new Error('请先配置容器环境'))
+    const requestId = ++workspaceRequest
+    workspaceController?.abort()
+    workspaceController = new AbortController()
+    runtime.loading = true
+    runtime.error = ''
+    runtime.namespace = ''
+    runtime.namespaces = []
+    runtime.connectedEnvironmentId = ''
+    clearWorkspace()
+    render(false)
+    try {
+      const result = await api('/api/container-resource-namespaces?' + query({environmentId: runtime.environmentId}), {signal: workspaceController.signal})
+      if (requestId !== workspaceRequest) return
+      runtime.namespaces = result.namespaces || []
+      runtime.connectedEnvironmentId = String(runtime.environmentId)
+      if (!runtime.namespaces.length) throw new Error('该环境没有可用命名空间')
+      showToast('环境连接成功，请选择命名空间')
+    } catch (error) {
+      if (error?.name === 'AbortError') return
+      message(error)
+    } finally {
+      if (requestId === workspaceRequest) {
+        runtime.loading = false
+        workspaceController = null
+        render(false)
+      }
+    }
+  }
+
+  async function loadWorkspace(refresh = false) {
+    selectDefaultEnvironment()
+    if (String(runtime.environmentId) !== runtime.connectedEnvironmentId) return message(new Error('请先连接当前容器环境'))
+    if (!runtime.namespace) return message(new Error('请选择命名空间'))
     const requestId = ++workspaceRequest
     workspaceController?.abort()
     workspaceController = new AbortController()
@@ -58,10 +112,11 @@ import {environmentOptionLabel} from './environment-presentation.js'
       if (requestId !== workspaceRequest) return
       runtime.services = result.services
       runtime.groups = result.groups
+      runtime.workspaceLoaded = true
       const keys = new Set([...runtime.services.map(item => item.key), ...runtime.groups.map(item => groupKeys[item.type])])
       if (!keys.has(runtime.serviceKey)) runtime.serviceKey = runtime.services[0]?.key || groupKeys[runtime.groups[0]?.type] || ''
       await loadResources(false, requestId, workspaceController.signal)
-      if (refresh) showToast('环境资源已重新发现')
+      showToast(refresh ? '服务资源已重新加载' : '服务资源加载完成')
     } catch (error) {
       if (error?.name === 'AbortError') return
       message(error)
@@ -284,14 +339,18 @@ import {environmentOptionLabel} from './environment-presentation.js'
   }
 
   function resourceOperationContent() {
-    const options = containerEnvironments().map(item => '<option value="' + item._apiId + '" ' + (String(runtime.environmentId) === String(item._apiId) ? 'selected' : '') + '>' + escapeHtml(environmentOptionLabel(item)) + '</option>').join('')
-    const addDisabled = !runtime.serviceKey || runtime.serviceKey.startsWith('group:')
-    return pageTitle('服务资源', '发现、查看并修改容器环境中的 Kubernetes 资源。', '<span class="badge green">API Discovery</span>')
-      + '<section class="cr-context"><label><span>容器环境</span><select id="resource-environment">' + options + '</select></label><label><span>命名空间</span><input id="resource-namespace" value="' + escapeHtml(runtime.namespace) + '"></label><button class="button" data-refresh-resource-discovery>' + (runtime.loading ? '重新刷新 Discovery' : '刷新 Discovery') + '</button></section>'
+    const available = selectDefaultEnvironment()
+    const options = available.map(item => '<option value="' + item._apiId + '" ' + (String(runtime.environmentId) === String(item._apiId) ? 'selected' : '') + '>' + escapeHtml(environmentOptionLabel(item)) + '</option>').join('')
+    const namespaceOptions = runtime.namespaces.map(item => '<option value="' + escapeHtml(item) + '" ' + (runtime.namespace === item ? 'selected' : '') + '>' + escapeHtml(item) + '</option>').join('')
+    const connected = runtime.connectedEnvironmentId === String(runtime.environmentId)
+    const addDisabled = !runtime.workspaceLoaded || !runtime.serviceKey || runtime.serviceKey.startsWith('group:')
+    const workbench = runtime.workspaceLoaded
+      ? '<section class="cr-workbench"><aside class="cr-services"><div class="cr-pane-title"><strong>服务</strong><span>' + runtime.services.length + '</span></div><div class="cr-search"><input id="resource-service-search" value="' + escapeHtml(runtime.serviceQuery) + '" placeholder="搜索服务名称"></div><div class="cr-scroll">' + serviceRows() + '</div></aside><aside class="cr-resources"><div class="cr-pane-title"><div><strong>' + escapeHtml(selectedServiceName()) + ' 的资源</strong><span>按服务归集</span></div><button class="button primary small" data-open-resource-create ' + (addDisabled ? 'disabled' : '') + '>＋ 新增</button></div><div class="cr-search"><input id="resource-item-search" value="' + escapeHtml(runtime.resourceQuery) + '" placeholder="搜索该服务的资源"></div><div class="cr-scroll">' + resourceRows() + '</div></aside><main class="cr-editor">' + editorContent() + '</main></section>'
+      : '<section class="cr-start"><div><span class="cr-start-step">1</span><strong>连接容器环境</strong><p>读取该集群当前可用的命名空间。</p></div><i>→</i><div class="' + (connected ? '' : 'muted') + '"><span class="cr-start-step">2</span><strong>选择命名空间</strong><p>命名空间来自所选环境，不使用默认值。</p></div><i>→</i><div class="' + (runtime.namespace ? '' : 'muted') + '"><span class="cr-start-step">3</span><strong>加载服务资源</strong><p>按 Helm、工作负载和标签归集资源。</p></div></section>'
+    return pageTitle('服务资源', '连接容器环境后选择命名空间，再加载和修改 Kubernetes 资源。')
+      + '<section class="cr-context"><label><span>容器环境</span><select id="resource-environment" ' + (!available.length || runtime.loading ? 'disabled' : '') + '><option value="">请选择容器环境</option>' + options + '</select></label><button class="button" data-connect-resource-environment ' + (!runtime.environmentId || runtime.loading ? 'disabled' : '') + '>' + (runtime.loading ? '正在连接…' : connected ? '重新连接' : '连接并读取命名空间') + '</button><label><span>命名空间</span><select id="resource-namespace" ' + (!connected || runtime.loading ? 'disabled' : '') + '><option value="">请选择命名空间</option>' + namespaceOptions + '</select></label><button class="button primary" data-load-resource-workspace ' + (!connected || !runtime.namespace || runtime.loading ? 'disabled' : '') + '>' + (runtime.loading ? '正在加载…' : runtime.workspaceLoaded ? '重新加载资源' : '加载服务资源') + '</button></section>'
       + (runtime.error ? '<div class="cr-error">' + escapeHtml(runtime.error) + '</div>' : '')
-      + '<section class="cr-workbench"><aside class="cr-services"><div class="cr-pane-title"><strong>服务</strong><span>' + runtime.services.length + '</span></div><div class="cr-search"><input id="resource-service-search" value="' + escapeHtml(runtime.serviceQuery) + '" placeholder="搜索服务名称"></div><div class="cr-scroll">' + serviceRows() + '</div></aside>'
-      + '<aside class="cr-resources"><div class="cr-pane-title"><div><strong>' + escapeHtml(selectedServiceName()) + ' 的资源</strong><span>按服务归集</span></div><button class="button primary small" data-open-resource-create ' + (addDisabled ? 'disabled' : '') + '>＋ 新增</button></div><div class="cr-search"><input id="resource-item-search" value="' + escapeHtml(runtime.resourceQuery) + '" placeholder="搜索该服务的资源"></div><div class="cr-scroll">' + resourceRows() + '</div></aside>'
-      + '<main class="cr-editor">' + editorContent() + '</main></section>' + createDialog()
+      + workbench + createDialog()
   }
 
   const previousCommonPage = commonPage
@@ -300,8 +359,9 @@ import {environmentOptionLabel} from './environment-presentation.js'
   }
 
   document.addEventListener('click', event => {
-    if (event.target.closest?.('[data-page="operations"]')) setTimeout(() => loadWorkspace(false), 0)
-    if (event.target.closest?.('[data-refresh-resource-discovery]')) return loadWorkspace(true)
+    if (event.target.closest?.('[data-page="operations"]')) setTimeout(() => { selectDefaultEnvironment(); render(false) }, 0)
+    if (event.target.closest?.('[data-connect-resource-environment]')) return loadNamespaces()
+    if (event.target.closest?.('[data-load-resource-workspace]')) return loadWorkspace(runtime.workspaceLoaded)
     const service = event.target.closest?.('[data-resource-service]')
     if (service) { runtime.serviceKey = service.dataset.resourceService; return loadResources() }
     const item = event.target.closest?.('[data-resource-item]')
@@ -318,12 +378,12 @@ import {environmentOptionLabel} from './environment-presentation.js'
   })
 
   document.addEventListener('change', event => {
-    if (event.target.id === 'resource-environment') { runtime.environmentId = event.target.value; return loadWorkspace(false) }
+    if (event.target.id === 'resource-environment') { runtime.environmentId = event.target.value; runtime.connectedEnvironmentId = ''; runtime.namespaces = []; runtime.namespace = ''; runtime.error = ''; clearWorkspace(); return render(false) }
+    if (event.target.id === 'resource-namespace') { runtime.namespace = event.target.value; runtime.error = ''; clearWorkspace(); return render(false) }
     if (event.target.id === 'create-resource-type') { runtime.createTypeKey = event.target.value; resetCreateYaml(); return render(false) }
   })
 
   document.addEventListener('input', event => {
-    if (event.target.id === 'resource-namespace') runtime.namespace = event.target.value
     if (event.target.id === 'resource-service-search') { runtime.serviceQuery = event.target.value; renderSearch(event.target.id, event.target.selectionStart) }
     if (event.target.id === 'resource-item-search') { runtime.resourceQuery = event.target.value; renderSearch(event.target.id, event.target.selectionStart) }
     if (event.target.id === 'resource-yaml-editor') runtime.yaml = event.target.value
@@ -331,8 +391,8 @@ import {environmentOptionLabel} from './environment-presentation.js'
   })
 
   const style = document.createElement('style')
-  style.textContent = '.cr-context{display:grid;grid-template-columns:minmax(280px,1.4fr) minmax(180px,.7fr) auto;align-items:end;gap:12px;padding:14px;background:var(--surface);border:1px solid var(--line);border-radius:9px 9px 0 0}.cr-context label{display:grid;gap:6px}.cr-context label span,.cr-create-context span{color:var(--muted);font-size:12px}.cr-context select,.cr-context input,.cr-create-context select{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:7px;background:var(--surface)}.cr-workbench{display:grid;grid-template-columns:250px 310px minmax(480px,1fr);height:calc(100vh - 190px);min-height:620px;background:var(--surface);border:1px solid var(--line);border-top:0;border-radius:0 0 9px 9px;overflow:hidden}.cr-services,.cr-resources{display:flex;min-width:0;flex-direction:column;border-right:1px solid var(--line)}.cr-pane-title{min-height:58px;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line)}.cr-pane-title>div{display:grid;gap:3px}.cr-pane-title span{color:var(--muted);font-size:12px}.cr-search{padding:10px;border-bottom:1px solid var(--line)}.cr-search input{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:7px}.cr-scroll{flex:1;overflow:auto}.cr-group-label{padding:8px 12px;color:var(--muted);background:var(--surface-soft);font-size:12px}.cr-scroll button{position:relative;width:100%;min-height:66px;display:grid;gap:3px;border:0;border-bottom:1px solid var(--line);padding:10px 12px;color:inherit;background:var(--surface);text-align:left}.cr-scroll button:hover{background:var(--surface-soft)}.cr-scroll button.active{background:#edf3ff;box-shadow:inset 3px 0 var(--brand)}.cr-scroll button strong,.cr-scroll button span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.cr-scroll button span{color:var(--muted);font-size:12px}.cr-scroll button em{position:absolute;right:10px;top:10px;color:var(--green);font-size:11px;font-style:normal}.cr-empty,.cr-editor-empty{display:grid;place-items:center;padding:42px;color:var(--muted)}.cr-editor{display:flex;min-width:0;flex-direction:column}.cr-editor-empty{flex:1}.cr-editor-head{min-height:72px;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:10px 16px;border-bottom:1px solid var(--line)}.cr-editor-head h2{margin:0;font-size:17px}.cr-editor-head p{margin:3px 0 0;color:var(--muted);font-family:Consolas,monospace;font-size:12px}.cr-editor-head>div:last-child{display:flex;gap:8px}.cr-warning,.cr-error{padding:8px 14px;color:#996312;background:#fff7df;font-size:12px}.cr-error{margin-top:8px;border-radius:7px;color:var(--red);background:#fff0f0}.cr-tabs{height:44px;display:flex;align-items:end;gap:4px;padding:0 14px;border-bottom:1px solid var(--line)}.cr-tabs button{height:44px;border:0;border-bottom:2px solid transparent;padding:0 10px;color:var(--muted);background:transparent}.cr-tabs button.active{border-color:var(--brand);color:var(--brand);font-weight:600}.cr-tabs span{margin:auto 0 auto auto;color:var(--muted);font-family:Consolas,monospace;font-size:11px}.cr-yaml{width:100%;min-height:0;flex:1;resize:none;border:0;outline:0;padding:16px 18px;color:#cbd6dc;background:#1d2b34;font:13px/1.65 "Cascadia Code",Consolas,monospace;tab-size:2}.cr-diff{display:flex;min-height:0;flex:1;flex-direction:column;gap:10px;padding:16px;background:var(--surface-soft)}.cr-diff pre,.cr-create-diff{min-height:0;overflow:auto;margin:0;padding:14px;color:#d8e1e6;background:#1d2b34;font:12px/1.6 Consolas,monospace}.cr-diff pre{flex:1}.cr-diff span{color:#996312;font-size:12px}.cr-diff .button{align-self:flex-end}.cr-modal{position:fixed;z-index:1000;inset:0;display:grid;place-items:center;padding:24px;background:rgba(23,34,42,.38)}.cr-dialog{width:min(760px,100%);max-height:92vh;display:flex;flex-direction:column;padding:18px;background:var(--surface);border-radius:10px;box-shadow:0 20px 60px rgba(0,0,0,.2)}.cr-dialog-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}.cr-dialog-head h2{margin:0}.cr-dialog-head button{border:0;background:transparent;font-size:24px}.cr-create-context{display:grid;grid-template-columns:1fr 1.5fr;gap:16px;margin-bottom:12px}.cr-create-context label{display:grid;gap:6px}.cr-create-context strong{padding:7px 0}.cr-dialog .cr-yaml{height:390px;flex:none}.cr-create-diff{max-height:150px;margin-top:12px}.cr-dialog-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}@media(max-width:1200px){.cr-workbench{grid-template-columns:220px 270px minmax(420px,1fr)}}'
+  style.textContent = '.cr-context{display:grid;grid-template-columns:minmax(260px,1.2fr) auto minmax(190px,.8fr) auto;align-items:end;gap:12px;padding:16px;background:var(--surface);border:1px solid var(--line);border-radius:9px}.cr-context label{display:grid;gap:6px}.cr-context label span,.cr-create-context span{color:var(--muted);font-size:12px}.cr-context select,.cr-context input,.cr-create-context select{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:7px;background:var(--surface)}.cr-start{display:grid;grid-template-columns:1fr auto 1fr auto 1fr;align-items:center;gap:20px;margin-top:16px;padding:34px;border:1px solid var(--line);border-radius:9px;background:var(--surface)}.cr-start>div{display:grid;grid-template-columns:auto 1fr;align-items:center;gap:5px 10px}.cr-start-step{grid-row:1/3;display:grid;width:32px;height:32px;place-items:center;border-radius:50%;color:var(--brand);background:var(--brand-soft);font-weight:700}.cr-start p{grid-column:2;margin:0;color:var(--muted);font-size:12px}.cr-start>i{color:var(--faint);font-style:normal}.cr-start .muted{opacity:.48}.cr-workbench{display:grid;grid-template-columns:250px 310px minmax(480px,1fr);height:calc(100vh - 190px);min-height:620px;margin-top:16px;background:var(--surface);border:1px solid var(--line);border-radius:9px;overflow:hidden}.cr-services,.cr-resources{display:flex;min-width:0;flex-direction:column;border-right:1px solid var(--line)}.cr-pane-title{min-height:58px;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line)}.cr-pane-title>div{display:grid;gap:3px}.cr-pane-title span{color:var(--muted);font-size:12px}.cr-search{padding:10px;border-bottom:1px solid var(--line)}.cr-search input{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:7px}.cr-scroll{flex:1;overflow:auto}.cr-group-label{padding:8px 12px;color:var(--muted);background:var(--surface-soft);font-size:12px}.cr-scroll button{position:relative;width:100%;min-height:66px;display:grid;gap:3px;border:0;border-bottom:1px solid var(--line);padding:10px 12px;color:inherit;background:var(--surface);text-align:left}.cr-scroll button:hover{background:var(--surface-soft)}.cr-scroll button.active{background:#edf3ff;box-shadow:inset 3px 0 var(--brand)}.cr-scroll button strong,.cr-scroll button span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.cr-scroll button span{color:var(--muted);font-size:12px}.cr-scroll button em{position:absolute;right:10px;top:10px;color:var(--green);font-size:11px;font-style:normal}.cr-empty,.cr-editor-empty{display:grid;place-items:center;padding:42px;color:var(--muted)}.cr-editor{display:flex;min-width:0;flex-direction:column}.cr-editor-empty{flex:1}.cr-editor-head{min-height:72px;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:10px 16px;border-bottom:1px solid var(--line)}.cr-editor-head h2{margin:0;font-size:17px}.cr-editor-head p{margin:3px 0 0;color:var(--muted);font-family:Consolas,monospace;font-size:12px}.cr-editor-head>div:last-child{display:flex;gap:8px}.cr-warning,.cr-error{padding:8px 14px;color:#996312;background:#fff7df;font-size:12px}.cr-error{margin-top:8px;border-radius:7px;color:var(--red);background:#fff0f0}.cr-tabs{height:44px;display:flex;align-items:end;gap:4px;padding:0 14px;border-bottom:1px solid var(--line)}.cr-tabs button{height:44px;border:0;border-bottom:2px solid transparent;padding:0 10px;color:var(--muted);background:transparent}.cr-tabs button.active{border-color:var(--brand);color:var(--brand);font-weight:600}.cr-tabs span{margin:auto 0 auto auto;color:var(--muted);font-family:Consolas,monospace;font-size:11px}.cr-yaml{width:100%;min-height:0;flex:1;resize:none;border:0;outline:0;padding:16px 18px;color:#cbd6dc;background:#1d2b34;font:13px/1.65 "Cascadia Code",Consolas,monospace;tab-size:2}.cr-diff{display:flex;min-height:0;flex:1;flex-direction:column;gap:10px;padding:16px;background:var(--surface-soft)}.cr-diff pre,.cr-create-diff{min-height:0;overflow:auto;margin:0;padding:14px;color:#d8e1e6;background:#1d2b34;font:12px/1.6 Consolas,monospace}.cr-diff pre{flex:1}.cr-diff span{color:#996312;font-size:12px}.cr-diff .button{align-self:flex-end}.cr-modal{position:fixed;z-index:1000;inset:0;display:grid;place-items:center;padding:24px;background:rgba(23,34,42,.38)}.cr-dialog{width:min(760px,100%);max-height:92vh;display:flex;flex-direction:column;padding:18px;background:var(--surface);border-radius:10px;box-shadow:0 20px 60px rgba(0,0,0,.2)}.cr-dialog-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}.cr-dialog-head h2{margin:0}.cr-dialog-head button{border:0;background:transparent;font-size:24px}.cr-create-context{display:grid;grid-template-columns:1fr 1.5fr;gap:16px;margin-bottom:12px}.cr-create-context label{display:grid;gap:6px}.cr-create-context strong{padding:7px 0}.cr-dialog .cr-yaml{height:390px;flex:none}.cr-create-diff{max-height:150px;margin-top:12px}.cr-dialog-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}@media(max-width:1200px){.cr-context{grid-template-columns:1fr auto}.cr-workbench{grid-template-columns:220px 270px minmax(420px,1fr)}}@media(max-width:760px){.cr-context{grid-template-columns:1fr}.cr-start{grid-template-columns:1fr}.cr-start>i{display:none}}'
   document.head.appendChild(style)
   render(false)
-  if (state.page === 'operations') loadWorkspace(false)
+  if (state.page === 'operations') { selectDefaultEnvironment(); render(false) }
 })()

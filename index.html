@@ -136,10 +136,9 @@
     .variant-a-nav button.active { color: var(--ink); background: white; box-shadow: inset 2px 0 var(--brand); font-weight: 600; }
     .variant-a-user { margin-top: auto; padding: 12px 8px 0; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
     .variant-a-main { min-height: 100vh; margin-left: 184px; padding: 24px; }
-    .variant-a-status-strip { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); margin-bottom: 16px; padding: 14px 0; }
-    .variant-a-status-item { min-width: 0; padding: 0 18px; border-right: 1px solid var(--line); }
-    .variant-a-status-item:first-child { padding-left: 16px; }
-    .variant-a-status-item:last-child { border-right: 0; }
+    .variant-a-status-strip { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 12px; margin-bottom: 16px; }
+    .variant-a-status-item { min-width: 0; padding: 17px 18px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface); box-shadow: 0 1px 2px rgba(25,39,48,.03); transition: border-color .15s ease,transform .15s ease; }
+    .variant-a-status-item:hover { border-color: #c7d0d5; transform: translateY(-1px); }
     .variant-a-status-top { display: flex; align-items: baseline; gap: 9px; }
     .variant-a-columns { display: grid; grid-template-columns: minmax(0,7fr) minmax(320px,5fr); gap: 16px; }
     .variant-a-overview { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; margin-top: 16px; }
@@ -299,8 +298,7 @@
       .variant-a-nav button { white-space: nowrap; }
       .variant-a-main { margin: 0; padding: 20px 16px; }
       .variant-a-status-strip, .variant-a-overview, .resource-grid, .form-grid, .connection-grid { grid-template-columns: 1fr; }
-      .variant-a-status-item { padding: 10px 16px; border-right: 0; border-bottom: 1px solid var(--line); }
-      .variant-a-status-item:last-child { border-bottom: 0; }
+      .variant-a-status-item { padding: 15px 16px; }
       .page-head { display: block; }
       .head-actions { margin-top: 14px; }
       .repo-row, .environment-bar { grid-template-columns: 1fr; }
@@ -563,7 +561,13 @@
       const queuedCount = tasks.filter(item => item.kind === 'build' && item.status === 'running').length;
       const deployCount = tasks.filter(item => item.kind === 'deploy' && item.status === 'running').length;
       const failedCount = tasks.filter(item => item.status === 'failed').length;
-      return `${pageTitle('工作台', '集中查看任务、环境和需要处理的事项。','<button class="button">搜索</button><button class="button primary" data-page="build">新建构建</button>')}<section class="panel variant-a-status-strip"><div class="variant-a-status-item"><div class="variant-a-status-top"><strong class="metric-value">${queuedCount}</strong><span class="metric-label">构建队列</span></div><div class="metric-foot">${queuedCount ? '执行中的构建任务' : '当前没有执行中的构建任务'}</div></div><div class="variant-a-status-item"><div class="variant-a-status-top"><strong class="metric-value">${deployCount}</strong><span class="metric-label">部署中</span></div><div class="metric-foot">来自部署任务</div></div><div class="variant-a-status-item"><div class="variant-a-status-top"><strong class="metric-value">${onlineCount}/${activeCount}</strong><span class="metric-label">环境在线</span></div><div class="metric-foot">构建与容器环境实际状态</div></div><div class="variant-a-status-item"><div class="variant-a-status-top"><strong class="metric-value">${failedCount}</strong><span class="metric-label">失败任务</span></div><div class="metric-foot">需要关注的执行结果</div></div></section><div class="variant-a-columns"><section class="panel"><div class="panel-head"><h2>需要处理</h2><span class="badge brand">${failedCount} 项</span></div><div class="panel-body">${attentionRows()}</div></section><section class="panel"><div class="panel-head"><h2>最近活动</h2><button class="button small ghost">查看全部</button></div><div class="panel-body">${activityRows()}</div></section></div><div class="variant-a-overview"><button class="panel overview-card" data-resource-card="build"><div><h2>构建环境</h2><p>${buildEnvironments.length} 个可用环境</p></div><div class="overview-card-meta"><span>共 ${environments.filter(item => item.type === 'build').length} 个</span><span class="status ok">查看详情</span></div></button><button class="panel overview-card" data-resource-card="container"><div><h2>容器环境</h2><p>${containerEnvironments.length} 个可用环境</p></div><div class="overview-card-meta"><span>共 ${environments.filter(item => item.type === 'container').length} 个</span><span class="status warn">查看详情</span></div></button></div>${recentTasks()}`;
+      const metrics = [
+        [queuedCount, '构建队列', queuedCount ? '执行中的构建任务' : '当前没有执行中的构建任务'],
+        [deployCount, '部署中', '正在执行的部署任务'],
+        [`${onlineCount}/${activeCount}`, '环境在线', '构建与容器环境实时状态'],
+        [failedCount, '失败任务', '需要关注的执行结果']
+      ].map(item => `<div class="variant-a-status-item"><div class="variant-a-status-top"><strong class="metric-value">${item[0]}</strong><span class="metric-label">${item[1]}</span></div><div class="metric-foot">${item[2]}</div></div>`).join('');
+      return `${pageTitle('工作台', '集中查看任务、环境和需要处理的事项。','<button class="button" data-page="deploy">开始部署</button><button class="button primary" data-page="build">新建构建</button>')}<section class="variant-a-status-strip">${metrics}</section><div class="variant-a-columns"><section class="panel"><div class="panel-head"><div><h2>需要处理</h2><p class="metric-foot">优先展示失败和异常任务</p></div><span class="badge brand">${failedCount} 项</span></div><div class="panel-body">${attentionRows()}</div></section><section class="panel"><div class="panel-head"><div><h2>最近活动</h2><p class="metric-foot">任务状态与环境变化</p></div></div><div class="panel-body">${activityRows()}</div></section></div><div class="variant-a-overview"><button class="panel overview-card" data-resource-card="build"><div><h2>构建环境</h2><p>${buildEnvironments.length} 个在线可用</p></div><div class="overview-card-meta"><span>共 ${environments.filter(item => item.type === 'build').length} 个</span><span class="status ok">管理环境</span></div></button><button class="panel overview-card" data-resource-card="container"><div><h2>容器环境</h2><p>${containerEnvironments.length} 个在线可用</p></div><div class="overview-card-meta"><span>共 ${environments.filter(item => item.type === 'container').length} 个</span><span class="status warn">管理环境</span></div></button></div>${recentTasks()}`;
     }
 
     const autoUtStatus = {
