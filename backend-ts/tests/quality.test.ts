@@ -18,6 +18,7 @@ test('UT 门禁与脚本一致；缺失指标不能误判通过；CSV 转义公�
 test('限定 SQL 的版本和团队；静态检查排除构建仓且保留零记录团队',()=>{
  assert.throws(()=>qualityInput.parse({...input,versions:['R27C10;DROP']}));assert.throws(()=>qualityInput.parse({...input,teams:["x' or 1=1"]}));
  const sql=qualitySql(input,'R27C10','static');assert.match(sql,/R27C10_lint/);assert.match(sql,/BuildPackageWorkaround/);assert.doesNotMatch(sql,/report_date/);
+ const latest=qualitySql({...input,latest:true},'R27C10','ut');assert.match(latest,/report_date=\(select max\(report_date\)/);assert.doesNotMatch(latest,/report_date='2026-09-20'/);
 });
 test('分版本保留部分成功、有效空报告与进度；请求采用实际连接配置',async()=>{
  const store=new TaskStore(':memory:');let calls=0;const service=new QualityService(store,undefined,async(_url,init)=>{calls++;const body=JSON.parse(String(init?.body)) as {queries:{rawSql:string;datasourceId:number}[]};assert.equal(body.queries[0]!.datasourceId,4);return body.queries[0]!.rawSql.includes('R27C00')?new Response('no',{status:500}):Response.json(payload([]));});
@@ -34,8 +35,8 @@ class FakeAutoUt extends AutoUtService{
  }
 }
 async function ready(reports:AutoUtReports,id:string){for(let i=0;i<100;i++){const r=reports.get(id);if(r.status!=='FETCHING')return r;await new Promise(r=>setTimeout(r,2));}throw new Error('报告未就绪');}
-test('Auto-UT 获取多版本新报告；按分支创建并防止重复启动',async()=>{
- const store=new TaskStore(':memory:');let fetches=0;const quality=new QualityService(store,undefined,async()=>{fetches++;return Response.json(payload([row]));}),auto=new FakeAutoUt(store),reports=new AutoUtReports(store,quality,auto);
+test('Auto-UT 获取每个版本的最新报告；按分支创建并防止重复启动',async()=>{
+ const store=new TaskStore(':memory:');let fetches=0;const quality=new QualityService(store,undefined,async(_url,init)=>{fetches++;const body=JSON.parse(String(init?.body)) as {queries:Array<{rawSql:string}>};assert.match(body.queries[0]!.rawSql,/max\(report_date\)/);return Response.json(payload([row]));}),auto=new FakeAutoUt(store),reports=new AutoUtReports(store,quality,auto);
  try{reports.configure(config());const run=await ready(reports,reports.fetchReport().id);assert.equal(run.plan.length,2);assert.deepEqual(run.plan.map(p=>p.baseBranch),['release/27','release/26']);assert.equal(run.plan[0]!.lineGoal,.8);assert.equal(run.plan[0]!.branchGoal,.7);await reports.start(run.id,'MANUAL');assert.deepEqual(auto.calls.map(c=>c.version),['R27C10','R27C00']);await reports.start(run.id,'MANUAL');assert.equal(auto.calls.length,2);
  const fresh=await ready(reports,reports.fetchReport().id);assert.equal(fetches,4);await reports.start(fresh.id,'AUTOMATIC');assert.equal(auto.calls.length,2);assert.match(reports.get(fresh.id).messages.join(),/已有执行记录/);
  }finally{await quality.close();await reports.close();auto.close();store.close();}

@@ -6,7 +6,7 @@ import {noFileLogs,type LogSink} from '../../infrastructure/file-logs.js';
 
 export const releaseVersion=z.string().trim().toUpperCase().regex(/^R\d{2}C(?:00|10)$/);
 const label=z.string().trim().min(1).max(120).regex(/^[\p{L}\p{N}_. -]+$/u);
-export const qualityInput=z.object({versions:z.array(releaseVersion).min(1).max(10).refine(v=>new Set(v).size===v.length),date:z.iso.date(),domain:label.default('Access'),teams:z.array(label).min(1).max(30),kinds:z.array(z.enum(['ut','api','static'])).min(1).max(3).refine(v=>new Set(v).size===v.length)});
+export const qualityInput=z.object({versions:z.array(releaseVersion).min(1).max(10).refine(v=>new Set(v).size===v.length),date:z.iso.date(),latest:z.boolean().default(false),domain:label.default('Access'),teams:z.array(label).min(1).max(30),kinds:z.array(z.enum(['ut','api','static'])).min(1).max(3).refine(v=>new Set(v).size===v.length)});
 export type QualityInput=z.infer<typeof qualityInput>;
 const connectionSchema=z.object({url:z.url().max(2000).refine(value=>{const u=new URL(value);return ['http:','https:'].includes(u.protocol)&&!u.username&&!u.password&&!u.search&&!u.hash;}),datasourceId:z.number().int().positive(),timeoutSeconds:z.number().int().min(5).max(180),parallel:z.number().int().min(1).max(4),auth:z.enum(['none','token'])});
 export type QualityConnection=z.infer<typeof connectionSchema>;
@@ -20,8 +20,8 @@ const sqlText=(s:string)=>`'${s.replaceAll("'","''")}'`;
 export function qualitySql(input:QualityInput,version:string,kind:QualityPart['kind']){
  qualityInput.parse(input);releaseVersion.parse(version);
  const teams=input.teams.map(sqlText).join(','),where=`version=${sqlText(version)} and domain=${sqlText(input.domain)} and team in (${teams})`;
- if(kind==='ut')return `select ${utFields.map((f,i)=>`${f} as '${utColumns[i]}'`).join(',')} from static_check.mae_ut_report where report_date=${sqlText(input.date)} and ${where} order by repo`;
- if(kind==='api')return `select repo as '代码仓',lang as '语言',department as '部门',team as 'PL组',owner as '责任人',api_num_text as '当前总数(文本)',ir_count as '当前完成IR数',er_count as '当前完成ER数',total_api_number as '当前总数(工具)',finish_api_number as '当前已完成接口数',failed_case_number as '失败用例数',if(is_achieved='达标',0,1) as '是否达标',case when status='success' then 0 when status='error' then 1 else 2 end as '状态' from static_check.mae_api_test where report_date=${sqlText(input.date)} and ${where} order by repo`;
+ if(kind==='ut'){const table='static_check.mae_ut_report',date=input.latest?`(select max(report_date) from ${table} where ${where})`:sqlText(input.date);return `select ${utFields.map((f,i)=>`${f} as '${utColumns[i]}'`).join(',')} from ${table} where report_date=${date} and ${where} order by repo`;}
+ if(kind==='api'){const table='static_check.mae_api_test',date=input.latest?`(select max(report_date) from ${table} where ${where})`:sqlText(input.date);return `select repo as '代码仓',lang as '语言',department as '部门',team as 'PL组',owner as '责任人',api_num_text as '当前总数(文本)',ir_count as '当前完成IR数',er_count as '当前完成ER数',total_api_number as '当前总数(工具)',finish_api_number as '当前已完成接口数',failed_case_number as '失败用例数',if(is_achieved='达标',0,1) as '是否达标',case when status='success' then 0 when status='error' then 1 else 2 end as '状态' from ${table} where report_date=${date} and ${where} order by repo`;}
  // Include zero-count teams so a successful clean snapshot differs from missing data.
  return `select t.team as '组名',${staticTools.map(([,name],i)=>`ifnull(s${i}.val,0) as '${name}'`).join(',')} from (select distinct plteam_name as team from static_check.codeowner_person_model where plteam_name in (${teams})) t ${staticTools.map(([suffix],i)=>`left join (select team,count(1) as val from static_check.${version}_${suffix} where ${where} ${suffix==='redundant_codes'?"and repo != 'BuildPackageWorkaround'":''} group by team) s${i} on t.team=s${i}.team`).join(' ')} order by t.team`;
 }

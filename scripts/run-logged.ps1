@@ -41,7 +41,8 @@ Write-LogLine ""
 Write-LogLine "===== $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - $LoggedCommand ====="
 
 try {
-    & cmd.exe /d /s /c $LoggedCommand 2>&1 | ForEach-Object { Write-LogLine ([string]$_) }
+    $commandWithRedirect = $LoggedCommand + ' 2>&1'
+    & cmd.exe /d /s /c $commandWithRedirect | ForEach-Object { Write-LogLine ([string]$_) }
     $code = $LASTEXITCODE
     if ($null -eq $code) { $code = 0 }
     exit $code

@@ -35,7 +35,7 @@ export class AutoUtReports{
  private save(run:ReportRun){this.store.putRecord('auto-ut-report-run',run.id,run,run.createdAt);this.logs.task('auto-ut',run.id,{time:new Date().toISOString(),status:run.status,message:run.messages.at(-1)??'开始获取报告',taskIds:run.taskIds});}
  fetchReport(trigger:'MANUAL'|'SCHEDULE'='MANUAL',snapshot?:ReportConfig){
   if(this.closed||this.fetching)throw Object.assign(new Error('报告正在获取，请等待本次完成'),{statusCode:409});const config=reportConfig.parse(snapshot??this.configuration().config);
-  const job=this.quality.start({versions:config.versions.map(v=>v.version),date:reportDate(config),domain:'Access',teams:['Access_智能驾舱组'],kinds:['ut']});
+  const job=this.quality.start({versions:config.versions.map(v=>v.version),date:new Date().toISOString().slice(0,10),latest:true,domain:'Access',teams:['Access_智能驾舱组'],kinds:['ut']});
   const run:ReportRun={id:randomUUID(),jobId:job.id,trigger,status:'FETCHING',createdAt:new Date().toISOString(),config,plan:[],taskIds:[],messages:[],claimed:[]};this.save(run);this.fetching=true;
   const completion=this.track(this.complete(run).finally(()=>{this.fetching=false;this.completions.delete(run.id);}));this.completions.set(run.id,completion);return run;
  }

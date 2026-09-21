@@ -16,15 +16,15 @@ if errorlevel 1 goto missing_node
 where npm >nul 2>nul
 if errorlevel 1 goto missing_node
 
-echo Installing locked dependencies...
-powershell -NoProfile -ExecutionPolicy Bypass -File "%LOG_RUNNER%" -WorkingDirectory "%PROJECT_ROOT%" -LogFile "%LOG_ROOT%\startup\startup.log" -LoggedCommand "npm ci"
+echo Checking locked dependencies...
+powershell -NoProfile -ExecutionPolicy Bypass -File "%LOG_RUNNER%" -WorkingDirectory "%PROJECT_ROOT%" -LogFile "%LOG_ROOT%\startup\startup.log" -LoggedCommand "node scripts/install-locked.mjs ."
 if errorlevel 1 goto install_failed
 powershell -NoProfile -ExecutionPolicy Bypass -File "%LOG_RUNNER%" -WorkingDirectory "%PROJECT_ROOT%" -LogFile "%LOG_ROOT%\startup\startup.log" -LoggedCommand "npm run migrate"
 if errorlevel 1 goto migration_failed
 powershell -NoProfile -ExecutionPolicy Bypass -File "%LOG_RUNNER%" -WorkingDirectory "%PROJECT_ROOT%" -LogFile "%LOG_ROOT%\startup\startup.log" -LoggedCommand "npm run build"
 if errorlevel 1 goto install_failed
-powershell -NoProfile -ExecutionPolicy Bypass -File "%LOG_RUNNER%" -WorkingDirectory "%PROJECT_ROOT%" -LogFile "%LOG_ROOT%\startup\startup.log" -LoggedCommand "npm ci --prefix frontend"
-if errorlevel 1 goto install_failed
+powershell -NoProfile -ExecutionPolicy Bypass -File "%LOG_RUNNER%" -WorkingDirectory "%PROJECT_ROOT%" -LogFile "%LOG_ROOT%\startup\startup.log" -LoggedCommand "node scripts/install-locked.mjs frontend"
+if errorlevel 1 goto frontend_install_failed
 
 start "Container Ops Kit Backend" powershell -NoExit -NoProfile -ExecutionPolicy Bypass -File "%LOG_RUNNER%" -WorkingDirectory "%PROJECT_ROOT%" -LogFile "%LOG_ROOT%\backend\process.log" -LoggedCommand "npm start"
 echo Waiting for backend on http://127.0.0.1:8080...
@@ -58,12 +58,21 @@ pause
 exit /b 1
 
 :migration_failed
-echo Legacy data migration failed. Your H2 file was not deleted. Read docs\typescript-migration.md.
+echo Legacy data migration failed. Your H2 file was not deleted.
+echo Read data\logs\startup\startup.log for the complete command output.
 pause
 exit /b 1
 
 :install_failed
 echo Dependency installation or TypeScript build failed. No backend was started.
+echo Read data\logs\startup\startup.log for the complete command output.
+pause
+exit /b 1
+
+:frontend_install_failed
+echo Frontend dependency check failed. No backend was started.
+echo Close old Node or Vite processes, editors, or antivirus scans using frontend\node_modules, then retry.
+echo Read data\logs\startup\startup.log for the exact locked file and complete npm output.
 pause
 exit /b 1
 

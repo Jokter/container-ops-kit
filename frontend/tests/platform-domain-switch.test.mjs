@@ -30,6 +30,11 @@ test('正式页面可以在三个平台域之间切换', () => {
     [...文档.querySelectorAll('[data-platform-domain]')].map(入口 => 入口.dataset.platformDomain),
     ['container', 'virtualization', 'automation']
   )
+  assert.equal(文档.querySelector('.platform-switch').tagName, 'NAV')
+  assert.equal(文档.querySelector('[data-platform-domain="container"]').getAttribute('aria-current'), 'page')
+  文档.querySelector('[data-page="resources"]').click()
+  assert.equal(文档.querySelector('.environment-version-card label').textContent, '版本')
+  assert.doesNotMatch(文档.querySelector('.environment-version-card').textContent, /当前发布版本/)
 
   文档.querySelector('[data-platform-domain="virtualization"]').click()
   assert.equal(文档.querySelector('.platform-placeholder h1').textContent, '虚拟化')
@@ -53,7 +58,8 @@ test('正式页面可以在三个平台域之间切换', () => {
   文档.querySelector('[data-qw-close]').click()
   assert.equal(文档.querySelector('[data-auto-ut-mode-switch]'), null)
   assert.match(文档.body.textContent, /全自动执行/)
-  assert.match(文档.body.textContent, /报告数据日期/)
+  assert.doesNotMatch(文档.body.textContent, /报告数据日期/)
+  assert.match(文档.body.textContent, /自动获取最新数据/)
   assert.ok(文档.querySelector('[data-schedule-new="auto-ut"]'))
   assert.ok(文档.querySelector('[data-automation-nav="schedules"]'))
   assert.ok(页面.includes('data-auto-ut-directory-dialog'))
