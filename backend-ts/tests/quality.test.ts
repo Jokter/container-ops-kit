@@ -52,7 +52,7 @@ test('定时触发重新查询、同一时间点不重放；错过时间点不�
  }finally{await quality.close();await reports.close();auto.close();store.close();}
 });
 
-test('同仓库多个版本使用独立工作目录，旧 CSV 任务路径保持兼容',()=>{assert.equal(autoUtWorkspace({workspaceRoot:'/tmp/work',repository:'Demo',reportVersion:'R27C10'}),'/tmp/work/R27C10/demo');assert.equal(autoUtWorkspace({workspaceRoot:'/tmp/work',repository:'Demo',reportVersion:'R27C00'}),'/tmp/work/R27C00/demo');assert.equal(autoUtWorkspace({workspaceRoot:'/tmp/work',repository:'Demo'}),'/tmp/work/demo');});
+test('同仓库多个版本使用独立工作目录，旧 CSV 任务路径保持兼容',()=>{assert.equal(autoUtWorkspace({workspaceRoot:'/tmp/work',repository:'Demo',reportVersion:'R27C10'}),'/tmp/work/R27C10/demo');assert.equal(autoUtWorkspace({workspaceRoot:'/tmp/work',repository:'Demo',reportVersion:'R27C00'}),'/tmp/work/R27C00/demo');assert.equal(autoUtWorkspace({workspaceRoot:'/tmp/work',repository:'Demo'}),'/tmp/work/demo');assert.throws(()=>autoUtWorkspace({workspaceRoot:'/tmp/work',repository:'Demo',reportVersion:'../escape'}),/版本/);});
 
 test('定时自动修复只消费成功版本，部分失败保留诊断信息',async()=>{
  const store=new TaskStore(':memory:');const quality=new QualityService(store,undefined,async(_url,init)=>String(init?.body).includes('R27C00')?new Response('',{status:503}):Response.json(payload([row]))),auto=new FakeAutoUt(store),reports=new AutoUtReports(store,quality,auto);

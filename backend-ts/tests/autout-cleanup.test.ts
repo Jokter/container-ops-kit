@@ -24,5 +24,5 @@ test('定时清理只删除超过保留期的可清理任务',async t=>{
  const{root,store,service}=await fixture(t),old=task('22222222-2222-4222-8222-222222222222',root,'OldRepo','WAITING_EXTERNAL','2026-01-01T00:00:00.000Z'),recent=task('33333333-3333-4333-8333-333333333333',root,'RecentRepo','RESOLVED','2026-02-25T00:00:00.000Z'),paused=task('44444444-4444-4444-8444-444444444444',root,'PausedRepo','WAITING_CONFIRMATION','2026-01-01T00:00:00.000Z');
  for(const value of[old,recent,paused]){await mkdir(autoUtWorkspace(value),{recursive:true});store.putRecord('auto-ut-task',value.id,value,value.createdAt);}
  const result=await service.cleanup(30,new Date('2026-03-01T00:00:00.000Z'));
- assert.deepEqual(result.deleted,[old.id]);assert.equal(result.failed.length,0);assert.throws(()=>service.get(old.id),/不存在/);assert.equal(service.get(recent.id).id,recent.id);assert.equal(service.get(paused.id).id,paused.id);
+ assert.deepEqual(result.deleted,[old.id]);assert.equal(result.failed.length,0);assert.throws(()=>service.get(old.id),/不存在/);assert.equal(service.get(recent.id).workspacePath,autoUtWorkspace(recent));assert.equal(service.get(paused.id).id,paused.id);
 });

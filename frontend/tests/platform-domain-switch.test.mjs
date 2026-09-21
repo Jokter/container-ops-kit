@@ -99,7 +99,7 @@ test('工作目录从此电脑开始在网页内选择', async () => {
     if (地址 === '/api/auto-ut/schedule') return {ok: true, status: 204}
     if (地址.includes('missing')) return {ok: false, status: 400, json: async () => ({message: '目录不存在'})}
     if (地址.includes('?path=')) return {ok: true, status: 200, json: async () => ({current: decodeURIComponent(地址.split('path=')[1]), parent: '', writable: true, directories: []})}
-    return {ok: true, status: 200, json: async () => ({current: '', parent: '', writable: false, directories: [{name: 'E:\\', path: 'E:\\', writable: true}]})}
+    return {ok: true, status: 200, json: async () => ({current: '', parent: '', writable: false, directories: [{name: '已配置目录', path: '/configured', writable: true}]})}
   }
   const 页面实例 = 打开页面(请求)
   const 文档 = 页面实例.window.document
@@ -118,13 +118,13 @@ test('工作目录从此电脑开始在网页内选择', async () => {
   await 等待界面更新()
   assert.match(文档.querySelector('[role="alert"]').textContent, /目录不存在/)
   路径输入 = 文档.querySelector('#auto-ut-directory-path-input')
-  路径输入.value = 'E:\\AutoUT'
+  路径输入.value = '/configured/ut'
   文档.querySelector('[data-auto-ut-directory-go]').dispatchEvent(new 页面实例.window.Event('submit', {bubbles: true, cancelable: true}))
   await 等待界面更新()
-  assert.equal(文档.querySelector('#auto-ut-directory-title').textContent, 'E:\\AutoUT')
+  assert.equal(文档.querySelector('#auto-ut-directory-title').textContent, '/configured/ut')
   assert.match(文档.querySelector('[data-auto-ut-directory-select]').textContent, /使用当前目录/)
   文档.querySelector('[data-auto-ut-directory-select]').click()
-  assert.match(文档.querySelector('[data-auto-ut-workspace-picker]').textContent, /AutoUT/)
+  assert.match(文档.querySelector('[data-auto-ut-workspace-picker]').textContent, /configured\/ut/)
 
   页面实例.window.close()
 })
@@ -132,7 +132,7 @@ test('工作目录从此电脑开始在网页内选择', async () => {
 test('外部错误任务可以从页面重试当前阶段', async () => {
   const 任务 = {
     id: 'task-1', repository: 'coder', status: 'WAITING_EXTERNAL', nextStage: 'BASELINE', progress: 25,
-    message: '无法执行 mvn', repairBranch: 'master_test_user_ticket', workspaceRoot: 'E:\\AutoUT', history: []
+    message: '无法执行 mvn', repairBranch: 'master_test_user_ticket', workspaceRoot: '/configured/ut', history: []
   }
   const 请求 = async 地址 => {
     if (地址 === '/api/auto-ut/tasks') return {ok: true, status: 200, json: async () => [任务]}
@@ -156,7 +156,7 @@ test('在线报告使用默认CodeHub仓库且修改后保存映射', async () =
   let 保存请求
   const 默认地址 = 'ssh://git@szv-y.codehub.huawei.com:2222/MAE-M/Access/FMInsightService.git'
   const 修改地址 = 'ssh://git@szv-y.codehub.huawei.com:2222/MAE-M/Special/FMInsightService.git'
-  const 配置 = {versions: [{version: 'R27C10', baseBranch: 'develop'}], dateMode: 'yesterday', username: 'user', ticket: 'DTS1', workspaceRoot: 'E:\\AutoUT', schedule: {enabled: false, frequency: 'weekdays', weekday: 1, time: '09:00', timezone: 'Asia/Shanghai', action: 'FETCH'}}
+  const 配置 = {versions: [{version: 'R27C10', baseBranch: 'develop'}], dateMode: 'yesterday', username: 'user', ticket: 'DTS1', workspaceRoot: '/configured/ut', schedule: {enabled: false, frequency: 'weekdays', weekday: 1, time: '09:00', timezone: 'Asia/Shanghai', action: 'FETCH'}}
   const 运行 = {id: 'r1', jobId: 'q1', status: 'READY', createdAt: 'now', config: 配置, trigger: 'MANUAL', messages: [], claimed: [], taskIds: [], plan: [{version: 'R27C10', repository: 'FMInsightService', failedTests: 2, lineCoverage: .75, lineGoal: .8, branchCoverage: .6, branchGoal: .7, baseBranch: 'develop', configured: true, repositoryUrl: 默认地址, repositoryCustomized: false, repairBranch: 'develop_user_DTS1_R27C10'}]}
   const 请求 = async (地址, 选项 = {}) => {
     if (地址 === '/api/auto-ut/tasks') return {ok: true, status: 200, json: async () => []}
@@ -194,7 +194,7 @@ test('在线报告使用默认CodeHub仓库且修改后保存映射', async () =
 test('项目进度只显示每个仓库的最新任务和当前信息', async () => {
   const 最新任务 = {
     id: 'new-task', repository: 'coder', status: 'REPAIRING', nextStage: 'REPAIR', progress: 45,
-    message: '正在执行 Pi 修复。', repairBranch: 'master_test_user_ticket', workspaceRoot: 'E:\\AutoUT',
+    message: '正在执行 Pi 修复。', repairBranch: 'master_test_user_ticket', workspaceRoot: '/configured/ut',
     createdAt: '2026-09-11T00:08:00Z', history: [{message: '不应显示的历史信息'}]
   }
   const 旧任务 = {...最新任务, id: 'old-task', message: '旧任务错误', createdAt: '2026-09-10T00:08:00Z'}
@@ -221,7 +221,7 @@ test('项目进度只显示每个仓库的最新任务和当前信息', async ()
 test('Pi思考和回复实时展示且回复开始后折叠思考', async () => {
   const 任务 = {
     id: 'task-live', repository: 'coder', status: 'REPAIRING', nextStage: 'REPAIR', progress: 45,
-    message: '正在执行 Pi 修复。', repairBranch: 'repair', workspaceRoot: 'E:\\AutoUT', createdAt: '2026-09-11T00:08:00Z'
+    message: '正在执行 Pi 修复。', repairBranch: 'repair', workspaceRoot: '/configured/ut', createdAt: '2026-09-11T00:08:00Z'
   }
   class 模拟事件源 {
     static instances = []
@@ -249,13 +249,16 @@ test('Pi思考和回复实时展示且回复开始后折叠思考', async () => 
   await new Promise(完成 => setTimeout(完成, 160))
   assert.match(文档.querySelector('[data-auto-ut-live="task-live"]').textContent, /发送给 Pi 的任务.*第 1 轮/)
   assert.match(文档.querySelector('[data-auto-ut-live="task-live"]').textContent, /只修改测试代码并修复失败用例/)
-  assert.equal(文档.querySelector('[data-auto-ut-thinking="task-live"]').open, true)
-  assert.match(文档.querySelector('[data-auto-ut-thinking="task-live"]').textContent, /正在定位失败用例/)
+  assert.equal(文档.querySelector('[data-auto-ut-live-part="thinking"]').open, true)
+  assert.match(文档.querySelector('[data-auto-ut-live-part="thinking"]').textContent, /正在定位失败用例/)
+  文档.querySelector('[data-auto-ut-live-part="prompt"] summary').click()
+  assert.equal(文档.querySelector('[data-auto-ut-live-part="prompt"]').open, true)
 
   模拟事件源.instances[0].emit({sequence: 4, type: 'message_start'})
   模拟事件源.instances[0].emit({sequence: 5, type: 'message_delta', content: '已修复测试'})
   await new Promise(完成 => setTimeout(完成, 160))
-  assert.equal(文档.querySelector('[data-auto-ut-thinking="task-live"]').open, false)
+  assert.equal(文档.querySelector('[data-auto-ut-live-part="thinking"]').open, false)
+  assert.equal(文档.querySelector('[data-auto-ut-live-part="prompt"]').open, true)
   assert.match(文档.querySelector('[data-auto-ut-live="task-live"]').textContent, /已修复测试/)
 
   页面实例.window.close()
@@ -264,7 +267,7 @@ test('Pi思考和回复实时展示且回复开始后折叠思考', async () => 
 test('刷新任务列表后恢复已保存的 Pi 交互记录', async () => {
   const 任务 = {
     id: 'task-history', repository: 'coder', status: 'RESOLVED', nextStage: 'DONE', progress: 100,
-    message: '任务已完成。', repairBranch: 'repair', workspaceRoot: 'E:\\AutoUT',
+    message: '任务已完成。', repairBranch: 'repair', workspaceRoot: '/configured/ut',
     liveEvents: [
       {sequence: 1, type: 'prompt', content: '修复两个失败用例', toolCallId: 'attempt-1'},
       {sequence: 2, type: 'thinking_delta', content: '检查失败堆栈'},
@@ -284,13 +287,14 @@ test('刷新任务列表后恢复已保存的 Pi 交互记录', async () => {
   assert.match(面板.textContent, /修复两个失败用例/)
   assert.match(面板.textContent, /检查失败堆栈/)
   assert.match(面板.textContent, /修复完成并通过验证/)
+  assert.equal(面板.querySelectorAll('.auto-ut-conversation').length, 1)
   页面实例.window.close()
 })
 
 test('基线阶段展示细分流程且不提前显示Pi等待内容', async () => {
   const 任务 = {
     id: 'task-baseline', repository: 'FMInsightService', status: 'BASELINE_RUNNING', nextStage: 'BASELINE', progress: 25,
-    message: '正在执行基线 UT。', repairBranch: 'master_user_ticket', workspaceRoot: 'D:\\Projects\\HWTest'
+    message: '正在执行基线 UT。', repairBranch: 'master_user_ticket', workspaceRoot: '/configured/ut'
   }
   class 模拟事件源 {
     static instances = []
