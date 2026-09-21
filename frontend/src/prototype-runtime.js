@@ -693,6 +693,16 @@ import {canConvertFailedQuickDeploymentToReview, canDeployReviewedTask, deployme
     }
   }
 
+  let buildLiveRenderTimer = null
+  function scheduleBuildLiveRender(immediate = false) {
+    if (immediate && buildLiveRenderTimer) clearTimeout(buildLiveRenderTimer)
+    if (buildLiveRenderTimer && !immediate) return
+    buildLiveRenderTimer = setTimeout(() => {
+      buildLiveRenderTimer = null
+      render(false)
+    }, immediate ? 0 : 120)
+  }
+
   function subscribeBuildTask(taskId) {
     const source = new EventSource('/api/build-tasks/' + taskId + '/events')
     buildRuntime.eventSource = source
@@ -700,20 +710,22 @@ import {canConvertFailedQuickDeploymentToReview, canDeployReviewedTask, deployme
       const item = JSON.parse(event.data)
       if (buildRuntime.sequences.has(item.sequence)) return
       buildRuntime.sequences.add(item.sequence)
+      if (buildRuntime.sequences.size > 2000) buildRuntime.sequences.delete(buildRuntime.sequences.values().next().value)
       buildRuntime.latestMessage = item.message
       buildRuntime.task.progress = item.progress
       buildRuntime.task.status = item.taskStatus
       if (item.type === 'LOG') {
         buildRuntime.logs.push({time: new Date(item.occurredAt).toLocaleTimeString('zh-CN', {hour12: false}), message: item.message})
+        buildRuntime.logs = buildRuntime.logs.slice(-1000)
       }
       updateDashboardBuildTask(taskId, item.taskStatus)
-      render(false)
+      scheduleBuildLiveRender()
       if (item.taskStatus === 'SUCCEEDED' || item.taskStatus === 'FAILED') {
         source.close()
         request('/api/build-tasks/' + taskId).then(task => {
           buildRuntime.task = task
           loadBuildHistory()
-          render(false)
+          scheduleBuildLiveRender(true)
           showToast(task.status === 'SUCCEEDED' ? '构建成功' : task.error || '构建失败')
         }).catch(() => {})
       }
@@ -721,7 +733,7 @@ import {canConvertFailedQuickDeploymentToReview, canDeployReviewedTask, deployme
     source.onerror = () => {
       if (buildRuntime.task?.status === 'RUNNING' || buildRuntime.task?.status === 'PENDING') {
         buildRuntime.latestMessage = '实时日志连接中断，正在重连'
-        render(false)
+        scheduleBuildLiveRender()
       }
     }
   }
@@ -934,26 +946,68 @@ import {canConvertFailedQuickDeploymentToReview, canDeployReviewedTask, deployme
     }
   }
 
+  let deploymentLiveRefreshTimer = null
+  let deploymentRefreshInFlight = false
+  let deploymentRefreshQueuedId = ''
+  let pendingDeploymentEventSequence = ''
+
+  async function refreshDeploymentLive(id) {
+    if (deploymentRuntime.task?.id !== id) return
+    if (deploymentRefreshInFlight) {
+      deploymentRefreshQueuedId = id
+      return
+    }
+    deploymentRefreshInFlight = true
+    deploymentRefreshQueuedId = ''
+    if (pendingDeploymentEventSequence) localStorage.setItem(deploymentEventSequenceKey(id), pendingDeploymentEventSequence)
+    localStorage.setItem(deploymentEventLogKey(id), JSON.stringify(deploymentRuntime.logs))
+    try {
+      const value = await request('/api/deployment-tasks/' + id)
+      if (deploymentRuntime.task?.id === id) deploymentRuntime.task = value
+    } catch {
+      // SSE 会继续重连；瞬时详情请求失败不覆盖当前任务状态。
+    } finally {
+      deploymentRefreshInFlight = false
+      if (deploymentRuntime.task?.id === id) render(false)
+      if (deploymentRefreshQueuedId) scheduleDeploymentLiveRefresh(deploymentRefreshQueuedId)
+    }
+  }
+
+  function scheduleDeploymentLiveRefresh(id, immediate = false) {
+    deploymentRefreshQueuedId = id
+    if (immediate && deploymentLiveRefreshTimer) clearTimeout(deploymentLiveRefreshTimer)
+    if ((deploymentLiveRefreshTimer && !immediate) || deploymentRefreshInFlight) return
+    deploymentLiveRefreshTimer = setTimeout(() => {
+      deploymentLiveRefreshTimer = null
+      const queuedId = deploymentRefreshQueuedId
+      deploymentRefreshQueuedId = ''
+      refreshDeploymentLive(queuedId)
+    }, immediate ? 0 : 150)
+  }
+
   function subscribeDeployment(id) {
     deploymentRuntime.eventSource?.close()
+    if (deploymentLiveRefreshTimer) clearTimeout(deploymentLiveRefreshTimer)
+    deploymentLiveRefreshTimer = null
+    deploymentRefreshQueuedId = ''
     const afterSequence = localStorage.getItem(deploymentEventSequenceKey(id)) || '0'
+    pendingDeploymentEventSequence = afterSequence
     const source = new EventSource('/api/deployment-tasks/' + id + '/events?afterSequence=' + encodeURIComponent(afterSequence))
     deploymentRuntime.eventSource = source
     source.onmessage = event => {
       const item = JSON.parse(event.data)
-      if (event.lastEventId) localStorage.setItem(deploymentEventSequenceKey(id), event.lastEventId)
+      if (event.lastEventId) pendingDeploymentEventSequence = event.lastEventId
       deploymentRuntime.logs.push({time: new Date(item.occurredAt).toLocaleTimeString('zh-CN', {hour12: false}), ...item})
       deploymentRuntime.logs = deploymentRuntime.logs.slice(-500)
-      localStorage.setItem(deploymentEventLogKey(id), JSON.stringify(deploymentRuntime.logs))
-      request('/api/deployment-tasks/' + id).then(value => {
-        deploymentRuntime.task = value
-        render(false)
-      }).catch(() => {})
+      scheduleDeploymentLiveRefresh(id)
     }
     source.addEventListener('expired', event => {
       source.close()
       if (deploymentRuntime.task?.id !== id) return
       deploymentRuntime.eventSource = null
+      if (deploymentLiveRefreshTimer) clearTimeout(deploymentLiveRefreshTimer)
+      deploymentLiveRefreshTimer = null
+      deploymentRefreshQueuedId = ''
       deploymentRuntime.task = null
       deploymentRuntime.logs = []
       localStorage.removeItem(activeDeploymentTaskKey)

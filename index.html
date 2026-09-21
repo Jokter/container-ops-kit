@@ -223,6 +223,18 @@
     .task-row strong { font-weight: 500; }
     .task-row span { color: var(--muted); font-size: 12px; }
     .resource-workspace { display: grid; gap: 16px; }
+    .environment-summary { display: grid; grid-template-columns: minmax(300px,1.35fr) repeat(3,minmax(150px,.65fr)); gap: 12px; }
+    .environment-version-card, .environment-summary-stat { min-height: 104px; padding: 17px 18px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface); box-shadow: 0 1px 2px rgba(25,39,48,.03); }
+    .environment-version-card { display: flex; align-items: center; justify-content: space-between; gap: 18px; background: linear-gradient(135deg,#243744,#314b58); color: white; }
+    .environment-version-card > div { min-width: 0; display: grid; gap: 5px; }
+    .environment-version-card strong { overflow: hidden; font-size: 16px; text-overflow: ellipsis; white-space: nowrap; }
+    .environment-eyebrow { color: #b9c7ce; font-size: 12px; }
+    .environment-version-card select { min-width: 112px; border: 1px solid #61737d; border-radius: 8px; padding: 9px 10px; color: white; background: #39515d; font-weight: 600; }
+    .environment-summary-stat { display: grid; align-content: center; gap: 3px; }
+    .environment-summary-stat span, .environment-summary-stat small { color: var(--muted); font-size: 12px; }
+    .environment-summary-stat strong { font-size: 25px; line-height: 1.1; }
+    .environment-summary-stat.success strong { color: var(--green); }
+    .environment-summary-stat.danger strong { color: var(--red); }
     .version-overview { display: grid; grid-template-columns: minmax(260px,1.4fr) repeat(3,minmax(150px,.6fr)); align-items: stretch; overflow: hidden; }
     .version-selector { padding: 16px; border-right: 1px solid var(--line); }
     .version-selector label { display: block; margin-bottom: 7px; color: var(--muted); font-size: 12px; }
@@ -231,25 +243,26 @@
     .version-stat:last-child { border-right: 0; }
     .version-stat span { color: var(--muted); font-size: 12px; }
     .version-stat strong { margin-top: 3px; font-size: 20px; }
-    .resource-panel { overflow: hidden; }
-    .resource-tabs { display: flex; gap: 2px; padding: 8px 12px 0; border-bottom: 1px solid var(--line); }
+    .resource-panel { overflow: hidden; border-radius: 11px; }
+    .resource-tabs { display: flex; gap: 5px; padding: 11px 16px 0; border-bottom: 1px solid var(--line); background: #fbfcfd; }
     .resource-tabs button { position: relative; border: 0; padding: 9px 12px 11px; color: var(--muted); background: transparent; font-weight: 500; }
     .resource-tabs button.active { color: var(--brand); }
     .resource-tabs button.active::after { content: ""; position: absolute; right: 10px; bottom: -1px; left: 10px; height: 2px; background: var(--brand); }
     .resource-tab-count { margin-left: 5px; color: var(--faint); font-size: 12px; }
-    .environment-toolbar { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
-    .environment-search { min-width: 240px; border: 1px solid var(--line); border-radius: 7px; padding: 7px 10px; background: var(--surface-soft); }
+    .environment-toolbar { display: flex; align-items: center; gap: 9px; padding: 14px 16px; border-bottom: 1px solid var(--line); background: var(--surface); }
+    .environment-search { min-width: 270px; border: 1px solid var(--line); border-radius: 8px; padding: 8px 11px; background: var(--surface-soft); }
     .environment-filter { border: 1px solid var(--line); border-radius: 7px; padding: 7px 10px; color: var(--muted); background: var(--surface); }
     .environment-toolbar-spacer { flex: 1; }
     .batch-progress { display: flex; align-items: center; gap: 10px; padding: 9px 16px; color: var(--muted); background: var(--brand-soft); font-size: 12px; }
     .batch-progress-track { width: 150px; height: 5px; overflow: hidden; border-radius: 99px; background: #d9e2ff; }
     .batch-progress-track span { display: block; height: 100%; background: var(--brand); transition: width .2s ease; }
     .environment-table { min-width: 0; }
-    .environment-row { display: grid; grid-template-columns: minmax(210px,1.4fr) minmax(135px,.8fr) 90px 100px minmax(150px,.9fr) minmax(270px,1.2fr); gap: 14px; align-items: center; min-height: 66px; padding: 10px 16px; border-bottom: 1px solid var(--line); }
+    .environment-row { display: grid; grid-template-columns: minmax(210px,1.4fr) minmax(135px,.8fr) 90px 100px minmax(150px,.9fr) minmax(270px,1.2fr); gap: 14px; align-items: center; min-height: 72px; padding: 11px 16px; border-bottom: 1px solid var(--line); transition: background .15s ease; }
+    .environment-row:not(.head):hover { background: #fafcfd; }
     .environment-row:last-child { border-bottom: 0; }
     .environment-row.head { min-height: 38px; color: var(--faint); background: var(--surface-soft); font-size: 12px; }
     .environment-row-name { display: flex; align-items: center; gap: 10px; min-width: 0; }
-    .environment-kind-icon { display: grid; place-items: center; width: 32px; height: 32px; flex: 0 0 auto; border-radius: 8px; color: var(--brand); background: var(--brand-soft); font-weight: 600; }
+    .environment-kind-icon { display: grid; place-items: center; width: 36px; height: 36px; flex: 0 0 auto; border: 1px solid #dce5ff; border-radius: 10px; color: var(--brand); background: var(--brand-soft); font-weight: 700; }
     .environment-row-name strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
     .environment-row-name span, .environment-cell-copy { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; }
     .environment-actions { display: flex; justify-content: flex-end; gap: 6px; }
@@ -260,15 +273,16 @@
     .environment-empty { padding: 54px 20px; color: var(--muted); text-align: center; }
     .drawer-backdrop { position: fixed; inset: 0; z-index: 90; background: rgba(25,39,48,.28); }
     .environment-drawer { position: fixed; top: 0; right: 0; z-index: 91; width: min(520px,100vw); height: 100vh; display: flex; flex-direction: column; background: var(--surface); box-shadow: -18px 0 50px rgba(25,39,48,.14); }
-    .drawer-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 20px 22px; border-bottom: 1px solid var(--line); }
+    .drawer-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 20px 22px; border-bottom: 1px solid var(--line); background: #fbfcfd; }
     .drawer-header p { margin-top: 4px; color: var(--muted); font-size: 12px; }
-    .drawer-body { flex: 1; overflow: auto; padding: 20px 22px; }
-    .drawer-section + .drawer-section { margin-top: 22px; padding-top: 20px; border-top: 1px solid var(--line); }
+    .drawer-body { flex: 1; overflow: auto; padding: 18px 20px; background: #f5f7f8; }
+    .drawer-section { padding: 17px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+    .drawer-section + .drawer-section { margin-top: 14px; }
     .drawer-section-title { margin-bottom: 12px; }
     .drawer-section-title p { margin-top: 3px; color: var(--muted); font-size: 12px; }
     .drawer-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 13px; }
     .drawer-grid .wide { grid-column: 1 / -1; }
-    .drawer-footer { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 22px; border-top: 1px solid var(--line); }
+    .drawer-footer { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 22px; border-top: 1px solid var(--line); background: #fbfcfd; }
     .drawer-test-result { display: none; margin-top: 12px; padding: 10px 12px; border-radius: 8px; color: var(--muted); background: var(--surface-soft); font-size: 12px; }
     .drawer-test-result.visible { display: block; }
     .drawer-test-result.success { color: var(--green); background: var(--green-soft); }
@@ -290,6 +304,8 @@
       .environment-bar { grid-template-columns: repeat(2,1fr); }
       .version-overview { grid-template-columns: repeat(3,1fr); }
       .version-selector { grid-column: 1 / -1; border-right: 0; border-bottom: 1px solid var(--line); }
+      .environment-summary { grid-template-columns: repeat(3,1fr); }
+      .environment-version-card { grid-column: 1 / -1; }
     }
     @media (max-width: 700px) {
       .variant-a-sidebar { position: static; width: 100%; height: auto; }
@@ -297,7 +313,8 @@
       .variant-a-nav .nav-section, .variant-a-user { display: none; }
       .variant-a-nav button { white-space: nowrap; }
       .variant-a-main { margin: 0; padding: 20px 16px; }
-      .variant-a-status-strip, .variant-a-overview, .resource-grid, .form-grid, .connection-grid { grid-template-columns: 1fr; }
+      .variant-a-status-strip, .variant-a-overview, .resource-grid, .form-grid, .connection-grid, .environment-summary { grid-template-columns: 1fr; }
+      .environment-version-card { grid-column: auto; }
       .variant-a-status-item { padding: 15px 16px; }
       .page-head { display: block; }
       .head-actions { margin-top: 14px; }
@@ -490,7 +507,7 @@
       const items = versionEnvironments(state.resourceType);
       const online = items.filter(item => item.status === 'online').length;
       const failed = items.filter(item => item.status === 'error').length;
-      return `<section class="panel version-overview"><div class="version-selector"><label for="release-version">发布版本</label><select id="release-version" ${state.batch || testTokens.size ? 'disabled' : ''}>${releaseVersions.map(item => `<option value="${item.id}" ${item.id === current.id ? 'selected' : ''}>${item.code}</option>`).join('')}</select></div><div class="version-stat"><span>环境总数</span><strong>${items.length}</strong></div><div class="version-stat"><span>可连接</span><strong>${online}</strong></div><div class="version-stat"><span>连接失败</span><strong>${failed}</strong></div></section>`;
+      return `<section class="environment-summary"><div class="environment-version-card"><div><span class="environment-eyebrow">当前发布版本</span><strong>${escapeHtml(current.name)}</strong></div><select id="release-version" aria-label="发布版本" ${state.batch || testTokens.size ? 'disabled' : ''}>${releaseVersions.map(item => `<option value="${item.id}" ${item.id === current.id ? 'selected' : ''}>${item.code}</option>`).join('')}</select></div><div class="environment-summary-stat"><span>环境总数</span><strong>${items.length}</strong><small>当前类型</small></div><div class="environment-summary-stat success"><span>可连接</span><strong>${online}</strong><small>最近测试成功</small></div><div class="environment-summary-stat ${failed ? 'danger' : ''}"><span>连接失败</span><strong>${failed}</strong><small>${failed ? '需要检查' : '当前无异常'}</small></div></section>`;
     }
 
     function environmentTable() {
@@ -547,7 +564,7 @@
 
     function commonPage(page) {
       if (page === 'build') return `${pageTitle('构建', '选择构建环境，配置仓库与分支，然后生成可部署产物。','<button class="button" data-page="resources">查看环境</button>')}${buildContent()}`;
-      if (page === 'resources') return `${pageTitle('资源中心', '按发布版本维护构建环境和容器环境，并验证 SSH 连通性。', '<span class="badge">高保真模拟</span>')}${resourceContent()}`;
+      if (page === 'resources') return `${pageTitle('环境管理', '按发布版本维护构建与容器环境，集中验证 SSH 连通性。')}${resourceContent()}`;
       if (page === 'deploy') return `${pageTitle('部署', '选择成功产物和容器环境，完成校验后部署。')}${containerEnvironmentBar()}<section class="panel empty"><div><div class="empty-symbol">⇧</div><h2>选择待部署产物</h2><p>部署只使用当前容器环境；当前可部署产物 2 个。</p><button class="button primary" style="margin-top:18px" data-create-deploy-task>选择产物</button></div></section>`;
       if (page === 'operations') return `${pageTitle('容器运维', '通过容器环境中的 MAE、OSMU 和唯一 OM 节点执行运维操作。')}${containerEnvironmentBar()}<section class="panel empty"><div><div class="empty-symbol">◇</div><h2>容器运维工作区</h2><p>具体工作负载、日志和操作能力将在后续需求中定义。</p><button class="button" data-page="resources" style="margin-top:18px">查看容器环境</button></div></section>`;
       return '';
@@ -587,7 +604,7 @@
     }
 
     function trimAutoUtOutput(value) {
-      return value.length > 120000 ? value.slice(-120000) : value;
+      return value.length > 60000 ? value.slice(-60000) : value;
     }
 
     function applyAutoUtLiveEvent(taskId, event) {
@@ -613,14 +630,18 @@
       }
       if (event.type === 'tool_start') {
         live.tools[event.toolCallId] = { id: event.toolCallId, name: event.toolName, args: event.content, output: '', status: '执行中', error: false };
+        const toolIds = Object.keys(live.tools);
+        if (toolIds.length > 30) toolIds.slice(0, toolIds.length - 30).forEach(id => delete live.tools[id]);
       }
       if (event.type === 'tool_output' || event.type === 'tool_end') {
         const tool = live.tools[event.toolCallId] ||= { id: event.toolCallId, name: event.toolName, args: '', output: '', status: '执行中', error: false };
         tool.output = trimAutoUtOutput(event.replace ? (event.content || '') : tool.output + (event.content || ''));
         if (event.type === 'tool_end') { tool.status = event.error ? '失败' : '完成'; tool.error = Boolean(event.error); }
       }
-      clearTimeout(autoUtLiveRenderTimer);
-      autoUtLiveRenderTimer = setTimeout(() => render(false), 50);
+      if (!autoUtLiveRenderTimer) autoUtLiveRenderTimer = setTimeout(() => {
+        autoUtLiveRenderTimer = null;
+        render(false);
+      }, event.type === 'completed' || event.type === 'error' ? 0 : 120);
     }
 
     function connectAutoUtStream(taskId) {

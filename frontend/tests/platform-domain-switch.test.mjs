@@ -230,13 +230,13 @@ test('Pi思考和回复实时展示且回复开始后折叠思考', async () => 
 
   模拟事件源.instances[0].emit({sequence: 1, type: 'thinking_start'})
   模拟事件源.instances[0].emit({sequence: 2, type: 'thinking_delta', content: '正在定位失败用例'})
-  await new Promise(完成 => setTimeout(完成, 70))
+  await new Promise(完成 => setTimeout(完成, 160))
   assert.equal(文档.querySelector('[data-auto-ut-thinking="task-live"]').open, true)
   assert.match(文档.querySelector('[data-auto-ut-thinking="task-live"]').textContent, /正在定位失败用例/)
 
   模拟事件源.instances[0].emit({sequence: 3, type: 'message_start'})
   模拟事件源.instances[0].emit({sequence: 4, type: 'message_delta', content: '已修复测试'})
-  await new Promise(完成 => setTimeout(完成, 70))
+  await new Promise(完成 => setTimeout(完成, 160))
   assert.equal(文档.querySelector('[data-auto-ut-thinking="task-live"]').open, false)
   assert.match(文档.querySelector('[data-auto-ut-live="task-live"]').textContent, /已修复测试/)
 
@@ -269,7 +269,7 @@ test('基线阶段展示细分流程且不提前显示Pi等待内容', async () 
   模拟事件源.instances[0].emit({
     sequence: 1, type: 'operation_start', content: '基线测试', toolCallId: 'operation-1', toolName: 'mvn -B -ntp clean test'
   })
-  await new Promise(完成 => setTimeout(完成, 70))
+  await new Promise(完成 => setTimeout(完成, 160))
 
   const 实时面板 = 文档.querySelector('[data-auto-ut-live="task-baseline"]')
   assert.match(实时面板.textContent, /基线测试.*执行中/)
