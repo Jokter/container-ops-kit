@@ -147,7 +147,7 @@ onMounted(async()=>{
    <div class="nav-section">基础能力</div>
    <button class="active">资源中心</button>
   </nav>
-  <div class="user">林工 · 本地环境</div>
+  <div class="user">V0.2.1</div>
  </aside>
 
  <main class="main">

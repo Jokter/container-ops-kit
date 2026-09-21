@@ -5,6 +5,7 @@ import {JSDOM} from 'jsdom'
 
 const 页面路径 = new URL('../../index.html', import.meta.url)
 const 页面 = await readFile(页面路径, 'utf8')
+const 项目配置 = JSON.parse(await readFile(new URL('../../package.json', import.meta.url), 'utf8'))
 
 function 打开页面(请求, 事件源) {
   return new JSDOM(页面, {
@@ -21,6 +22,13 @@ function 打开页面(请求, 事件源) {
 function 等待界面更新() {
   return new Promise(完成 => setTimeout(完成, 0))
 }
+
+test('左下角展示与项目配置一致的版本号', () => {
+  const 页面实例 = 打开页面()
+  assert.equal(页面实例.window.document.querySelector('.variant-a-user').textContent.trim(), `V${项目配置.version}`)
+  assert.doesNotMatch(页面实例.window.document.querySelector('.variant-a-user').textContent, /林工|本地环境/)
+  页面实例.window.close()
+})
 
 test('正式页面可以在三个平台域之间切换', () => {
   const 页面实例 = 打开页面()
