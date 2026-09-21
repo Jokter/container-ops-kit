@@ -1262,7 +1262,14 @@
       document.querySelector('[data-report-schedule="frequency"]')?.addEventListener('change',e=>{document.getElementById('qw-weekday').hidden=e.target.value!=='weekly';});
       document.querySelectorAll('[data-q-open],[data-report-open]').forEach(el=>el.addEventListener('click',()=>{workspaceUi.drawer=null;workspaceUi.snapshot=null;}));
     }
-    document.addEventListener('keydown',event=>{if(!workspaceUi.drawer||state.autoUtDirectory)return;if(event.key==='Escape'){event.preventDefault();qwClose();}if(event.key==='Tab'){const nodes=[...document.querySelectorAll('.qw-drawer button:not(:disabled),.qw-drawer input:not(:disabled),.qw-drawer select:not(:disabled),.qw-drawer a')].filter(el=>!el.closest('[hidden]'));const first=nodes[0],last=nodes.at(-1);if(event.shiftKey&&document.activeElement===first){event.preventDefault();last?.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first?.focus();}}});
+    function closeSelectionPopovers(target){
+      const opened=[...document.querySelectorAll('.qw-picker[open],.platform-switch[open]')];
+      for(const picker of opened)if(!target||!picker.contains(target))picker.open=false;
+      return opened;
+    }
+    // Close before target handlers render the page, so refreshes retain the closed state.
+    document.addEventListener('click',event=>closeSelectionPopovers(event.target),true);
+    document.addEventListener('keydown',event=>{if(event.key==='Escape'){const opened=closeSelectionPopovers();if(opened.length){event.preventDefault();opened.find(el=>el.contains(document.activeElement))?.querySelector('summary')?.focus();return;}}if(!workspaceUi.drawer||state.autoUtDirectory)return;if(event.key==='Escape'){event.preventDefault();qwClose();}if(event.key==='Tab'){const nodes=[...document.querySelectorAll('.qw-drawer button:not(:disabled),.qw-drawer input:not(:disabled),.qw-drawer select:not(:disabled),.qw-drawer a')].filter(el=>!el.closest('[hidden]'));const first=nodes[0],last=nodes.at(-1);if(event.shiftKey&&document.activeElement===first){event.preventDefault();last?.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first?.focus();}}});
 
     const navUi={scroll:new Map(),loaded:new Set(),route:'',loads:new Map()};
     const schedulerUi={items:[],kind:'',status:'',query:'',draft:null,editing:null,runs:[],busy:false,poll:null};

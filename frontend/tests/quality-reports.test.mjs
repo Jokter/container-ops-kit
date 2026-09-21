@@ -66,3 +66,15 @@ test('三类质量报告独立展示组名，过滤与全量排序保留正确�
  }
  }finally{dom.window.close();}
 });
+
+test('选择框点击外部收起，内部多选保留展开，切换选择框与 Escape 正常',async()=>{
+ const dom=page();try{const d=open(dom,'quality');await pause();const picker=key=>d.querySelector(`[data-qw-open="picker-${key}"]`);
+ picker('versions').querySelector('summary').click();assert.equal(picker('versions').open,true);
+ d.querySelector('[data-qw-pick="versions"][value="R26C10"]').click();assert.equal(picker('versions').open,true);assert.equal(d.querySelector('[data-qw-pick="versions"][value="R26C10"]').checked,true);
+ picker('teams').querySelector('summary').click();assert.equal(picker('versions').open,false);assert.equal(picker('teams').open,true);
+ d.querySelector('.page-head h1').click();assert.equal(picker('teams').open,false);dom.window.render(false);assert.equal(picker('teams').open,false);
+ picker('versions').querySelector('summary').click();d.querySelector('[data-qw-tab="api"]').click();assert.equal(picker('versions').open,false);assert.equal(d.querySelector('[data-qw-tab="api"]').getAttribute('aria-pressed'),'true');
+ picker('versions').querySelector('summary').click();d.querySelector('#qw-add-versions').focus();d.dispatchEvent(new dom.window.KeyboardEvent('keydown',{key:'Escape'}));assert.equal(picker('versions').open,false);assert.equal(d.activeElement,picker('versions').querySelector('summary'));
+ d.querySelector('.platform-switch summary').click();assert.equal(d.querySelector('.platform-switch').open,true);d.querySelector('.page-head h1').click();assert.equal(d.querySelector('.platform-switch').open,false);
+ }finally{dom.window.close();}
+});
