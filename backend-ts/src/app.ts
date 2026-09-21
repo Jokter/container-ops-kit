@@ -1,3 +1,4 @@
+import {UnifiedSchedules,scheduleRoutes} from './modules/automation/schedules.js';
 import Fastify from 'fastify';
 import {ZodError} from 'zod';
 import type {Config} from './config.js';
@@ -23,11 +24,12 @@ export async function createApp(config: Config) {
   }});
   const store = new TaskStore(config.database,logs);
   const runner = new TaskRunner(store, config.workers, config.taskTimeoutMs);
-  const ssh=new SshOperations(),environments=new EnvironmentService(store,ssh),builds=new BuildService(store,environments,ssh,logs),autoUt=new AutoUtService(store,logs),containers=new ContainerResourceService(environments,ssh,config.kubectlKubeconfig,config.helmKubeconfig),deployments=new DeploymentService(store,builds,environments,ssh,config.kubectlKubeconfig,config.helmKubeconfig,logs);
-  const quality=new QualityService(store,logs),reports=new AutoUtReports(store,quality,autoUt,logs);
-  qualityRoutes(app,quality);autoUtReportRoutes(app,reports);
+  const ssh=new SshOperations(),environments=new EnvironmentService(store,ssh),builds=new BuildService(store,environments,ssh,logs),autoUt=new AutoUtService(store,logs,false),containers=new ContainerResourceService(environments,ssh,config.kubectlKubeconfig,config.helmKubeconfig),deployments=new DeploymentService(store,builds,environments,ssh,config.kubectlKubeconfig,config.helmKubeconfig,logs);
+  const quality=new QualityService(store,logs),reports=new AutoUtReports(store,quality,autoUt,logs,false);
+  const schedules=new UnifiedSchedules(store,quality,reports,autoUt,logs);
+  scheduleRoutes(app,schedules);qualityRoutes(app,quality);autoUtReportRoutes(app,reports,schedules);
   await deployments.cleanupPreparations();
-  app.addHook('onClose', async () => {await quality.close();await reports.close();autoUt.close();await builds.close();await runner.close();store.close();});
+  app.addHook('onClose', async () => {schedules.stop();await quality.close();await reports.close();await schedules.close();autoUt.close();await builds.close();await runner.close();store.close();});
   app.addHook('onRequest', async (request, reply) => {
     // Local tools are not an authenticated multi-user service. Reject browser requests from remote origins.
     const local = (host: string) => ['localhost', '127.0.0.1', '[::1]'].includes(host);
@@ -47,6 +49,6 @@ export async function createApp(config: Config) {
   app.get('/api/platform/health', async () => ({status:'UP',backend:'typescript',migrationStage:'complete'}));
   app.get('/api/health', async () => ({status:'UP'}));
   taskRoutes(app, runner);
-  environmentRoutes(app,environments,ssh);buildRoutes(app,builds);await autoUtRoutes(app,autoUt);containerResourceRoutes(app,containers);deploymentRoutes(app,deployments);
+  environmentRoutes(app,environments,ssh);buildRoutes(app,builds);await autoUtRoutes(app,autoUt,schedules);containerResourceRoutes(app,containers);deploymentRoutes(app,deployments);
   return app;
 }

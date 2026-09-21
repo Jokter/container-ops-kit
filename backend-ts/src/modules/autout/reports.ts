@@ -1,3 +1,4 @@
+import type {UnifiedSchedules} from '../automation/schedules.js';
 import {randomUUID} from 'node:crypto';
 import {z} from 'zod';
 import type {FastifyInstance} from 'fastify';
@@ -12,19 +13,19 @@ export type ReportConfig=z.infer<typeof reportConfig>;
 interface SavedConfig{config:ReportConfig;nextRunAt:string|null;}
 interface PlanItem{version:string;repository:string;failedTests:number;lineCoverage:number;lineGoal:number;branchCoverage:number;branchGoal:number;baseBranch:string;repositoryUrl:string;repositoryCustomized:boolean;configured:boolean;repairBranch:string;}
 export interface ReportRun{id:string;jobId:string;trigger:'MANUAL'|'SCHEDULE';status:'FETCHING'|'READY'|'PARTIAL'|'FAILED'|'INTERRUPTED';createdAt:string;config:ReportConfig;plan:PlanItem[];taskIds:string[];messages:string[];claimed:string[];}
-export function nextRun(config:ReportConfig,after=new Date()):string{
+export function nextRun(config:{schedule:Omit<ReportConfig['schedule'],'enabled'|'action'>},after=new Date()):string{
  const schedule=config.schedule,offset=schedule.timezone==='Asia/Shanghai'?8:0,wall=new Date(after.getTime()+offset*3600000),[h,m]=schedule.time.split(':').map(Number);
  for(let n=0;n<9;n++){const d=new Date(Date.UTC(wall.getUTCFullYear(),wall.getUTCMonth(),wall.getUTCDate()+n,h,m)),weekday=d.getUTCDay(),stamp=d.getTime()-offset*3600000;if(stamp<=after.getTime()||schedule.frequency==='weekdays'&&(weekday===0||weekday===6)||schedule.frequency==='weekly'&&weekday!==schedule.weekday)continue;return new Date(stamp).toISOString();}throw new Error('无法计算定时时间');
 }
-export function reportDate(config:ReportConfig,now=new Date()){const offset=config.schedule.timezone==='Asia/Shanghai'?8:0;return new Date(now.getTime()+offset*3600000-(config.dateMode==='yesterday'?86400000:0)).toISOString().slice(0,10);}
+export function reportDate(config:{dateMode:ReportConfig['dateMode'];schedule:{timezone:ReportConfig['schedule']['timezone']}},now=new Date()){const offset=config.schedule.timezone==='Asia/Shanghai'?8:0;return new Date(now.getTime()+offset*3600000-(config.dateMode==='yesterday'?86400000:0)).toISOString().slice(0,10);}
 const defaults:ReportConfig={versions:[{version:'R27C10',baseBranch:''},{version:'R27C00',baseBranch:''}],dateMode:'yesterday',username:'',ticket:'',workspaceRoot:'',schedule:{enabled:false,frequency:'weekdays',weekday:1,time:'09:00',timezone:'Asia/Shanghai',action:'FETCH'}};
 function executionReady(config:ReportConfig){return !!(config.username&&config.ticket&&config.workspaceRoot&&config.versions.every(v=>v.baseBranch));}
 export class AutoUtReports{
- private timer:NodeJS.Timeout;private fetching=false;private starting=false;private pending=new Set<Promise<unknown>>();private closed=false;
- constructor(private readonly store:TaskStore,private readonly quality:QualityService,private readonly autoUt:AutoUtService,private readonly logs:LogSink=noFileLogs){
+ private timer:NodeJS.Timeout;private readonly completions=new Map<string,Promise<void>>();private fetching=false;private starting=false;private pending=new Set<Promise<unknown>>();private closed=false;
+ constructor(private readonly store:TaskStore,private readonly quality:QualityService,private readonly autoUt:AutoUtService,private readonly logs:LogSink=noFileLogs,private readonly ownScheduler=true){
   for(const run of this.list().filter(r=>r.status==='FETCHING')){run.status='INTERRUPTED';run.messages.push('服务重启，需手动重新获取');this.save(run);}
   const saved=this.configuration();if(saved.nextRunAt&&Date.parse(saved.nextRunAt)<Date.now()){this.logs.task('auto-ut','report-scheduler',{time:new Date().toISOString(),message:'服务离线期间的计划已跳过，不补跑',scheduledAt:saved.nextRunAt});saved.nextRunAt=nextRun(saved.config);this.store.putRecord('auto-ut-report-config','main',saved);}
-  this.timer=setInterval(()=>{if(!this.closed)this.track(this.tick());},15000);this.timer.unref();
+  this.timer=setInterval(()=>{if(!this.closed&&this.ownScheduler)this.track(this.tick());},15000);this.timer.unref();
  }
  private track<T>(promise:Promise<T>){this.pending.add(promise);void promise.catch(()=>this.logs.task('auto-ut','report-scheduler',{time:new Date().toISOString(),message:'报告调度异常，请检查任务记录'})).finally(()=>this.pending.delete(promise));return promise;}
  async close(){this.closed=true;clearInterval(this.timer);await Promise.allSettled(this.pending);}
@@ -32,12 +33,13 @@ export class AutoUtReports{
  configure(value:unknown){const config=reportConfig.parse(value);if(config.schedule.enabled&&config.schedule.action==='REPAIR'&&!executionReady(config))throw Object.assign(new Error('自动修复必须填写各版本分支、用户名、单号和工作目录'),{statusCode:400});const saved={config,nextRunAt:config.schedule.enabled?nextRun(config):null};this.store.putRecord('auto-ut-report-config','main',saved);return saved;}
  list(){return this.store.records<ReportRun>('auto-ut-report-run');}get(id:string){const run=this.store.getRecord<ReportRun>('auto-ut-report-run',id);if(!run)throw Object.assign(new Error('报告获取记录不存在'),{statusCode:404});return run;}
  private save(run:ReportRun){this.store.putRecord('auto-ut-report-run',run.id,run,run.createdAt);this.logs.task('auto-ut',run.id,{time:new Date().toISOString(),status:run.status,message:run.messages.at(-1)??'开始获取报告',taskIds:run.taskIds});}
- fetchReport(trigger:'MANUAL'|'SCHEDULE'='MANUAL'){
-  if(this.closed||this.fetching)throw Object.assign(new Error('报告正在获取，请等待本次完成'),{statusCode:409});const{config}=this.configuration();
+ fetchReport(trigger:'MANUAL'|'SCHEDULE'='MANUAL',snapshot?:ReportConfig){
+  if(this.closed||this.fetching)throw Object.assign(new Error('报告正在获取，请等待本次完成'),{statusCode:409});const config=reportConfig.parse(snapshot??this.configuration().config);
   const job=this.quality.start({versions:config.versions.map(v=>v.version),date:reportDate(config),domain:'Access',teams:['Access_智能驾舱组'],kinds:['ut']});
   const run:ReportRun={id:randomUUID(),jobId:job.id,trigger,status:'FETCHING',createdAt:new Date().toISOString(),config,plan:[],taskIds:[],messages:[],claimed:[]};this.save(run);this.fetching=true;
-  this.track(this.complete(run).finally(()=>{this.fetching=false;}));return run;
+  const completion=this.track(this.complete(run).finally(()=>{this.fetching=false;this.completions.delete(run.id);}));this.completions.set(run.id,completion);return run;
  }
+ async wait(id:string){await this.completions.get(id);return this.get(id);}
  private async complete(run:ReportRun){try{const job=await this.quality.wait(run.jobId);if(this.closed){run.status='INTERRUPTED';this.save(run);return;}
   run.plan=this.plan(job,run.config);run.status=job.status==='FAILED'?'FAILED':job.status==='INTERRUPTED'?'INTERRUPTED':job.status==='PARTIAL'?'PARTIAL':'READY';run.messages=job.parts.map(p=>`${p.version}：${p.message}`);this.save(run);
   if(run.trigger==='SCHEDULE'&&run.config.schedule.action==='REPAIR'&&['READY','PARTIAL'].includes(run.status))await this.start(run.id,'AUTOMATIC');
@@ -67,4 +69,4 @@ export class AutoUtReports{
   this.fetchReport('SCHEDULE');
  }
 }
-export function autoUtReportRoutes(app:FastifyInstance,service:AutoUtReports){app.get('/api/auto-ut/report-settings',async()=>service.configuration());app.put('/api/auto-ut/report-settings',async req=>service.configure(req.body));app.post('/api/auto-ut/reports',async(_req,reply)=>reply.code(202).send(service.fetchReport()));app.get('/api/auto-ut/reports',async()=>service.list());app.get('/api/auto-ut/reports/:id',async req=>service.get(z.object({id:z.uuid()}).parse(req.params).id));app.post('/api/auto-ut/reports/:id/tasks',async(req,reply)=>{const{id}=z.object({id:z.uuid()}).parse(req.params),body=z.object({mode:z.enum(['MANUAL','AUTOMATIC']),selected:z.array(z.string().max(160)).min(1).max(1000).optional()}).parse(req.body);return reply.code(202).send(await service.start(id,body.mode,body.selected));});}
+export function autoUtReportRoutes(app:FastifyInstance,service:AutoUtReports,schedules?:UnifiedSchedules){app.get('/api/auto-ut/report-settings',async()=>service.configuration());app.put('/api/auto-ut/report-settings',async req=>schedules?schedules.saveLegacyOnline(req.body):service.configure(req.body));app.post('/api/auto-ut/reports',async(_req,reply)=>reply.code(202).send(service.fetchReport()));app.get('/api/auto-ut/reports',async()=>service.list());app.get('/api/auto-ut/reports/:id',async req=>service.get(z.object({id:z.uuid()}).parse(req.params).id));app.post('/api/auto-ut/reports/:id/tasks',async(req,reply)=>{const{id}=z.object({id:z.uuid()}).parse(req.params),body=z.object({mode:z.enum(['MANUAL','AUTOMATIC']),selected:z.array(z.string().max(160)).min(1).max(1000).optional()}).parse(req.body);return reply.code(202).send(await service.start(id,body.mode,body.selected));});}

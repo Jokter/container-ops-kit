@@ -1,3 +1,4 @@
+import type {UnifiedSchedules} from '../automation/schedules.js';
 import {randomUUID} from 'node:crypto';
 import {readFile,writeFile,mkdir,stat,readdir,unlink} from 'node:fs/promises';
 import {resolve,join,relative} from 'node:path';
@@ -19,7 +20,7 @@ interface History{time:string;status:Status;message:string}interface LiveEvent{s
 interface ReportItem{repository:string;failedTests:number;lineCoverage:number;lineGoal:number;branchCoverage:number;branchGoal:number}
 interface Repository{name:string;url:string;testCommand:string[];verificationCommand:string[];coverageReport:string;customized:boolean;updatedAt:string|null}
 export interface AutoUtTask{id:string;reportVersion?:string;sourceReportId?:string;repository:string;username:string;ticket:string;baseBranch:string;repairBranch:string;reportedFailedTests:number;lineGoal:number;branchGoal:number;workspaceRoot:string;executionMode:Mode;status:Status;nextStage:Stage;progress:number;attempts:number;message:string;pullRequestUrl:string;createdAt:string;updatedAt:string;history:History[];liveEvents:LiveEvent[];liveSequence:number}
-interface Schedule{reportFileName:string;report:string;username:string;ticket:string;baseBranch:string;workspaceRoot:string;dailyTime:string;lastTriggeredOn:string|null;updatedAt:string}
+export interface Schedule{reportFileName:string;report:string;username:string;ticket:string;baseBranch:string;workspaceRoot:string;dailyTime:string;lastTriggeredOn:string|null;updatedAt:string}
 const identity=z.string().regex(/^[A-Za-z0-9._-]+$/);const branch=z.string().trim().min(1).max(200).regex(/^[A-Za-z0-9][A-Za-z0-9._/-]*$/).refine(v=>!v.includes('..')&&!v.includes('//')&&!v.endsWith('/')&&!v.endsWith('.'));
 const settings={language:'Java',plGroup:'Access_智能驾舱组',logDirectory:resolve(process.env.PLATFORM_LOG_DIR?.trim()||'data/logs','auto-ut','details'),piCommand:'pi',thinkingLevel:'medium',piTimeoutMs:30*60_000,maxAttempts:3,
  forbiddenMarkers:['@Disabled','@Ignore'],codehub:'codehub-cli',createMr:true,reviewers:process.env.AUTO_UT_CODEHUB_REVIEWERS?.trim()??'',approvers:process.env.AUTO_UT_CODEHUB_APPROVERS?.trim()??'',assignees:process.env.AUTO_UT_CODEHUB_ASSIGNEES?.trim()??''};
@@ -33,8 +34,8 @@ export function autoUtWorkspace(task:Pick<AutoUtTask,'workspaceRoot'|'repository
 
 export class AutoUtService{
  private readonly running=new Set<string>();private timer:NodeJS.Timeout;
- constructor(private readonly store:TaskStore,private readonly logs:LogSink=noFileLogs){for(const task of this.tasks().filter(t=>['DISCOVERED','PREPARING','BASELINE_RUNNING','REPAIRING','VERIFYING','PR_CREATING'].includes(t.status))){this.change(task,'WAITING_EXTERNAL','服务重启，原执行进程已中断，请重试当前阶段。');this.save(task);}
-  this.timer=setInterval(()=>void this.triggerDue(),30_000);this.timer.unref();}
+ constructor(private readonly store:TaskStore,private readonly logs:LogSink=noFileLogs,private readonly ownScheduler=true){for(const task of this.tasks().filter(t=>['DISCOVERED','PREPARING','BASELINE_RUNNING','REPAIRING','VERIFYING','PR_CREATING'].includes(t.status))){this.change(task,'WAITING_EXTERNAL','服务重启，原执行进程已中断，请重试当前阶段。');this.save(task);}
+  this.timer=setInterval(()=>{if(this.ownScheduler)void this.triggerDue();},30_000);this.timer.unref();}
  close(){clearInterval(this.timer);}
  private save(task:AutoUtTask){task.updatedAt=new Date().toISOString();this.store.putRecord('auto-ut-task',task.id,task,task.createdAt);}
  private change(task:AutoUtTask,status:Status,message:string){task.status=status;task.message=message;task.updatedAt=new Date().toISOString();const event={time:task.updatedAt,status,message};task.history.push(event);this.logs.task('auto-ut',task.id,{kind:'history',...event});}
@@ -87,7 +88,7 @@ export class AutoUtService{
 }
 
 async function multipartFields(request:FastifyRequest){const fields=new Map<string,string>();let file:Buffer|undefined,name='';for await(const part of request.parts({limits:{fileSize:20*1024*1024,files:1,fields:10}})){if(part.type==='file'){name=part.filename??'';file=await part.toBuffer();}else fields.set(part.fieldname,String(part.value));}if(!file)throw Object.assign(new Error('请选择 CSV'),{statusCode:400});return{fields,file,name};}
-export async function autoUtRoutes(app:FastifyInstance,service:AutoUtService){await app.register(multipart);const id=(p:unknown)=>z.object({id:z.uuid()}).parse(p).id;
+export async function autoUtRoutes(app:FastifyInstance,service:AutoUtService,schedules?:UnifiedSchedules){await app.register(multipart);const id=(p:unknown)=>z.object({id:z.uuid()}).parse(p).id;
  app.post('/api/auto-ut/scan',async request=>{const{fields,file}=await multipartFields(request);return service.scan(file,fields.get('username')??'',fields.get('ticket')??'',fields.get('baseBranch')??'');});
  app.post('/api/auto-ut/tasks',async(request,reply)=>{const{fields,file}=await multipartFields(request);const mode=z.enum(['MANUAL','AUTOMATIC']).parse(fields.get('executionMode'));return reply.code(202).send(await service.start(file,fields.get('username')??'',fields.get('ticket')??'',fields.get('baseBranch')??'',fields.get('workspaceRoot')??'',mode));});
  app.get('/api/auto-ut/tasks',async()=>service.tasks());app.get('/api/auto-ut/tasks/:id',async req=>service.get(id(req.params)));app.post('/api/auto-ut/tasks/:id/continuation',async(req,reply)=>reply.code(202).send(service.continue(id(req.params))));
@@ -95,6 +96,6 @@ export async function autoUtRoutes(app:FastifyInstance,service:AutoUtService){aw
  app.get('/api/auto-ut/workspace-directories',async req=>browse(z.object({path:z.string().max(4096).optional()}).parse(req.query).path));
  app.get('/api/auto-ut/tasks/:id/events',async(req,reply)=>{const taskId=id(req.params);service.get(taskId);const query=z.object({afterSequence:z.coerce.number().int().min(0).default(0)}).parse(req.query);const header=z.coerce.number().int().min(0).parse(req.headers['last-event-id']??0);durableSse(reply,n=>service.events(taskId,n),()=>service.terminal(taskId),Math.max(query.afterSequence,header));});
  app.get('/api/auto-ut/schedule',async(_req,reply)=>{const value=service.getSchedule();return value?service.scheduleResponse(value):reply.code(204).send();});
- app.put('/api/auto-ut/schedule',async request=>{const{fields,file,name}=await multipartFields(request);const value={reportFileName:name,report:file.toString('base64'),username:identity.parse(fields.get('username')),ticket:identity.parse(fields.get('ticket')),baseBranch:branch.parse(fields.get('baseBranch')),workspaceRoot:resolve(fields.get('workspaceRoot')??''),dailyTime:z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).parse(fields.get('dailyTime'))};await stat(value.workspaceRoot).then(s=>{if(!s.isDirectory())throw new Error();}).catch(()=>{throw Object.assign(new Error(`工作目录不存在或不可写：${value.workspaceRoot}`),{statusCode:400});});return service.saveSchedule(value);});
- app.delete('/api/auto-ut/schedule',async(_req,reply)=>{service.deleteSchedule();return reply.code(204).send();});
+ app.put('/api/auto-ut/schedule',async request=>{const{fields,file,name}=await multipartFields(request);const value={reportFileName:name,report:file.toString('base64'),username:identity.parse(fields.get('username')),ticket:identity.parse(fields.get('ticket')),baseBranch:branch.parse(fields.get('baseBranch')),workspaceRoot:resolve(fields.get('workspaceRoot')??''),dailyTime:z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).parse(fields.get('dailyTime'))};await stat(value.workspaceRoot).then(s=>{if(!s.isDirectory())throw new Error();}).catch(()=>{throw Object.assign(new Error(`工作目录不存在或不可写：${value.workspaceRoot}`),{statusCode:400});});return schedules?schedules.saveLegacyCsv(value):service.saveSchedule(value);});
+ app.delete('/api/auto-ut/schedule',async(_req,reply)=>{if(schedules)schedules.deleteLegacyCsv();else service.deleteSchedule();return reply.code(204).send();});
 }
