@@ -41,7 +41,17 @@ Write-LogLine ""
 Write-LogLine "===== $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - $LoggedCommand ====="
 
 try {
-    $commandWithRedirect = $LoggedCommand + ' 2>&1'
+    # Absolute entry paths let the next launch identify even orphaned Node processes.
+    # Keep all other logged commands (install/build/migrate) unchanged.
+    $executionCommand = $LoggedCommand
+    if ($LoggedCommand -eq 'npm start') {
+        $entry = Join-Path ([System.IO.Path]::GetFullPath($WorkingDirectory)) 'dist\backend-ts\src\main.js'
+        $executionCommand = 'node "' + $entry + '"'
+    } elseif ($LoggedCommand -eq 'npm run dev -- --host 127.0.0.1 --strictPort') {
+        $entry = Join-Path ([System.IO.Path]::GetFullPath($WorkingDirectory)) 'node_modules\vite\bin\vite.js'
+        $executionCommand = 'node "' + $entry + '" --host 127.0.0.1 --strictPort'
+    }
+    $commandWithRedirect = $executionCommand + ' 2>&1'
     & cmd.exe /d /s /c $commandWithRedirect | ForEach-Object { Write-LogLine ([string]$_) }
     $code = $LASTEXITCODE
     if ($null -eq $code) { $code = 0 }

@@ -9,7 +9,7 @@ test('Windows 启动按 lock 校验依赖且日志由 cmd 合并 stderr',async()
  assert.doesNotMatch(start,/npm ci/);
  assert.match(start,/install-locked\.mjs \./);
  assert.match(start,/install-locked\.mjs frontend/);
- assert.match(runner,/\$LoggedCommand \+ ' 2>&1'/);
+ assert.match(runner,/\$executionCommand \+ ' 2>&1'/);
  assert.match(installer,/installation skipped/);
  assert.match(installer,/without deleting node_modules/);
 });
