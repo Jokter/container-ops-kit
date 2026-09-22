@@ -1,12 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,writeFile,readFile,rm} from 'node:fs/promises';
+import {mkdtemp,mkdir,stat,writeFile,readFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {join,dirname} from 'node:path';
 import {TaskStore} from '../src/platform/store.js';
 import {QualityService} from '../src/modules/quality/quality.js';
 import {AutoUtReports,reportConfig} from '../src/modules/autout/reports.js';
-import {AutoUtService,type AutoUtTask} from '../src/modules/autout/autout.js';
+import {AutoUtService,autoUtWorkspace,type AutoUtTask} from '../src/modules/autout/autout.js';
 import {AutomationRecords} from '../src/modules/automation/records.js';
 const query={versions:['R27C10','R27C00'],date:'2026-09-22',domain:'Access',teams:['Access_智能驾舱组'],kinds:['ut']};
 const config=reportConfig.parse({dateMode:'yesterday',versions:[{version:'R27C10',baseBranch:'master'}],username:'tester',ticket:'DTS1',workspaceRoot:'/tmp',schedule:{enabled:false,frequency:'weekdays',weekday:1,time:'09:30',timezone:'Asia/Shanghai',action:'REPAIR'}});
@@ -21,12 +21,13 @@ test('删除获取中的自动报告：中止质量请求并等待完成，不�
  const autoUt=new AutoUtService(store,undefined,false),reports=new AutoUtReports(store,quality,autoUt,undefined,false),records=new AutomationRecords(autoUt,reports,quality);
  try{const run=reports.fetchReport('SCHEDULE',config);const result=await records.cleanup({entries:[{kind:'report',id:run.id}]});assert.equal(result.failed.length,0);assert.equal(aborted,true);assert.equal(reports.list().length,0);assert.equal(quality.list().length,0);assert.equal(autoUt.tasks().length,0);}finally{await quality.close();await reports.close();await autoUt.close();store.close();}
 });
-test('待合入记录清理会等待当前执行停止，保留文件与成果，刷新不再出现且 MR 仍阻止重复建单',async()=>{
+test('待合入记录清理会等待当前执行停止，清理代码和会话、保留成果，刷新不再出现且 MR 仍阻止重复建单',async()=>{
  const root=await mkdtemp(join(tmpdir(),'record-delete-')),file=join(root,'keep.txt');await writeFile(file,'keep');
  const store=new TaskStore(':memory:'),autoUt=new AutoUtService(store,undefined,false),quality=new QualityService(store),reports=new AutoUtReports(store,quality,autoUt,undefined,false),records=new AutomationRecords(autoUt,reports,quality);
  const task:AutoUtTask={id:'11111111-1111-4111-8111-111111111111',repository:'Demo',reportVersion:'R27C10',username:'tester',ticket:'DTS1',baseBranch:'master',repairBranch:'fix',workspaceRoot:root,executionMode:'AUTOMATIC',status:'MR_PENDING',nextStage:'TRACK',progress:92,attempts:0,message:'等待合入',pullRequestUrl:'https://example.com/merge_requests/1',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),reportedFailedTests:1,lineGoal:.8,branchGoal:.7,history:[],liveEvents:[],liveSequence:0,governance:{mode:'REPAIR',coverageLow:false,maxClasses:5,mrState:'PENDING',fixedIds:['A#test']}};
- try{autoUt['save'](task);const controller=new AbortController();autoUt['controllers'].set(task.id,controller);let stopped=false;autoUt['executions'].set(task.id,new Promise<void>(resolve=>controller.signal.addEventListener('abort',()=>{stopped=true;autoUt['save'](task);resolve();},{once:true})));
- const result=await records.cleanup({entries:[{kind:'ut',id:task.id},{kind:'ut',id:task.id}]});assert.equal(stopped,true);assert.equal(result.deleted.length,1);assert.equal(result.failed.length,0);assert.equal(autoUt.tasks().length,0);assert.equal(autoUt.governanceSummary().records.length,0);assert.equal(autoUt.governanceSummary().metrics.fixedCases,1);assert.equal(autoUt.blocksRepository('Demo','R27C10','master'),true);assert.equal(await readFile(file,'utf8'),'keep');await records.cleanup({entries:[{kind:'ut',id:task.id}]});assert.equal(autoUt.governanceSummary().records.length,0);
+ try{const workspace=autoUtWorkspace(task),session=autoUt['piSessionFile'](task);await mkdir(join(workspace,'.git'),{recursive:true});await writeFile(join(workspace,'pom.xml'),'<project/>');await mkdir(dirname(session),{recursive:true});await writeFile(session,'session');autoUt['save'](task);const controller=new AbortController();autoUt['controllers'].set(task.id,controller);let stopped=false;autoUt['executions'].set(task.id,new Promise<void>(resolve=>controller.signal.addEventListener('abort',()=>{stopped=true;autoUt['save'](task);resolve();},{once:true})));
+ const result=await records.cleanup({entries:[{kind:'ut',id:task.id},{kind:'ut',id:task.id}]});assert.equal(stopped,true);await assert.rejects(stat(workspace));await assert.rejects(stat(session));assert.equal(result.deleted.length,1);assert.equal(result.failed.length,0);assert.equal(autoUt.tasks().length,0);assert.equal(autoUt.governanceSummary().records.length,0);assert.equal(autoUt.governanceSummary().metrics.fixedCases,1);assert.equal(autoUt.blocksRepository('Demo','R27C10','master'),true);assert.equal(await readFile(file,'utf8'),'keep');await records.cleanup({entries:[{kind:'ut',id:task.id}]});assert.equal(autoUt.governanceSummary().records.length,0);
+ const child={...task,id:'66666666-6666-4666-8666-666666666666',repository:'Child',sourceReportId:'77777777-7777-4777-8777-777777777777'};autoUt['save'](child);await mkdir(autoUtWorkspace(child),{recursive:true});await writeFile(join(autoUtWorkspace(child),'pom.xml'),'<project/>');store.putRecord('auto-ut-report-run',child.sourceReportId,{id:child.sourceReportId,jobId:'88888888-8888-4888-8888-888888888888',trigger:'MANUAL',status:'READY',createdAt:task.createdAt,config,plan:[],taskIds:[child.id],messages:[],claimed:[]});const removed=await records.cleanup({entries:[{kind:'report',id:child.sourceReportId}]});assert.equal(removed.failed.length,0);await assert.rejects(stat(autoUtWorkspace(child)));assert.throws(()=>autoUt.get(child.id),/不存在/);assert.equal(await readFile(file,'utf8'),'keep');
  }finally{await quality.close();await reports.close();await autoUt.close();store.close();await rm(root,{recursive:true,force:true});}
 });
 test('批量清理保留逐项失败结果，并继续清理其他类型；校验非法输入',async()=>{

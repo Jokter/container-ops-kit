@@ -972,7 +972,7 @@
         : state.platformDomain === 'automation'
           ? automationContent()
           : `<section class="panel platform-placeholder"><div class="platform-placeholder-content"><div class="platform-placeholder-symbol">${placeholder[0]}</div><h1>${placeholder[1]}</h1><p>${placeholder[2]}</p><span class="platform-boundary">平台边界已预留</span></div></section>`;
-      return `<div class="variant-a-shell studio-shell"><header class="studio-topbar"><div class="studio-brand">${taiji}<strong>运维平台</strong><span class="studio-divider">/</span></div>${platformSwitch}<span class="studio-product">统一基础设施工作台</span></header><aside class="variant-a-sidebar">${state.platformDomain==='container'?nav:state.platformDomain==='automation'?automationNav():''}<div class="studio-sidebar-bottom">${state.platformDomain==='automation'?'<button class="studio-settings-link" data-automation-nav="settings">连接与设置</button>':''}<div class="variant-a-user">V0.2.25</div></div></aside><main class="variant-a-main">${content}</main></div>`;
+      return `<div class="variant-a-shell studio-shell"><header class="studio-topbar"><div class="studio-brand">${taiji}<strong>运维平台</strong><span class="studio-divider">/</span></div>${platformSwitch}<span class="studio-product">统一基础设施工作台</span></header><aside class="variant-a-sidebar">${state.platformDomain==='container'?nav:state.platformDomain==='automation'?automationNav():''}<div class="studio-sidebar-bottom">${state.platformDomain==='automation'?'<button class="studio-settings-link" data-automation-nav="settings">连接与设置</button>':''}<div class="variant-a-user">V0.2.26</div></div></aside><main class="variant-a-main">${content}</main></div>`;
 
     }
 
@@ -1216,7 +1216,7 @@
     async function startReportTasks(){if(!reportUi.run||!reportUi.selected.size)return showToast('请选择待修复的版本与仓库');state.autoUtBusy=true;render(false);try{applyReportRun(await autoUtCall('/api/auto-ut/reports/'+reportUi.run.id+'/tasks',jsonOptions('POST',{mode:'AUTOMATIC',selected:[...reportUi.selected]})));reportUi.selected.clear();workspaceUi.selectedTaskId='';await loadAutoUtTasks();showToast('已进入全自动修复流程，可在列表查看进度');}catch(e){showToast(e.message);}finally{state.autoUtBusy=false;render(false);}}
     async function cleanupAutomationRecords(entries){
       if(workspaceUi.recordBusy||!entries.length)return;
-      if(!confirm(`确定清理这 ${entries.length} 条执行记录吗？\n\n执行中、待合入的本地任务将先停止，包括 MR 跟踪、自动修复和通知。报告关联的修复任务也会一并停止并清理记录。\n本地代码、日志、成果统计及远端分支和 MR 保留。定时计划仍会在下次到点执行。`))return;
+      if(!confirm(`确定清理这 ${entries.length} 条执行记录吗？\n\n执行中、待合入的本地任务将先停止，包括 MR 跟踪、自动修复和通知。报告关联的修复任务也会一并停止并清理。\n对应 UT 任务的 clone 代码目录、任务明细日志和 Pi 会话将一起删除；成果统计及远端分支和 MR 保留。定时计划仍会在下次到点执行。`))return;
       workspaceUi.recordBusy=true;workspaceUi.recordError='';render(false);
       try{
         const deleted=[],failed=[];

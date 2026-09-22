@@ -13,6 +13,15 @@ function task(id:string,workspaceRoot:string,repository:string,status:AutoUtTask
 
 async function fixture(t:TestContext){const root=await mkdtemp(join(tmpdir(),'autout-cleanup-')),store=new TaskStore(':memory:'),service=new AutoUtService(store,undefined,false);t.after(async()=>{service.close();store.close();await rm(root,{recursive:true,force:true});});return{root,store,service};}
 
+test('执行记录清理遇到其他未完成任务共用目录时保留记录和代码',async t=>{
+ const{root,store,service}=await fixture(t),first=task('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',root,'Shared','RESOLVED','2026-01-01T00:00:00.000Z'),other=task('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',root,'Shared','WAITING_CONFIRMATION','2026-01-01T00:00:00.000Z');
+ await mkdir(autoUtWorkspace(first),{recursive:true});
+ for(const value of[first,other])store.putRecord('auto-ut-task',value.id,value);
+ await assert.rejects(service.removeExecutionRecord(first.id),/未完成任务/);
+ assert.equal(service.get(first.id).id,first.id);assert.equal(service.get(other.id).id,other.id);assert.ok((await stat(autoUtWorkspace(first))).isDirectory());
+ assert.equal(store.getRecord('automation-record-hidden',first.id),undefined);
+});
+
 test('手动删除 UT 任务会同时删除 clone 工作目录和任务记录',async t=>{
  const{root,store,service}=await fixture(t),value=task('11111111-1111-4111-8111-111111111111',root,'Demo','RESOLVED','2026-01-01T00:00:00.000Z'),workspace=autoUtWorkspace(value);
  await mkdir(workspace,{recursive:true});await writeFile(join(workspace,'pom.xml'),'<project/>');store.putRecord('auto-ut-task',value.id,value,value.createdAt);
