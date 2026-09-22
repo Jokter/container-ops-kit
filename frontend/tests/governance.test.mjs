@@ -48,3 +48,16 @@ test('概览聚合三类任务，成果下钻沿用版本与时间范围，记�
   d.dispatchEvent(new dom.window.KeyboardEvent('keydown',{key:'Escape'}));assert.equal(switcher.open,false);
  }finally{await pause();dom.window.close();}
 });
+
+test('超长失败原因默认显示摘要，展开保留完整转义内容',async()=>{
+ const reason='失败 <script>unsafe()</script> '+('very-long-path/'.repeat(160))+' 最终错误';
+ const dom=new JSDOM(html,{url:'http://localhost/#/automation',runScripts:'dangerously',beforeParse(w){w.scrollTo=()=>{};}});
+ try{
+  const markup=dom.window.automationRecordTable([{id:'archived',kind:'ut',name:'Demo',version:'R27C10',state:'waiting',result:reason,time:'',task:{}}]);
+  const holder=dom.window.document.createElement('div');holder.innerHTML=markup;
+  const detail=holder.querySelector('.studio-result');assert.equal(detail.open,false);
+  assert.ok(detail.querySelector('summary').textContent.length<=181);
+  assert.equal(detail.querySelector('pre').textContent,reason);assert.equal(holder.querySelector('script'),null);
+  detail.querySelector('summary').click();assert.equal(detail.open,true);
+ }finally{dom.window.close();}
+});

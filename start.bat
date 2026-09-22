@@ -5,6 +5,9 @@ cd /d "%PROJECT_ROOT%"
 set "PLATFORM_PORT=8080"
 set "LOG_ROOT=%PROJECT_ROOT%\data\logs"
 set "LOG_RUNNER=%PROJECT_ROOT%\scripts\run-logged.ps1"
+echo Checking previous application instance...
+powershell -NoProfile -ExecutionPolicy Bypass -File "%PROJECT_ROOT%\scripts\stop-previous.ps1" -ProjectRoot "%PROJECT_ROOT%"
+if errorlevel 1 goto stop_previous_failed
 if exist "%LOG_ROOT%" rmdir /s /q "%LOG_ROOT%"
 if exist "%LOG_ROOT%" goto log_reset_failed
 mkdir "%LOG_ROOT%\startup"
@@ -78,5 +81,10 @@ exit /b 1
 
 :log_reset_failed
 echo Failed to reset data\logs. Close old backend/frontend windows and retry.
+pause
+exit /b 1
+
+:stop_previous_failed
+echo Could not stop the previous instance. No new backend or frontend was started.
 pause
 exit /b 1
