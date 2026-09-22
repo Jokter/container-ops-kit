@@ -1,3 +1,4 @@
+import {AutomationRecords,automationRecordRoutes} from './modules/automation/records.js';
 import {dtsRoutes} from './modules/autout/dts.js';
 import {UnifiedSchedules,scheduleRoutes} from './modules/automation/schedules.js';
 import Fastify from 'fastify';
@@ -28,7 +29,7 @@ export async function createApp(config: Config) {
   const ssh=new SshOperations(),environments=new EnvironmentService(store,ssh),builds=new BuildService(store,environments,ssh,logs),autoUt=new AutoUtService(store,logs,false),containers=new ContainerResourceService(environments,ssh,config.kubectlKubeconfig,config.helmKubeconfig),deployments=new DeploymentService(store,builds,environments,ssh,config.kubectlKubeconfig,config.helmKubeconfig,logs);
   const quality=new QualityService(store,logs),reports=new AutoUtReports(store,quality,autoUt,logs,false);
   const schedules=new UnifiedSchedules(store,quality,reports,autoUt,logs);
-  scheduleRoutes(app,schedules);qualityRoutes(app,quality);autoUtReportRoutes(app,reports,schedules);
+  automationRecordRoutes(app,new AutomationRecords(autoUt,reports,quality));scheduleRoutes(app,schedules);qualityRoutes(app,quality);autoUtReportRoutes(app,reports,schedules);
   await deployments.cleanupPreparations();
   app.addHook('onClose', async () => {schedules.stop();await quality.close();await reports.close();await schedules.close();await autoUt.close();await builds.close();await runner.close();store.close();});
   app.addHook('onRequest', async (request, reply) => {

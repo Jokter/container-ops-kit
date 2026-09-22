@@ -125,3 +125,17 @@ test('UT 原仓库列表按版本分支匹配进度和详情，无任务不显�
  const dom=page(path=>path==='/api/auto-ut/tasks'?tasks:path==='/api/auto-ut/reports'?[run]:undefined);
  try{const d=open(dom,'auto-ut');await pause();const rows=d.querySelectorAll('.studio-ut .qw-table tbody tr');assert.equal(rows.length,2);assert.match(rows[0].textContent,/完整验证 · 75%/);assert.equal(rows[0].querySelector('[role="progressbar"]').getAttribute('aria-valuenow'),'75');assert.equal(rows[0].querySelector('[data-governance-detail]').dataset.governanceDetail,'current');assert.match(rows[1].textContent,/未开始/);assert.equal(rows[1].querySelector('[data-governance-detail]'),null);rows[0].querySelector('[data-governance-detail]').click();await pause();assert.equal(dom.window.location.hash,'#/automation/tasks');assert.match(d.querySelector('.ut-task-detail').textContent,/完整回归中/);}finally{dom.window.close();}
 });
+
+test('执行记录单条停止删除与按当前筛选批量清理，确认取消不请求',async()=>{
+ let tasks=[{id:'11111111-1111-4111-8111-111111111111',repository:'Demo',reportVersion:'R27C10',status:'MR_PENDING',nextStage:'TRACK',progress:92,governance:{mrState:'PENDING'}}];
+ let quality=[{id:'22222222-2222-4222-8222-222222222222',status:'RUNNING',createdAt:new Date().toISOString(),input:{versions:['R27C10']}}];const requests=[];let confirmed=false,prompt='';
+ const dom=page((path,o)=>{if(path==='/api/auto-ut/tasks')return tasks;if(path==='/api/quality/jobs')return quality;if(path==='/api/automation/records/cleanup'){const {entries}=JSON.parse(o.body);requests.push(entries);tasks=tasks.filter(t=>!entries.some(e=>e.kind==='ut'&&e.id===t.id));quality=quality.filter(t=>!entries.some(e=>e.kind==='quality'&&e.id===t.id));return{deleted:entries,failed:[]};}});
+ try{dom.window.confirm=text=>{prompt=text;return confirmed;};const d=open(dom,'auto-ut');await pause();d.querySelector('[data-automation-nav="tasks"]').click();await pause();assert.equal(d.querySelectorAll('[data-delete-record]').length,2);d.querySelector('[data-record-kind="ut"]').click();await pause();assert.equal(requests.length,0);confirmed=true;d.querySelector('[data-record-kind="ut"]').click();await pause();assert.match(prompt,/先停止/);assert.equal(requests[0][0].kind,'ut');assert.equal(d.querySelectorAll('[data-record-kind="ut"]').length,0);
+ const filter=d.querySelector('#studio-record-kind');filter.value='quality';filter.dispatchEvent(new dom.window.Event('change'));d.querySelector('[data-cleanup-records]').click();await pause();assert.deepEqual(requests[1],[{kind:'quality',id:'22222222-2222-4222-8222-222222222222'}]);assert.match(d.body.textContent,/暂无执行记录/);
+ }finally{dom.window.close();}
+});
+test('批量清理逐项失败显示原因，失败记录保留',async()=>{
+ const task={id:'11111111-1111-4111-8111-111111111111',repository:'Demo',reportVersion:'R27C10',status:'WAITING_EXTERNAL',nextStage:'VERIFY',message:'待处理'};
+ const dom=page(path=>path==='/api/auto-ut/tasks'?[task]:path==='/api/automation/records/cleanup'?{deleted:[],failed:[{kind:'ut',id:task.id,message:'进程停止失败'}]}:undefined);
+ try{dom.window.confirm=()=>true;const d=open(dom,'auto-ut');await pause();d.querySelector('[data-automation-nav="tasks"]').click();await pause();d.querySelector('[data-cleanup-records]').click();await pause();assert.match(d.querySelector('[role="alert"]').textContent,/进程停止失败/);assert.equal(d.querySelectorAll('[data-delete-record]').length,1);assert.equal(d.querySelector('[data-cleanup-records]').disabled,false);}finally{dom.window.close();}
+});

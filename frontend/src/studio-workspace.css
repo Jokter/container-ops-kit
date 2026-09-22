@@ -24,3 +24,5 @@
 .studio-record-table .governance-mr summary{white-space:normal;overflow-wrap:anywhere}
 .studio-task-detail .ut-task-detail-head>div:first-child{min-width:0}
 .studio-task-detail .ut-task-detail-head p{overflow-wrap:anywhere}
+
+.studio-delete-record{display:block;margin-top:7px;color:#b66b60}.studio-delete-record:disabled{opacity:.5;cursor:wait}
