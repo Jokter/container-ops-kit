@@ -1,3 +1,4 @@
+import {languageSettingsRoutes} from './modules/automation/language-settings.js';
 import {AutomationRecords,automationRecordRoutes} from './modules/automation/records.js';
 import {dtsRoutes} from './modules/autout/dts.js';
 import {UnifiedSchedules,scheduleRoutes} from './modules/automation/schedules.js';
@@ -52,6 +53,7 @@ export async function createApp(config: Config) {
   app.get('/api/health', async () => ({status:'UP'}));
   taskRoutes(app, runner);
   dtsRoutes(app,store);
+  languageSettingsRoutes(app,autoUt.languageSettings);
   environmentRoutes(app,environments,ssh);buildRoutes(app,builds);await autoUtRoutes(app,autoUt,schedules);containerResourceRoutes(app,containers);deploymentRoutes(app,deployments);
   return app;
 }

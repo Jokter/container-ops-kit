@@ -48,7 +48,9 @@ const fs=require('node:fs');const args=process.argv.slice(2);if(args.includes('-
 const file=args[args.indexOf('--session')+1];let input='';process.stdin.on('data',chunk=>{input+=chunk;if(!input.includes('\\n'))return;const message=JSON.parse(input).message;fs.appendFileSync(file,JSON.stringify({message})+'\\n');console.log(JSON.stringify({type:'agent_end'}));});
 `);await chmod(executable,0o755);
  const prompt=join(root,'prompt.md'),first=task(root),second=task(root,'other-task');await writeFile(prompt,'first repair');
+ service.languageSettings.save({java:{mavenRepository:'D:/Maven Cache/repository'}});
  assert.equal((await service['runPi'](first,root,prompt)).exitCode,0);const file=service['piSessionFile'](first);
+ const firstMessage=JSON.parse((await readFile(file,'utf8')).trim()).message;assert.ok(firstMessage.includes(JSON.stringify('D:\\Maven Cache\\repository')));assert.match(firstMessage,/禁止 find \//);
  await service.close();service=new AutoUtService(store,undefined,false);await writeFile(prompt,'retry with new failure');
  assert.equal((await service['runPi'](first,root,prompt)).exitCode,0);assert.equal((await readFile(file,'utf8')).trim().split('\n').length,2);
  assert.equal((await service['runPi'](second,root,prompt)).exitCode,0);assert.notEqual(file,service['piSessionFile'](second));assert.equal((await readFile(service['piSessionFile'](second),'utf8')).trim().split('\n').length,1);
