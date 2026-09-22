@@ -53,7 +53,7 @@ test('工具详情与不跟随选择持久化，重新打开页面恢复',async(
   let saved
   try{
     first.d.querySelector('[data-ut-entry] summary').click()
-    first.d.querySelector('[data-ut-follow]').click()
+    assert.equal(first.d.querySelector('[data-ut-follow]').checked,false)
     await pause()
     saved=first.dom.window.sessionStorage.getItem('ut-view:agent-ui')
     assert.equal(JSON.parse(saved).follow,false)
@@ -125,12 +125,37 @@ test('拖动滚动条期间延迟实时刷新，松开后更新且保留滚动�
   }finally{dom.window.close()}
 })
 
+test('流式更新保留历史节点、工具详情和输入，主界面隐藏轮次',async()=>{
+  const {dom,d,emit}=await setup()
+  try{
+    emit({sequence:1,type:'message_delta',content:'已定位失败原因'})
+    emit({sequence:2,type:'tool_start',toolCallId:'read-1',toolName:'read',content:'ExampleTest.java'})
+    await pause()
+    const first=d.querySelector('[data-ut-event]')
+    const detail=d.querySelector('[data-ut-entry]')
+    detail.querySelector('summary').click()
+    await pause()
+    const input=detail.querySelector('pre')
+    emit({sequence:3,type:'tool_output',toolCallId:'read-1',content:'文件内容'})
+    emit({sequence:4,type:'status',content:'第 2 轮修复完成，等待完整验证。'})
+    await pause()
+    assert.equal(d.querySelector('[data-ut-event]'),first)
+    assert.equal(d.querySelector('[data-ut-entry]'),detail)
+    assert.equal(detail.open,true)
+    assert.equal(d.querySelector('[data-ut-follow]').checked,false)
+    assert.match(detail.textContent,/文件内容/)
+    assert.doesNotMatch(d.querySelector('.auto-ut-live-head').textContent,/第 2 轮/)
+    assert.equal(input.isConnected,false) // Only the changed tool body is patched.
+  }finally{dom.window.close()}
+})
+
 test('完成任务显示独立结果区和 MR，不编造覆盖率结果',async()=>{
   const {dom,d,task}=await setup()
   try{
     d.querySelector('[data-auto-ut-detail-tab="process"]').click()
     assert.match(d.querySelector('.ut-agent-overview').textContent,/80.0%/)
     assert.match(d.querySelector('.ut-agent-overview').textContent,/70.0%/)
+    assert.doesNotMatch(d.querySelector('.ut-agent-overview').textContent,/修复轮次/)
     Object.assign(task,{status:'RESOLVED',nextStage:'DONE',progress:100,message:'验证通过，已创建 MR',pullRequestUrl:'https://example.com/mr/1'})
     await new Promise(resolve=>setTimeout(resolve,1500))
     assert.match(d.querySelector('.ut-agent-result').textContent,/验证通过，已创建 MR/)

@@ -30,3 +30,11 @@
 @media(max-width:1250px){.ut-task-workspace{grid-template-columns:1fr}.ut-task-list{border-right:0}.ut-task-detail{border-top:1px solid var(--line)}.ut-task-main-layout{grid-template-columns:1fr}.ut-task-context{margin:0 24px 24px}.ut-task-context .ut-task-meta{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:780px){.ut-task-detail-head,.ut-task-detail-body{padding:16px}.ut-agent-feed{padding:16px 12px}.ut-agent-overview{grid-template-columns:repeat(2,minmax(0,1fr))}.ut-agent-event>header,.ut-agent-event summary{flex-wrap:wrap}.ut-task-detail-tabs{gap:16px}.ut-agent-toolbar>span{display:none}.ut-task-history-line{grid-template-columns:1fr}.ut-task-timeline>div{font-size:11px}.ut-task-context .ut-task-meta{grid-template-columns:1fr}.ut-task-context{margin:0 16px 16px}}
 @media(max-width:780px){.ut-task-list-head{display:none}.ut-task-row{grid-template-columns:1fr auto}.ut-task-stage,.ut-task-progress{grid-column:1/-1}.ut-task-timeline{grid-template-columns:repeat(3,1fr);row-gap:17px}.ut-task-meta{display:grid}.ut-task-current{align-items:flex-start;flex-wrap:wrap}.ut-task-toolbar .qw-search{width:100%}}
+
+/* Execution records share one scroll container; context stays visually quiet. */
+.ut-agent-overview{grid-template-columns:repeat(3,minmax(0,1fr))}
+.ut-task-context{border:0;background:transparent;padding:4px 0 0 8px}
+.ut-agent-feed{scrollbar-gutter:stable;min-height:220px}
+.ut-agent-event:has(.ut-agent-tool-body){padding-bottom:14px}
+.ut-agent-event:has(.ut-agent-tool-body):before{width:6px;height:6px;left:-3px;top:8px;border:0;background:#94a3b8}
+@media(max-width:780px){.ut-agent-overview{grid-template-columns:1fr}.ut-task-context{padding:0}.ut-agent-feed{max-height:460px}}
