@@ -68,6 +68,24 @@ test('repair cap and identical successive failures pause automation',async()=>{
 test('recover upload finds an existing MR without repeating the write',async()=>{
  const f=fixture();f.task.mr!.iid='';f.task.mr!.writePending='upload';assert.equal(await f.workflow.recoverUpload(f.task),true);assert.equal(f.task.mr!.iid,'7');assert.equal(f.task.mr!.writePending,undefined);assert.ok(!f.calls.some(c=>c.includes('upload')));
 });
+test('MR recovery queries lowercase opened and ignores historical or unrelated MRs',async()=>{
+ for(const state of ['closed','merged','locked']){
+  const f=fixture();f.task.mr!.iid='';f.task.pullRequestUrl='';f.view.state=state;
+  assert.equal(await f.workflow.recoverUpload(f.task),false,state);assert.equal(f.task.mr!.iid,'');
+  const command=f.calls[0]!;assert.equal(command[command.indexOf('--state')+1],'opened');
+ }
+ const f=fixture();f.task.mr!.iid='';f.hooks.run=async()=>({exitCode:0,output:JSON.stringify([
+  {...f.view,iid:1,state:'merged'}, {...f.view,iid:2,state:'closed'},
+  {...f.view,iid:3,source_branch:'another'}, {...f.view,iid:4,target_branch:'another'}, f.view
+ ])});
+ assert.equal(await f.workflow.recoverUpload(f.task),true);assert.equal(f.task.mr!.iid,'7');
+});
+test('MR recovery permits an empty opened list but refuses ambiguous opened matches',async()=>{
+ const f=fixture();f.hooks.run=async()=>({exitCode:0,output:'[]'});assert.equal(await f.workflow.recoverUpload(f.task),false);
+ f.hooks.run=async()=>({exitCode:0,output:JSON.stringify([f.view,{...f.view,iid:8}])});
+ await assert.rejects(f.workflow.recoverUpload(f.task),/多个 opened MR/);
+});
+
 test('setup failures preserve IID and stop on unauthorized personnel',async()=>{
  const f=fixture();f.task.mr!.phase='SETUP';f.view.approval_merge_request_reviewers=[];f.setFailUpdate();await assert.rejects(f.workflow.setup(f.task),/permission denied/);assert.equal(f.task.mr!.iid,'7');assert.equal(f.task.mr!.writePending,'reviewers');await f.workflow.tick(f.task,now);assert.equal(f.task.mr!.paused,true);assert.equal(f.calls.filter(c=>c.includes('update')).length,1);
 });

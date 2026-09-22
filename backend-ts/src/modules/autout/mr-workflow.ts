@@ -29,9 +29,9 @@ export class MrWorkflow {
  private pending(task:AutoUtTask,action:string){task.mr!.writePending=action;this.save(task);}
  private done(task:AutoUtTask){delete task.mr!.writePending;this.save(task);}
  async recoverUpload(task:AutoUtTask):Promise<boolean>{
-  const response=await this.command(task,['mr','list','--state','all','--source-branch',task.repairBranch,'--target-branch',task.baseBranch,'--limit','100'],'核对已有MR');
-  const candidates=listObjects(response.output).map(v=>mrSchema.parse(v)).filter(m=>m.source_branch===task.repairBranch&&m.target_branch===task.baseBranch);
-  if(candidates.length>1)throw Error('修复分支匹配到多个 MR，请人工核对，禁止重复创建。');
+  const response=await this.command(task,['mr','list','--state','opened','--source-branch',task.repairBranch,'--target-branch',task.baseBranch,'--limit','100'],'核对已有MR');
+  const candidates=listObjects(response.output).map(v=>mrSchema.parse(v)).filter(m=>m.state==='opened'&&m.source_branch===task.repairBranch&&m.target_branch===task.baseBranch);
+  if(candidates.length>1)throw Error('修复分支匹配到多个 opened MR，请人工核对，禁止重复创建。');
   if(!candidates.length)return false;
   this.attach(task,candidates[0]!);return true;
  }
