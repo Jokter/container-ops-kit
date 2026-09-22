@@ -6,7 +6,9 @@ import {canConvertFailedQuickDeploymentToReview, canDeployReviewedTask, deployme
   const typeMap = {BUILD: 'build', CONTAINER: 'container'}
 
   async function request(url, options) {
-    const response = await fetch(url, Object.assign({headers: {'Content-Type': 'application/json'}}, options || {}))
+    const headers = new Headers(options?.headers)
+    if (typeof options?.body === 'string' && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
+    const response = await fetch(url, {...options, headers})
     if (!response.ok) {
       const body = await response.json().catch(() => ({message: '请求失败'}))
       throw new Error(body.message || '请求失败')
@@ -469,8 +471,9 @@ import {canConvertFailedQuickDeploymentToReview, canDeployReviewedTask, deployme
 
   compareBuildForm = function () {
     const configuration = buildRuntime.configuration
-    return '<form id="compare-build-form"><div class="resource-grid"><section class="panel"><div class="panel-head"><h2>基准版本 A</h2><span class="badge violet">左侧</span></div><div class="panel-body"><div class="form-grid">'
+    return '<form id="compare-build-form"><section class="panel" style="margin-bottom:16px"><div class="panel-head"><h2>公共构建配置</h2><span class="badge">A / B 共用</span></div><div class="panel-body"><div class="form-grid">'
       + buildModuleField(configuration)
+      + '</div></div></section><div class="resource-grid"><section class="panel"><div class="panel-head"><h2>基准版本 A</h2><span class="badge violet">左侧</span></div><div class="panel-body"><div class="form-grid">'
       + buildBranchField('CBB-Web-Dev 仓库', configuration?.cbbWebDevRepository, 'baselineCbbWebDevBranch', configuration?.defaultBranch)
       + buildBranchField('ArchDesign 仓库', configuration?.archDesignRepository, 'baselineArchDesignBranch', configuration?.defaultBranch)
       + '</div></div></section><section class="panel"><div class="panel-head"><h2>验证版本 B</h2><span class="badge green">右侧</span></div><div class="panel-body"><div class="form-grid">'
