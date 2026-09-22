@@ -18,3 +18,8 @@ test('带输入的 RPC 子进程保持 stdin 打开直到终止事件',async t=>
  const result=await runProcess([process.execPath,helper],root,5000,undefined,line=>line==='OPEN','prompt\n');
  assert.equal(result.exitCode,0);assert.match(result.output,/OPEN/);assert.doesNotMatch(result.output,/CLOSED/);
 });
+
+test('已取消信号不会启动子进程',async t=>{
+ const root=await mkdtemp(join(tmpdir(),'process-abort-'));t.after(()=>rm(root,{recursive:true,force:true}));const abort=new AbortController();abort.abort();
+ await assert.rejects(runProcess([process.execPath,'-e','setInterval(()=>{},1000)'],root,5000,undefined,undefined,undefined,abort.signal),{name:'AbortError'});
+});

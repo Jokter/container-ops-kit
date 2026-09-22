@@ -19,7 +19,7 @@ test('同仓库不同版本的任务进度都显示且不提供 CSV 导入',asyn
 });
 test('任务进度使用列表与详情布局并展示按版本隔离的实际目录',async()=>{
  const tasks=[{id:'running',repository:'RunRepo',reportVersion:'R27C10',status:'REPAIRING',nextStage:'REPAIR',progress:45,workspaceRoot:'/tmp',workspacePath:'/tmp/R27C10/runrepo',repairBranch:'repair-run',message:'正在执行 Pi 修复。'},{id:'waiting',repository:'WaitRepo',reportVersion:'R27C00',status:'WAITING_EXTERNAL',nextStage:'VERIFY',progress:70,workspaceRoot:'/tmp',workspacePath:'/tmp/R27C00/waitrepo',repairBranch:'repair-wait',message:'验证失败，请处理。'}];
- const dom=page(path=>path==='/api/auto-ut/tasks'?tasks:undefined);try{const d=open(dom,'auto-ut');await pause();d.querySelector('[data-qw-auto-tab="tasks"]').click();assert.equal(d.querySelectorAll('.ut-task-row').length,2);assert.equal(d.querySelectorAll('.ut-task-timeline>div').length,5);assert.match(d.querySelector('.ut-task-meta').textContent,/实际工作目录.*R27C10\/runrepo/);assert.deepEqual([...d.querySelectorAll('[data-auto-ut-detail-tab]')].map(x=>x.textContent),['执行概览','执行记录','原始日志']);d.querySelector('[data-auto-ut-select="waiting"]').click();assert.match(d.querySelector('.ut-task-detail').textContent,/重试当前步骤/);assert.match(d.querySelector('.ut-task-meta').textContent,/R27C00\/waitrepo/);const status=d.querySelector('#qw-task-status');status.value='waiting';status.dispatchEvent(new dom.window.Event('change'));assert.equal(d.querySelectorAll('.ut-task-row').length,1);assert.match(d.querySelector('.ut-task-row').textContent,/WaitRepo/);assert.doesNotMatch(d.body.textContent,/删除任务和代码|打开 CodeHub MR/);}finally{dom.window.close();}
+ const dom=page(path=>path==='/api/auto-ut/tasks'?tasks:undefined);try{const d=open(dom,'auto-ut');await pause();d.querySelector('[data-qw-auto-tab="tasks"]').click();assert.equal(d.querySelectorAll('.ut-task-row').length,2);assert.equal(d.querySelectorAll('.ut-task-timeline>div').length,5);assert.equal(d.querySelector('[data-auto-ut-delete]').disabled,false);assert.equal(d.querySelector('[data-auto-ut-delete]').textContent,'停止并删除');assert.match(d.querySelector('.ut-task-meta').textContent,/实际工作目录.*R27C10\/runrepo/);assert.deepEqual([...d.querySelectorAll('[data-auto-ut-detail-tab]')].map(x=>x.textContent),['执行概览','执行记录','原始日志']);d.querySelector('[data-auto-ut-select="waiting"]').click();assert.match(d.querySelector('.ut-task-detail').textContent,/重试当前步骤/);assert.match(d.querySelector('.ut-task-meta').textContent,/R27C00\/waitrepo/);const status=d.querySelector('#qw-task-status');status.value='waiting';status.dispatchEvent(new dom.window.Event('change'));assert.equal(d.querySelectorAll('.ut-task-row').length,1);assert.match(d.querySelector('.ut-task-row').textContent,/WaitRepo/);assert.doesNotMatch(d.body.textContent,/删除任务和代码|打开 CodeHub MR/);}finally{dom.window.close();}
 });
 test('UT 任务可手动删除记录与 clone 代码目录',async()=>{
  const task={id:'11111111-1111-4111-8111-111111111111',repository:'Demo',reportVersion:'R27C10',status:'RESOLVED',nextStage:'DONE',progress:100,workspaceRoot:'/tmp',repairBranch:'repair',message:'完成'};let tasks=[task],deleted='';const dom=page((path,o)=>{if(path==='/api/auto-ut/tasks')return tasks;if(path===`/api/auto-ut/tasks/${task.id}`&&o?.method==='DELETE'){deleted=path;tasks=[];return{id:task.id,workspace:'/tmp/R27C10/demo',workspaceDeleted:true};}});
@@ -94,5 +94,26 @@ test('选择框点击外部收起，内部多选保留展开，切换选择框�
  picker('versions').querySelector('summary').click();d.querySelector('[data-qw-tab="api"]').click();assert.equal(picker('versions').open,false);assert.equal(d.querySelector('[data-qw-tab="api"]').getAttribute('aria-pressed'),'true');
  picker('versions').querySelector('summary').click();d.querySelector('#qw-add-versions').focus();d.dispatchEvent(new dom.window.KeyboardEvent('keydown',{key:'Escape'}));assert.equal(picker('versions').open,false);assert.equal(d.activeElement,picker('versions').querySelector('summary'));
  assert.equal(d.querySelector('.platform-switch').tagName,'NAV');assert.equal(d.querySelector('[data-platform-domain="automation"]').getAttribute('aria-current'),'page');d.querySelector('[data-platform-domain="container"]').click();assert.equal(d.querySelector('[data-platform-domain="container"]').getAttribute('aria-current'),'page');
+ }finally{dom.window.close();}
+});
+
+test('执行设置自动建单回填单号，保留用户名目录并阻止重复点击',async()=>{
+ let calls=0;
+ const dom=page(path=>path==='/api/auto-ut/tickets'?(calls++,{ticket:'DTS2609220015806',status:'READY',message:'单号已填入'}):undefined);
+ try{const d=open(dom,'auto-ut');await pause();d.querySelector('[data-qw-drawer="execution"]').click();
+ const ticket=d.querySelector('#auto-ut-ticket');ticket.value='';ticket.dispatchEvent(new dom.window.Event('input'));
+ d.querySelector('#auto-ut-create-ticket').click();assert.equal(d.querySelector('#auto-ut-create-ticket').disabled,true);await pause();
+ assert.equal(d.querySelector('#auto-ut-ticket').value,'DTS2609220015806');assert.equal(d.querySelector('#auto-ut-username').value,'tester');assert.match(d.querySelector('.auto-ut-workspace').textContent,/\/tmp/);
+ d.querySelector('#auto-ut-create-ticket').click();await pause();assert.equal(calls,1);
+ }finally{dom.window.close();}
+});
+
+test('DTS Token 仅在密码框输入，保存后不回显并支持清除',async()=>{
+ let configured=false,received='';
+ const dom=page((path,options)=>{if(path!=='/api/auto-ut/dts-settings')return;if(options?.method==='PUT'){received=JSON.parse(options.body).token;configured=true;}if(options?.method==='DELETE')configured=false;return{configured};});
+ try{const d=open(dom,'auto-ut');await pause();d.querySelector('[data-qw-drawer="execution"]').click();d.querySelector('#dts-configure').click();await pause();
+ assert.equal(d.querySelector('#dts-token').type,'password');assert.match(d.querySelector('#dts-status').textContent,/未配置/);
+ d.querySelector('#dts-token').value='test-secret-token';d.querySelector('#dts-save').click();await pause();assert.equal(received,'test-secret-token');assert.equal(d.querySelector('#dts-token').value,'');assert.match(d.querySelector('#dts-status').textContent,/已配置/);assert.ok(!d.documentElement.outerHTML.includes('test-secret-token'));assert.ok(!JSON.stringify(dom.window.sessionStorage).includes('test-secret-token'));
+ d.querySelector('#dts-clear').click();await pause();assert.match(d.querySelector('#dts-status').textContent,/未配置/);
  }finally{dom.window.close();}
 });

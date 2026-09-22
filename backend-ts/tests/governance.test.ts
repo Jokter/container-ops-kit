@@ -75,7 +75,7 @@ test('候选类排除已有测试引用、DTO 和生成类，按配置限制数�
 });
 test('开始核验前清理陈旧 XML，命令只运行 Maven UT 且关闭 JaCoCo',async t=>{
  const {root,service}=await fixture(t),value=task(root),dir=join(root,'target/surefire-reports');await mkdir(dir,{recursive:true});const report=join(dir,'TEST-Demo.xml');await writeFile(report,'<testsuite/>');
- service['command']=async(_task,command)=>{assert.ok(command.includes('clean'));assert.ok(command.includes('-Djacoco.skip=true'));assert.ok(command.includes('.ci/settings.xml'));assert.equal(command[0],'mvn');await assert.rejects(readFile(report));await writeFile(report,'<testsuite><testcase classname="DemoTest" name="works"/></testsuite>');return{exitCode:0,output:'BUILD SUCCESS'};};
+ service['command']=async(_task,command)=>{if(command.includes('test-compile')){assert.ok(command.includes('-DskipTests'));return{exitCode:0,output:'BUILD SUCCESS'};}assert.ok(command.includes('clean'));assert.ok(command.includes('-Djacoco.skip=true'));assert.ok(command.includes('.ci/settings.xml'));assert.equal(command[0],'mvn');await assert.rejects(readFile(report));await writeFile(report,'<testsuite><testcase classname="DemoTest" name="works"/></testsuite>');return{exitCode:0,output:'BUILD SUCCESS'};};
  assert.equal((await service['baseline'](value,service['repository']('Demo')!,root)).tests,1);
 });
 test('成果统计去重并排除失败、误报和已关闭 MR，连续天数按实际启动计算',()=>{
@@ -89,4 +89,12 @@ test('清理任务后保留成果和 MR 阻断记录，确认合并后解除阻�
  await service.deleteTask(value.id);
  assert.equal(service.governanceSummary().metrics.fixedCases,1);assert.equal(service.blocksRepository('Demo','R27C10','main'),true);
  service.resolveMr(value.id,'MERGED');assert.equal(service.blocksRepository('Demo','R27C10','main'),false);
+});
+
+test('基线检查前刷新 Maven 依赖并预编译，准备失败时不运行 UT',async t=>{
+ const {root,service}=await fixture(t),value=task(root),repository=service['repository']('Demo')!,calls:string[]=[];
+ service['command']=async(_task,command,directory,_timeout,label)=>{assert.equal(directory,root);assert.deepEqual(command,['mvn','-B','-ntp','-U','-s','.ci/settings.xml','test-compile','-DskipTests','-Djacoco.skip=true']);calls.push(label);return{exitCode:0,output:''};};
+ service['testEvidence']=async()=>{calls.push('UT');return{exitCode:0,evidence:passed};};
+ assert.equal(await service['baseline'](value,repository,root),passed);assert.deepEqual(calls,['刷新Maven依赖与预编译','UT']);
+ calls.length=0;service['command']=async()=>{throw Error('依赖下载失败');};await assert.rejects(service['baseline'](value,repository,root),/依赖下载失败/);assert.deepEqual(calls,[]);
 });

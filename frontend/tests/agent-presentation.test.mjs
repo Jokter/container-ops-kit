@@ -164,3 +164,24 @@ test('完成任务显示独立结果区和 MR，不编造覆盖率结果',async(
     assert.doesNotMatch(d.querySelector('.ut-agent-result').textContent,/83.6|74.2/)
   }finally{dom.window.close()}
 })
+
+
+test('原始日志合并超过两百个回复片段，工具输出保留最终快照',async()=>{
+  const {dom,d,emit}=await setup()
+  try{
+    emit({sequence:1,type:'message_start'})
+    for(let i=0;i<250;i++)emit({sequence:i+2,type:'message_delta',content:i===0?'开始：':'字'})
+    emit({sequence:252,type:'message_end'})
+    emit({sequence:253,type:'tool_start',toolCallId:'bash-1',toolName:'bash',content:'mvn test'})
+    emit({sequence:254,type:'tool_output',toolCallId:'bash-1',content:'临时输出',replace:true})
+    emit({sequence:255,type:'tool_end',toolCallId:'bash-1',content:'测试通过',replace:true})
+    await pause()
+    d.querySelector('[data-auto-ut-detail-tab="history"]').click()
+    const log=d.querySelector('.ut-agent-raw').textContent
+    assert.ok(log.includes('开始：'+'字'.repeat(249)))
+    assert.match(log,/工具 bash.*完成/)
+    assert.match(log,/mvn test/)
+    assert.match(log,/测试通过/)
+    assert.doesNotMatch(log,/message_delta|临时输出/)
+  }finally{dom.window.close()}
+})

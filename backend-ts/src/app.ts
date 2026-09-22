@@ -1,3 +1,4 @@
+import {dtsRoutes} from './modules/autout/dts.js';
 import {UnifiedSchedules,scheduleRoutes} from './modules/automation/schedules.js';
 import Fastify from 'fastify';
 import {ZodError} from 'zod';
@@ -49,6 +50,7 @@ export async function createApp(config: Config) {
   app.get('/api/platform/health', async () => ({status:'UP',backend:'typescript',migrationStage:'complete'}));
   app.get('/api/health', async () => ({status:'UP'}));
   taskRoutes(app, runner);
+  dtsRoutes(app,store);
   environmentRoutes(app,environments,ssh);buildRoutes(app,builds);await autoUtRoutes(app,autoUt,schedules);containerResourceRoutes(app,containers);deploymentRoutes(app,deployments);
   return app;
 }

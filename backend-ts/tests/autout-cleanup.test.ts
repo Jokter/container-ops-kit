@@ -26,3 +26,14 @@ test('定时清理只删除超过保留期的可清理任务',async t=>{
  const result=await service.cleanup(30,new Date('2026-03-01T00:00:00.000Z'));
  assert.deepEqual(result.deleted,[old.id]);assert.equal(result.failed.length,0);assert.throws(()=>service.get(old.id),/不存在/);assert.equal(service.get(recent.id).workspacePath,autoUtWorkspace(recent));assert.equal(service.get(paused.id).id,paused.id);
 });
+
+test('执行中删除先停止子进程，不进入下一阶段，也不重建任务记录',async t=>{
+ const{root,store,service}=await fixture(t),value=task('55555555-5555-4555-8555-555555555555',root,'RunningRepo','DISCOVERED',new Date().toISOString()),workspace=autoUtWorkspace(value);
+ value.nextStage='PREPARE';value.executionMode='AUTOMATIC';await mkdir(workspace,{recursive:true});store.putRecord('auto-ut-task',value.id,value);
+ const helper=join(root,'running.mjs'),pidFile=join(root,'pid');await writeFile(helper,`import {writeFileSync} from 'node:fs';writeFileSync(${JSON.stringify(pidFile)},String(process.pid));setInterval(()=>{},1000);`);
+ service['prepare']=async task=>{await service['command'](task,[process.execPath,helper],workspace,10000,'测试阻塞命令');};
+ let baseline=false;service['baseline']=async()=>{baseline=true;throw Error('不应进入基线');};
+ service['schedule'](value,service['repository']('RunningRepo')!);
+ const {readFile}=await import('node:fs/promises');let pid=0;for(let i=0;i<200&&!pid;i++){pid=Number(await readFile(pidFile,'utf8').catch(()=>''));if(!pid)await new Promise(r=>setTimeout(r,10));}assert.ok(pid);
+ await service.deleteTask(value.id);assert.throws(()=>process.kill(pid,0));assert.equal(baseline,false);await assert.rejects(stat(workspace));assert.throws(()=>service.get(value.id),/不存在/);assert.equal(service['running'].has(value.id),false);
+});
