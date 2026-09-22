@@ -47,3 +47,14 @@ test('native task API validates input, persists lifecycle and replays SSE', asyn
   assert.equal(cancelled.json<Task>().status, 'SUCCEEDED', 'cancel cannot rewrite a terminal result');
   assert.equal((await app.inject(`/api/platform/tasks/${task.id}/events?afterSequence=-1`)).statusCode, 400);
 });
+
+test('MR settings API persists roles and validates controls',async t=>{
+ const app=await createApp({...readConfig({}),database:':memory:',workers:1,taskTimeoutMs:5000});t.after(()=>app.close());
+ const config=(await app.inject('/api/auto-ut/mr-settings')).json();
+ config.roles={reviewers:['r123'],approvers:['a123'],assignees:['m123']};config.repositories=[{repository:'Demo',roles:{reviewers:['r456']}}];
+ assert.equal((await app.inject({method:'PUT',url:'/api/auto-ut/mr-settings',payload:config})).statusCode,200);
+ assert.deepEqual((await app.inject('/api/auto-ut/mr-settings')).json().roles,config.roles);
+ assert.equal((await app.inject({method:'PUT',url:'/api/auto-ut/mr-settings',payload:{...config,maxRepairRounds:0}})).statusCode,400);
+ assert.equal((await app.inject({method:'POST',url:'/api/auto-ut/tasks/missing/mr-control',payload:{action:'force-merge'}})).statusCode,400);
+ assert.equal((await app.inject({method:'POST',url:'/api/auto-ut/tasks/missing/mr-control',payload:{action:'check'}})).statusCode,404);
+});

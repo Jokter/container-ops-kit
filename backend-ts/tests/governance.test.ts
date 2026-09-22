@@ -1,3 +1,4 @@
+import {newTracking} from '../src/modules/autout/mr-workflow.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,writeFile,rm,readFile} from 'node:fs/promises';
@@ -51,7 +52,7 @@ test('报告误报失败而实际通过时不调用 Pi、不创建分支或 MR',
  service['checkoutBranch']=async()=>{throw new Error('不应创建分支');};
  service['repair']=async()=>{throw new Error('不应调用 Pi');};
  await service['execute'](value,service['repository']('Demo')!);
- assert.equal(value.status,'RESOLVED');assert.equal(value.nextStage,'DONE');assert.equal(value.pullRequestUrl,'');
+ assert.equal(value.status,'NO_CHANGE');assert.equal(value.nextStage,'DONE');assert.equal(value.pullRequestUrl,'');
  assert.equal(service.governanceSummary().metrics.fixedCases,0);
 });
 test('报告失败数不一致也按实际失败修复，不阻断任务',async t=>{
@@ -84,11 +85,13 @@ test('成果统计去重并排除失败、误报和已关闭 MR，连续天数�
  assert.deepEqual(governanceMetrics(records,new Date('2026-09-22T03:00:00Z')),{streak:2,fixedServices:1,fixedCases:1,supplementedServices:1,addedCases:1});
  records[0]!.governance.mrState='CLOSED';records[1]!.status='WAITING_EXTERNAL';assert.equal(governanceMetrics(records).fixedCases,0);
 });
-test('清理任务后保留成果和 MR 阻断记录，确认合并后解除阻断',async t=>{
- const {root,service}=await fixture(t),value=task(root);value.status='RESOLVED';value.nextStage='DONE';value.pullRequestUrl='https://example.com/mr/1';value.governance!.mrState='PENDING';value.governance!.fixedIds=['X#test'];service['save'](value);
- await service.deleteTask(value.id);
+test('待合入任务不自动清理，远端确认合入后完成并解除阻断',async t=>{
+ const {root,service}=await fixture(t),value=task(root);value.status='MR_PENDING';value.nextStage='TRACK';value.pullRequestUrl='https://example.com/demo/merge_requests/1';value.governance!.mrState='PENDING';value.governance!.fixedIds=['X#test'];
+ value.mr=newTracking(service.mrConfiguration.snapshot('Demo'));value.mr.iid='1';service['save'](value);
  assert.equal(service.governanceSummary().metrics.fixedCases,1);assert.equal(service.blocksRepository('Demo','R27C10','main'),true);
- service.resolveMr(value.id,'MERGED');assert.equal(service.blocksRepository('Demo','R27C10','main'),false);
+ assert.equal((await service.cleanup(1,new Date('2030-01-01'))).deleted.length,0);
+ service['command']=async()=>({exitCode:0,output:JSON.stringify({iid:1,state:'merged'})});
+ await service.resolveMr(value.id,'MERGED');assert.equal(service.get(value.id).status,'RESOLVED');assert.equal(service.blocksRepository('Demo','R27C10','main'),false);
 });
 
 test('基线检查前刷新 Maven 依赖并预编译，准备失败时不运行 UT',async t=>{
@@ -97,4 +100,10 @@ test('基线检查前刷新 Maven 依赖并预编译，准备失败时不运行 
  service['testEvidence']=async()=>{calls.push('UT');return{exitCode:0,evidence:passed};};
  assert.equal(await service['baseline'](value,repository,root),passed);assert.deepEqual(calls,['刷新Maven依赖与预编译','UT']);
  calls.length=0;service['command']=async()=>{throw Error('依赖下载失败');};await assert.rejects(service['baseline'](value,repository,root),/依赖下载失败/);assert.deepEqual(calls,[]);
+});
+
+test('手动删除待合入任务保留 MR 成果记录和仓库阻断',async t=>{
+ const {root,service}=await fixture(t),value=task(root);value.status='MR_PENDING';value.nextStage='TRACK';value.pullRequestUrl='https://example.com/demo/merge_requests/1';value.governance!.mrState='PENDING';service['save'](value);
+ await service.deleteTask(value.id);
+ assert.equal(service.tasks().length,0);assert.equal(service.governanceRecords()[0]?.governance.mrState,'PENDING');assert.equal(service.blocksRepository('Demo','R27C10','main'),true);
 });

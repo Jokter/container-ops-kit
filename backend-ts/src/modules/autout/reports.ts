@@ -18,7 +18,7 @@ export function nextRun(config:{schedule:Omit<ReportConfig['schedule'],'enabled'
  for(let n=0;n<9;n++){const d=new Date(Date.UTC(wall.getUTCFullYear(),wall.getUTCMonth(),wall.getUTCDate()+n,h,m)),weekday=d.getUTCDay(),stamp=d.getTime()-offset*3600000;if(stamp<=after.getTime()||schedule.frequency==='weekdays'&&(weekday===0||weekday===6)||schedule.frequency==='weekly'&&weekday!==schedule.weekday)continue;return new Date(stamp).toISOString();}throw new Error('无法计算定时时间');
 }
 export function reportDate(config:{dateMode:ReportConfig['dateMode'];schedule:{timezone:ReportConfig['schedule']['timezone']}},now=new Date()){const offset=config.schedule.timezone==='Asia/Shanghai'?8:0;return new Date(now.getTime()+offset*3600000-(config.dateMode==='yesterday'?86400000:0)).toISOString().slice(0,10);}
-const defaults:ReportConfig={versions:[{version:'R27C10',baseBranch:''},{version:'R27C00',baseBranch:''}],dateMode:'yesterday',username:'',ticket:'',workspaceRoot:'',schedule:{enabled:false,frequency:'weekdays',weekday:1,time:'09:00',timezone:'Asia/Shanghai',action:'FETCH'}};
+const defaults:ReportConfig={versions:[{version:'R27C10',baseBranch:''},{version:'R27C00',baseBranch:''}],dateMode:'yesterday',username:'',ticket:'',workspaceRoot:'',schedule:{enabled:false,frequency:'weekdays',weekday:1,time:'09:30',timezone:'Asia/Shanghai',action:'FETCH'}};
 function executionReady(config:ReportConfig){return !!(config.username&&config.ticket&&config.workspaceRoot&&config.versions.every(v=>v.baseBranch));}
 export class AutoUtReports{
  private timer:NodeJS.Timeout;private readonly completions=new Map<string,Promise<void>>();private fetching=false;private starting=false;private pending=new Set<Promise<unknown>>();private closed=false;

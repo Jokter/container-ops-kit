@@ -30,7 +30,7 @@ export async function createApp(config: Config) {
   const schedules=new UnifiedSchedules(store,quality,reports,autoUt,logs);
   scheduleRoutes(app,schedules);qualityRoutes(app,quality);autoUtReportRoutes(app,reports,schedules);
   await deployments.cleanupPreparations();
-  app.addHook('onClose', async () => {schedules.stop();await quality.close();await reports.close();await schedules.close();autoUt.close();await builds.close();await runner.close();store.close();});
+  app.addHook('onClose', async () => {schedules.stop();await quality.close();await reports.close();await schedules.close();await autoUt.close();await builds.close();await runner.close();store.close();});
   app.addHook('onRequest', async (request, reply) => {
     // Local tools are not an authenticated multi-user service. Reject browser requests from remote origins.
     const local = (host: string) => ['localhost', '127.0.0.1', '[::1]'].includes(host);

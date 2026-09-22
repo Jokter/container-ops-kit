@@ -23,9 +23,9 @@ export class UnifiedSchedules{
  private timer:NodeJS.Timeout;private active=new Map<string,Promise<void>>();private closing=false;
  constructor(private readonly store:TaskStore,private readonly quality:QualityService,private readonly reports:AutoUtReports,private readonly autoUt:AutoUtService,private readonly logs:LogSink=noFileLogs){
   this.migrate();
-  for(const run of this.runs().filter(r=>r.status==='RUNNING')){run.status='INTERRUPTED';run.message='服务重启，原执行已中断；不自动重放';run.finishedAt=new Date().toISOString();this.saveRun(run);}
+  for(const run of this.runs().filter(r=>r.status==='RUNNING')){if(run.taskIds.length&&run.taskIds.every(id=>this.autoUt.tasks().some(t=>t.id===id&&(t.governance?.mrState==='PENDING'||['RESOLVED','NO_CHANGE'].includes(t.status)))))continue;run.status='INTERRUPTED';run.message='服务重启，原执行已中断；不自动重放';run.finishedAt=new Date().toISOString();this.saveRun(run);}
   for(const s of this.rawList()){if(s.nextRunAt&&Date.parse(s.nextRunAt)<Date.now()){this.recordSkip(s,'离线期间错过的计划已跳过');s.nextRunAt=s.enabled?scheduleTime(s):null;this.put(s);}}
-  this.timer=setInterval(()=>{try{this.tick();this.refreshRuns();}catch{this.logs.task('automation','scheduler',{message:'调度检查失败，请检查后端状态'});}},15000);this.timer.unref();
+  this.timer=setInterval(()=>{try{this.tick();this.refreshRuns();void this.autoUt.monitorMrs().catch(()=>{});}catch{this.logs.task('automation','scheduler',{message:'调度检查失败，请检查后端状态'});}},15000);this.timer.unref();
  }
  private rawList(){return this.store.records<ManagedSchedule>('automation-schedule');}
  private raw(id:string){const s=this.store.getRecord<ManagedSchedule>('automation-schedule',id);if(!s)throw error('定时任务不存在',404);return s;}
@@ -64,7 +64,7 @@ export class UnifiedSchedules{
   }catch(e){const conflict=e instanceof Error&&'statusCode' in e&&e.statusCode===409;r.status=conflict?'SKIPPED':'FAILED';r.message=conflict?'同类报告正在获取或任务创建中，本次跳过':'执行失败，请检查查询配置、执行参数和工作目录';}
   if(r.status!=='RUNNING')r.finishedAt=new Date().toISOString();this.saveRun(r);
  }
- refreshRuns(){for(const r of this.runs().filter(r=>r.status==='RUNNING'&&r.taskIds.length)){const tasks=this.autoUt.tasks().filter(t=>r.taskIds.includes(t.id));if(tasks.length!==r.taskIds.length){r.status='FAILED';r.message='关联的 UT 修复任务已被删除';r.finishedAt=new Date().toISOString();this.saveRun(r);continue;}if(tasks.some(t=>['DISCOVERED','PREPARING','BASELINE_RUNNING','REPAIRING','VERIFYING','PR_CREATING','WAITING_CONFIRMATION'].includes(t.status)))continue;r.status=tasks.every(t=>t.status==='RESOLVED')?(r.queryPartial?'PARTIAL':'SUCCEEDED'):'FAILED';r.message=r.status==='SUCCEEDED'?'全部修复任务已完成，MR 已创建':r.status==='PARTIAL'?'成功版本的修复已完成，部分版本报告查询失败':'部分任务需要人工处理，请打开关联任务';r.finishedAt=new Date().toISOString();this.saveRun(r);}}
+ refreshRuns(){for(const r of this.runs().filter(r=>r.status==='RUNNING'&&r.taskIds.length)){const tasks=this.autoUt.tasks().filter(t=>r.taskIds.includes(t.id));if(tasks.length!==r.taskIds.length){r.status='FAILED';r.message='关联的 UT 修复任务已被删除';r.finishedAt=new Date().toISOString();this.saveRun(r);continue;}if(tasks.some(t=>t.governance?.mrState==='PENDING'||['DISCOVERED','PREPARING','BASELINE_RUNNING','REPAIRING','VERIFYING','PR_CREATING','WAITING_CONFIRMATION','MR_PENDING','MR_REPAIRING'].includes(t.status)))continue;r.status=tasks.every(t=>['RESOLVED','NO_CHANGE'].includes(t.status))?(r.queryPartial?'PARTIAL':'SUCCEEDED'):'FAILED';r.message=r.status==='SUCCEEDED'?'全部治理任务已合入或无需治理':r.status==='PARTIAL'?'成功版本的修复已完成，部分版本报告查询失败':'部分任务需要人工处理，请打开关联任务';r.finishedAt=new Date().toISOString();this.saveRun(r);}}
  tick(now=new Date()){if(this.closing)return;this.refreshRuns();for(const s of this.rawList()){if(!s.enabled||!s.nextRunAt||Date.parse(s.nextRunAt)>now.getTime())continue;const due=Date.parse(s.nextRunAt);s.nextRunAt=scheduleTime(s,now);this.put(s);if(now.getTime()-due>60000)this.recordSkip(s,'错过计划时间，不补跑');else this.runNow(s.id,'SCHEDULE');}}
  stop(){this.closing=true;clearInterval(this.timer);}async close(){this.stop();await Promise.allSettled(this.active.values());}
 }

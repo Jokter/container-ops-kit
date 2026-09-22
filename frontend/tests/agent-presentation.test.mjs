@@ -161,7 +161,7 @@ test('完成任务显示独立结果区和 MR，不编造覆盖率结果',async(
     await new Promise(resolve=>setTimeout(resolve,1500))
     assert.match(d.querySelector('.ut-agent-result').textContent,/验证通过，已创建 MR/)
     assert.equal(d.querySelector('.ut-agent-result a').href,'https://example.com/mr/1')
-    assert.equal(d.querySelectorAll('.ut-task-timeline .done').length,5)
+    assert.equal(d.querySelectorAll('.ut-task-timeline .done').length,6)
     assert.doesNotMatch(d.querySelector('.ut-agent-result').textContent,/83.6|74.2/)
   }finally{dom.window.close()}
 })

@@ -43,7 +43,7 @@ export function utRegressionPassed(baseline:UtEvidence,current:UtEvidence,exitCo
  return exitCode===0&&current.tests>0&&current.failures+current.errors===0&&current.skipped<=baseline.skipped&&baseline.caseIds.every(id=>currentIds.has(id))&&[...baseline.passedIds,...baseline.failedIds].every(id=>passed.has(id));
 }
 export function governanceMetrics(records:GovernanceRecord[],now=new Date()){
- const successful=records.filter(r=>r.status==='RESOLVED'&&r.governance.mrState!=='CLOSED');
+ const successful=records.filter(r=>['RESOLVED','MR_PENDING','MR_REPAIRING'].includes(r.status)&&r.governance.mrState!=='CLOSED');
  const services=(key:'fixedIds'|'addedIds')=>new Set(successful.filter(r=>r.governance[key]?.length).map(r=>r.repository.toLowerCase())).size;
  const cases=(key:'fixedIds'|'addedIds')=>new Set(successful.flatMap(r=>(r.governance[key]??[]).map(id=>[r.repository.toLowerCase(),r.reportVersion??r.baseBranch,id].join('|')))).size;
  const day=(date:Date)=>new Date(date.getTime()+8*3600000).toISOString().slice(0,10);
