@@ -10,7 +10,7 @@ test('逐类补测试时回退失败类，保留通过类，最终统一回归',
  const {root,service}=await fixture(t),value=task(root);
  value.governance={mode:'SUPPLEMENT',coverageLow:true,maxClasses:5,baseline:passed,targets:['src/main/java/A.java','src/main/java/B.java']};
  const dir=join(root,'src/test/java');await mkdir(dir,{recursive:true});await writeFile(join(dir,'OriginalTest.java'),'original');
- let calls=0;service['runPi']=async()=>{calls++;await writeFile(join(dir,calls===1?'FailedTest.java':'AddedTest.java'),'test');await writeFile(join(dir,'OriginalTest.java'),calls===1?'bad':'original');return{exitCode:calls===1?1:0,output:''};};
+ let calls=0;service['runPi']=async()=>{calls++;await writeFile(join(dir,calls===1?'FailedTest.java':'AddedTest.java'),'class AddedTest { @Test void added() {} }');await writeFile(join(dir,'OriginalTest.java'),calls===1?'bad':'original');return{exitCode:calls===1?1:0,output:''};};
  service['inspect']=async()=>({accepted:true,changedFiles:['src/test/java/AddedTest.java'],violations:[]});
  service['testEvidence']=async()=>({exitCode:0,evidence:evidence('<testcase classname="DemoTest" name="works"/><testcase classname="AddedTest" name="new"/>')});
  await service['supplement'](value,root);
@@ -107,3 +107,4 @@ test('手动删除待合入任务保留 MR 成果记录和仓库阻断',async t=
  await service.deleteTask(value.id);
  assert.equal(service.tasks().length,0);assert.equal(service.governanceRecords()[0]?.governance.mrState,'PENDING');assert.equal(service.blocksRepository('Demo','R27C10','main'),true);
 });
+

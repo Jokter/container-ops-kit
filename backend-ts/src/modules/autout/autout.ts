@@ -1,3 +1,4 @@
+import {targetedTestCommand,mergeTargetedEvidence,testClass} from './targeted-tests.js';
 import {MrConfiguration} from './mr-settings.js';
 import {MrWorkflow,newTracking,type MrTracking} from './mr-workflow.js';
 import {parseMr,safeMrUrl} from './mr-codehub.js';
@@ -129,7 +130,7 @@ export class AutoUtService{
   if(replace&&toolCallId)task.liveEvents=task.liveEvents.filter(e=>!(e.replace&&e.type===type&&e.toolCallId===toolCallId));task.liveEvents.push(event);this.logs.task('auto-ut',task.id,{kind:'live',...event});if(task.liveEvents.length>10000)task.liveEvents.shift();this.save(task);return event;}
  private taskView(task:AutoUtTask){task.workspacePath=autoUtWorkspace(task);return task;}
  tasks(){return this.store.records<AutoUtTask>('auto-ut-task').map(task=>this.taskView(task));}get(id:string){const task=this.store.getRecord<AutoUtTask>('auto-ut-task',id);if(!task)throw Object.assign(new Error('Auto-UT 任务不存在'),{statusCode:404});return this.taskView(task);}
- async deleteTask(id:string,removeFiles=true){const task=this.get(id);if(this.deleting.has(id))throw Object.assign(new Error('任务正在停止并删除，请稍候'),{statusCode:409});const workspace=autoUtWorkspace(task),shared=this.tasks().find(other=>other.id!==id&&autoUtWorkspace(other)===workspace&&!this.terminalStatus(other.status));if(removeFiles&&shared)throw Object.assign(new Error(`工作目录正被未完成任务 ${shared.id} 使用，不能删除`),{statusCode:409});this.deleting.add(id);try{this.controllers.get(id)?.abort();await this.executions.get(id);if(removeFiles){const root=resolve(task.workspaceRoot),boundary=relative(root,workspace);if(!boundary||boundary.startsWith('..')||resolve(root,boundary)!==workspace)throw Object.assign(new Error('任务工作目录不合法，拒绝清理'),{statusCode:409});await rm(workspace,{recursive:true,force:true});await rm(join(settings.logDirectory,id),{recursive:true,force:true});}const latest=this.get(id);if(latest.status!=='RESOLVED'&&!latest.governance?.mrState)this.store.deleteRecord('auto-ut-governance',id);this.store.deleteRecord('auto-ut-task',id);this.store.putRecord('automation-record-hidden',id,{id,deletedAt:new Date().toISOString()});return{id,workspace,workspaceDeleted:removeFiles};}catch(error){if(error instanceof Error&&'statusCode' in error)throw error;throw Object.assign(new Error(`UT 修复工作目录清理失败：${error instanceof Error?error.message:'未知错误'}`),{statusCode:409});}finally{this.deleting.delete(id);}}
+ async deleteTask(id:string,removeFiles=true){const task=this.get(id);if(this.deleting.has(id))throw Object.assign(new Error('任务正在停止并删除，请稍候'),{statusCode:409});const workspace=autoUtWorkspace(task),shared=this.tasks().find(other=>other.id!==id&&autoUtWorkspace(other)===workspace&&!this.terminalStatus(other.status));if(removeFiles&&shared)throw Object.assign(new Error(`工作目录正被未完成任务 ${shared.id} 使用，不能删除`),{statusCode:409});this.deleting.add(id);try{this.controllers.get(id)?.abort();await this.executions.get(id);if(removeFiles){const root=resolve(task.workspaceRoot),boundary=relative(root,workspace);if(!boundary||boundary.startsWith('..')||resolve(root,boundary)!==workspace)throw Object.assign(new Error('任务工作目录不合法，拒绝清理'),{statusCode:409});await rm(workspace,{recursive:true,force:true});await rm(join(settings.logDirectory,id),{recursive:true,force:true});}await rm(this.piSessionFile(task),{force:true});const latest=this.get(id);if(latest.status!=='RESOLVED'&&!latest.governance?.mrState)this.store.deleteRecord('auto-ut-governance',id);this.store.deleteRecord('auto-ut-task',id);this.store.putRecord('automation-record-hidden',id,{id,deletedAt:new Date().toISOString()});return{id,workspace,workspaceDeleted:removeFiles};}catch(error){if(error instanceof Error&&'statusCode' in error)throw error;throw Object.assign(new Error(`UT 修复工作目录清理失败：${error instanceof Error?error.message:'未知错误'}`),{statusCode:409});}finally{this.deleting.delete(id);}}
  async removeExecutionRecord(id:string){if(this.store.getRecord<AutoUtTask>('auto-ut-task',id))await this.deleteTask(id,false);this.store.putRecord('automation-record-hidden',id,{id,deletedAt:new Date().toISOString()});return{id};}
  async cleanup(retentionDays:number,now=new Date()){const days=z.number().int().min(1).max(365).parse(retentionDays),cutoff=now.getTime()-days*86_400_000;const candidates=this.tasks().filter(task=>task.governance?.mrState!=='PENDING'&&Date.parse(task.updatedAt)<cutoff&&['RESOLVED','MR_CLOSED','NO_CHANGE','RETRY_PENDING','WAITING_EXTERNAL','WAITING_REPOSITORY'].includes(task.status));const deleted:string[]=[],failed:Array<{id:string;message:string}>=[];for(const task of candidates)try{await this.deleteTask(task.id);deleted.push(task.id);}catch(error){failed.push({id:task.id,message:error instanceof Error?error.message:'清理失败'});}return{retentionDays,cutoff:new Date(cutoff).toISOString(),deleted,failed};}
  private terminalStatus(status:Status){return!['DISCOVERED','PREPARING','BASELINE_RUNNING','REPAIRING','VERIFYING','PR_CREATING','MR_PENDING','MR_REPAIRING','WAITING_CONFIRMATION','WAITING_EXTERNAL'].includes(status);}
@@ -172,6 +173,23 @@ export class AutoUtService{
   if(/org[/.]jacoco[/.]agent|Could not resolve dependencies|COMPILATION ERROR|Non-resolvable parent POM/.test(evidence.details+'\n'+result.output)||result.exitCode!==0&&!evidence.failedIds.length)throw new Error('核验受阻：构建、依赖或运行环境异常，请查看 '+label+' 日志。');
   return{evidence,exitCode:result.exitCode};
  }
+ private async targetedEvidence(task:AutoUtTask,workspace:string,before:UtEvidence,paths:string[],label:string,failedClasses:string[]=[]){
+  const classes=new Set(failedClasses);
+  for(const path of paths){
+   if(!path.endsWith('.java')||!/(^|\/)src\/test\/java\//.test(path))return(await this.fullEvidence(task,workspace,before,label));
+   const content=await readFile(resolve(workspace,path),'utf8'),name=path.slice(path.lastIndexOf('/')+1,-5);
+   // Support/helper changes can affect arbitrary tests, so use the full gate for those changes.
+   if(!/@(?:Test|ParameterizedTest|RepeatedTest|TestFactory|TestTemplate)\b|extends\s+TestCase\b/.test(content))return(await this.fullEvidence(task,workspace,before,label));
+   const pkg=content.match(/^\s*package\s+([\w$.]+)\s*;/m)?.[1];classes.add(pkg?pkg+'.'+name:name);
+  }
+  if(paths.some(path=>!path.endsWith('.java'))||!classes.size)return(await this.fullEvidence(task,workspace,before,label));
+  const selected=[...classes],{evidence,exitCode}=await this.testEvidence(task,targetedTestCommand(testCommand,selected),workspace,label);
+  return mergeTargetedEvidence(before,evidence,selected,exitCode);
+ }
+ private async fullEvidence(task:AutoUtTask,workspace:string,before:UtEvidence,label:string){
+  const {evidence,exitCode}=await this.testEvidence(task,verificationCommand,workspace,label+'-共享测试文件全量验证');
+  if(!utRegressionPassed(before,evidence,exitCode))throw new Error('共享测试文件修改后回归未通过。');return evidence;
+ }
  private async selectTargets(task:AutoUtTask,workspace:string){
   const files=await this.files(workspace),tests=files.filter(p=>p.replaceAll('\\','/').includes('/src/test/')&&p.endsWith('.java'));
   const texts=await Promise.all(tests.map(p=>readFile(p,'utf8'))),candidates:string[]=[];
@@ -182,17 +200,25 @@ export class AutoUtService{
   }task.governance!.targets=candidates;this.save(task);
  }
  private async checkoutBranch(task:AutoUtTask,workspace:string){const local=await this.command(task,['git','show-ref','--verify','--quiet',`refs/heads/${task.repairBranch}`],workspace,120000,'查询本地修复分支',false);if(local.exitCode===0){await this.command(task,['git','checkout',task.repairBranch],workspace,120000,'复用本地修复分支');return;}const remote=await this.command(task,['git','ls-remote','--exit-code','--heads','origin',task.repairBranch],workspace,120000,'查询远端修复分支',false);await this.command(task,remote.exitCode===0?['git','checkout','-B',task.repairBranch,`origin/${task.repairBranch}`]:['git','checkout','-b',task.repairBranch],workspace,120000,remote.exitCode===0?'复用远端修复分支':'创建修复分支');}
- private async repair(task:AutoUtTask,workspace:string){if(task.governance?.mode==='SUPPLEMENT'){await this.supplement(task,workspace);return;}const evidence=await this.readSurefire(workspace);const dir=join(settings.logDirectory,task.id);await mkdir(dir,{recursive:true});const prompt=join(dir,`第${task.attempts}轮提示词.md`);await writeFile(prompt,[
+ private async repair(task:AutoUtTask,workspace:string){if(task.governance?.mode==='SUPPLEMENT'){await this.supplement(task,workspace);return;}const evidence=await this.readSurefire(workspace),beforeEvidence=task.governance?.verified??task.governance?.baseline;const failureClasses=[...new Set([...evidence.failedIds,...(beforeEvidence?.failedIds??[]),...(beforeEvidence?.caseIds.filter(id=>!evidence.caseIds.includes(id))??[])].map(testClass))];const dir=join(settings.logDirectory,task.id);await mkdir(dir,{recursive:true});const prompt=join(dir,`第${task.attempts}轮提示词.md`);await writeFile(prompt,[
   '修复实际执行失败的 Java 单元测试。',
   '只能修改或新增 src/test 下的文件。禁止修改生产代码、构建配置，禁止删除测试、禁用测试、弱化断言。',
-  '不要运行 codecovcli 或 JaCoCo。验证命令：'+testCommand.join(' '),
+  '不要运行 codecovcli 或 JaCoCo。针对失败类的验证命令：'+targetedTestCommand(testCommand,failureClasses.length?failureClasses:evidence.caseIds.map(testClass)).join(' '),
   '先运行针对性测试，完成后由平台执行全量回归。现有测试必须继续通过。',
   '只修复已复现的失败，不要求提升覆盖率。',
   '上次未通过原因：'+(task.governance?.lastFailure??'首次执行'),
   '先检查工作区现有 diff，保留已正确完成的修改，不要重复推翻。',
+  '工作区可能已回退失败的修改，以当前文件和 diff 为准，不要仅依据会话中的旧状态。',
   '当前实际失败证据：',evidence.details||'当前没有失败用例。'
  ].join('\n'),'utf8');
-  const result=await this.runPi(task,workspace,prompt);if(result.exitCode!==0){this.retry(task,`第 ${task.attempts} 轮 Pi 执行失败。`);return;}const guard=await this.inspect(task,workspace,`第${task.attempts}轮`);if(!guard.accepted){await this.command(task,['git','stash','push','--include-untracked','-m',`auto-ut拒绝-${task.id}-第${task.attempts}轮`],workspace,120000,'隔离违规修改');this.retry(task,`修改门禁未通过：${guard.violations.join('；')}`);return;}this.change(task,task.status,`修改门禁通过：${guard.changedFiles.length} 个测试文件`);this.wait(task,'VERIFY',`第 ${task.attempts} 轮修复完成，等待完整验证。`,60);}
+  const result=await this.runPi(task,workspace,prompt);if(result.exitCode!==0){this.retry(task,`第 ${task.attempts} 轮 Pi 执行失败。`);return;}const guard=await this.inspect(task,workspace,`第${task.attempts}轮`);if(!guard.accepted){await this.command(task,['git','stash','push','--include-untracked','-m',`auto-ut拒绝-${task.id}-第${task.attempts}轮`],workspace,120000,'隔离违规修改');this.retry(task,`修改门禁未通过：${guard.violations.join('；')}`);return;}this.change(task,task.status,`修改门禁通过：${guard.changedFiles.length} 个测试文件`);
+  const g=task.governance!,before=g.verified??g.baseline;
+  if(!before)throw new Error('缺少实际测试基线。');
+  try{g.verified=await this.targetedEvidence(task,workspace,before,guard.changedFiles,`第${task.attempts}轮局部验证`,failureClasses);}
+  catch(error){this.controllers.get(task.id)?.signal.throwIfAborted();const message=error instanceof Error?error.message:'局部验证失败';if(message.startsWith('核验受阻'))throw error;this.retry(task,message);return;}
+  Object.assign(g,verifiedChanges(g.baseline!,g.verified));
+  if(g.coverageLow&&!g.classResults?.length){await this.selectTargets(task,workspace);if(g.targets?.length){g.mode='SUPPLEMENT';task.attempts=0;this.wait(task,'REPAIR','失败 UT 局部验证通过，继续补充测试，最后统一完整回归。',60);return;}}
+  this.wait(task,'VERIFY',`第 ${task.attempts} 轮修复完成，等待完整验证。`,60);}
  private retry(task:AutoUtTask,message:string){if(task.governance)task.governance.lastFailure=message;if(task.attempts>=settings.maxAttempts){task.nextStage='REPAIR';this.change(task,'RETRY_PENDING',`${message} 已达到最大修复轮次。`);}else this.wait(task,'REPAIR',`${message} 等待下一轮修复。`,60);}
  private async supplement(task:AutoUtTask,workspace:string){
   const g=task.governance!,baseline=g.baseline;if(!baseline)throw new Error('缺少实际基线，不能补充测试。');
@@ -207,8 +233,8 @@ export class AutoUtService{
     '为这个 Java 类补充有效单元测试：'+target,
     '只允许修改 src/test 下的测试文件。禁止修改生产代码和构建配置、删除测试、跳过测试或弱化断言。',
     '先阅读相关已有测试，保持项目现有框架与风格。覆盖正常路径、边界和异常路径，断言必须检查实际行为。',
-    '只处理本次指定的类，保留工作区其他已经完成的修改。',
-    '不要运行 codecovcli 或 JaCoCo。全量验证命令：'+testCommand.join(' '),
+    '只处理本次指定的类，保留工作区其他已经完成的修改。上次失败的修改可能已回退，请先核对当前文件和 diff。',
+    '不要运行 codecovcli 或 JaCoCo，不要执行 clean 或全量测试。用 mvn -B -ntp -s .ci/settings.xml test -Djacoco.skip=true -Dtest=实际测试类全限定名 -Dsurefire.failIfNoSpecifiedTests=false 验证当前类；平台最终统一执行全量回归。',
     '平台会核验新增用例是否执行通过。无法完成时明确说明原因。'
    ].join('\n'),'utf8');
    this.emit(task,'status','正在补充测试：'+target);
@@ -216,8 +242,9 @@ export class AutoUtService{
     const before=g.verified??baseline;
     const result=await this.runPi(task,workspace,prompt);if(result.exitCode!==0)throw new Error('Pi 执行未完成，退出码 '+result.exitCode);
     const guard=await this.inspect(task,workspace,'补测试');if(!guard.accepted)throw new Error(guard.violations.join('；'));
-    const {evidence,exitCode}=await this.testEvidence(task,verificationCommand,workspace,'补测试回归-'+g.classResults.length);
-    if(!utRegressionPassed(before,evidence,exitCode))throw new Error('新增测试未通过回归或改变了原有测试结果。');
+    const changedThisRound:string[]=[];for(const path of guard.changedFiles){const file=resolve(workspace,path),previous=snapshot.get(file);if(!previous||!previous.equals(await readFile(file)))changedThisRound.push(path);}
+    if(!changedThisRound.length)throw new Error('本轮未修改测试文件。');
+    const evidence=await this.targetedEvidence(task,workspace,before,changedThisRound,'补测试局部验证-'+g.classResults.length);
     if(!verifiedChanges(before,evidence).addedIds.length)throw new Error('没有新增执行通过的用例。');
     g.verified=evidence;Object.assign(g,verifiedChanges(baseline,evidence));
     g.classResults=g.classResults.filter(r=>r.target!==target);
@@ -241,9 +268,8 @@ export class AutoUtService{
   const governance=task.governance!,baseline=governance.baseline;
   if(!baseline)throw new Error('缺少实际基线，请重新创建治理任务。');
   governance.verified=evidence;
-  if(!utRegressionPassed(baseline,evidence,exitCode)){this.retry(task,`回归未通过：失败 ${evidence.failures+evidence.errors}，跳过 ${evidence.skipped}；原有用例必须保留并通过。`);return;}
+  if(!utRegressionPassed(baseline,evidence,exitCode)){governance.mode='REPAIR';this.retry(task,`回归未通过：失败 ${evidence.failures+evidence.errors}，跳过 ${evidence.skipped}；原有用例必须保留并通过。`);return;}
   Object.assign(governance,verifiedChanges(baseline,evidence));
-  if(governance.mode==='REPAIR'&&governance.coverageLow){await this.selectTargets(task,workspace);if(governance.targets?.length){governance.mode='SUPPLEMENT';task.attempts=0;this.wait(task,'REPAIR','失败 UT 已修复，继续补充缺少的测试。',70);return;}}
   if(governance.mode==='SUPPLEMENT'&&!governance.addedIds?.length&&!governance.fixedIds?.length){this.retry(task,'全量回归通过，但没有新增执行通过的测试用例。');return;}
   this.wait(task,'PUBLISH','实际 UT 全量回归通过，准备创建 MR。',85);
  }
@@ -313,7 +339,8 @@ export class AutoUtService{
   await git(['push','origin',`HEAD:refs/heads/${task.repairBranch}`],'推送新的流水线修复提交');return head;
  }
 
- private async runPi(task:AutoUtTask,workspace:string,prompt:string){this.controllers.get(task.id)?.signal.throwIfAborted();const message=await readFile(prompt,'utf8')+'\n执行修复并在完成后简要说明修改。';this.emit(task,'prompt',message.slice(0,20_000),`attempt-${task.attempts}`,'Pi');const request=JSON.stringify({id:`auto-ut-${task.id}`,type:'prompt',message})+'\n';return runProcess([settings.piCommand,'--mode','rpc','--no-session','--no-context-files','--approve','--thinking',settings.thinkingLevel],workspace,settings.piTimeoutMs,join(settings.logDirectory,task.id,`第${task.attempts}轮-Pi.log`),(line,stderr)=>{if(stderr){this.emit(task,'status',line);return false;}try{const event=JSON.parse(line) as Record<string,unknown>;this.mapPi(task,event);return event.type==='agent_settled'||event.type==='agent_end'&&!event.willRetry;}catch{this.emit(task,'error','无法解析 Pi RPC 事件','','',true);return false;}},request,this.controllers.get(task.id)?.signal);}
+ private piSessionFile(task:AutoUtTask){return resolve(process.env.PLATFORM_DATA_DIR?.trim()||'data/platform','pi-sessions',createHash('sha256').update(task.id).digest('hex')+'.jsonl');}
+ private async runPi(task:AutoUtTask,workspace:string,prompt:string){this.controllers.get(task.id)?.signal.throwIfAborted();const sessionFile=this.piSessionFile(task);await mkdir(resolve(sessionFile,'..'),{recursive:true});const message=await readFile(prompt,'utf8')+'\n执行修复并在完成后简要说明修改。';this.emit(task,'prompt',message.slice(0,20_000),`attempt-${task.attempts}`,'Pi');const request=JSON.stringify({id:`auto-ut-${task.id}`,type:'prompt',message})+'\n';return runProcess([settings.piCommand,'--mode','rpc','--session',sessionFile,'--no-context-files','--approve','--thinking',settings.thinkingLevel],workspace,settings.piTimeoutMs,join(settings.logDirectory,task.id,`第${task.attempts}轮-Pi.log`),(line,stderr)=>{if(stderr){this.emit(task,'status',line);return false;}try{const event=JSON.parse(line) as Record<string,unknown>;this.mapPi(task,event);return event.type==='agent_settled'||event.type==='agent_end'&&!event.willRetry;}catch{this.emit(task,'error','无法解析 Pi RPC 事件','','',true);return false;}},request,this.controllers.get(task.id)?.signal);}
  private mapPi(task:AutoUtTask,event:Record<string,unknown>){const type=String(event.type??'');if(type==='agent_start')this.emit(task,'status','Pi 已开始分析');else if(type==='agent_settled'||type==='agent_end'&&!event.willRetry)this.emit(task,'completed','Pi 执行完成');else if(type==='message_update'){const update=(event.assistantMessageEvent??{}) as Record<string,unknown>;const map:Record<string,string>={thinking_start:'thinking_start',thinking_delta:'thinking_delta',thinking_end:'thinking_end',text_start:'message_start',text_delta:'message_delta',text_end:'message_end'};if(map[String(update.type)])this.emit(task,map[String(update.type)]!,String(update.delta??''));}else if(type==='tool_execution_start')this.emit(task,'tool_start',JSON.stringify(event.args??{}),String(event.toolCallId??''),String(event.toolName??''));else if(type==='tool_execution_update'||type==='tool_execution_end'){const result=(event[type==='tool_execution_update'?'partialResult':'result']??{}) as {content?:Array<{type?:string;text?:string}>};const content=(result.content??[]).filter(i=>i.type==='text').map(i=>i.text??'').join('');this.emit(task,type==='tool_execution_update'?'tool_output':'tool_end',content,String(event.toolCallId??''),String(event.toolName??''),Boolean(event.isError),true);}else if(type==='extension_error'||type==='response'&&event.success===false)this.emit(task,'error',String((event.error as {message?:string})?.message??event.error??'Pi 执行失败'),'','',true);}
  private async files(root:string):Promise<string[]>{const result:string[]=[];const walk=async(dir:string)=>{for(const entry of await readdir(dir,{withFileTypes:true})){const path=join(dir,entry.name);if(entry.isDirectory()&&!['.git','node_modules'].includes(entry.name))await walk(path);else result.push(path);}};await walk(root);return result;}
  private async readSurefire(workspace:string):Promise<UtEvidence>{
@@ -346,3 +373,4 @@ await app.register(multipart);const id=(p:unknown)=>z.object({id:z.uuid()}).pars
  app.put('/api/auto-ut/schedule',async request=>{const{fields,file,name}=await multipartFields(request),configuredRoot=z.string().trim().min(1,'请配置工作目录').max(4096).parse(fields.get('workspaceRoot'));const value={reportFileName:name,report:file.toString('base64'),username:identity.parse(fields.get('username')),ticket:identity.parse(fields.get('ticket')),baseBranch:branch.parse(fields.get('baseBranch')),workspaceRoot:resolve(configuredRoot),dailyTime:z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).parse(fields.get('dailyTime'))};await stat(value.workspaceRoot).then(s=>{if(!s.isDirectory())throw new Error();}).catch(()=>{throw Object.assign(new Error(`工作目录不存在或不可写：${value.workspaceRoot}`),{statusCode:400});});return schedules?schedules.saveLegacyCsv(value):service.saveSchedule(value);});
  app.delete('/api/auto-ut/schedule',async(_req,reply)=>{if(schedules)schedules.deleteLegacyCsv();else service.deleteSchedule();return reply.code(204).send();});
 }
+
