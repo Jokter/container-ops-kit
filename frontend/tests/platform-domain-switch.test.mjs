@@ -36,7 +36,7 @@ test('正式页面可以在三个平台域之间切换', () => {
 
   assert.deepEqual(
     [...文档.querySelectorAll('[data-platform-domain]')].map(入口 => 入口.dataset.platformDomain),
-    ['container', 'virtualization', 'automation']
+    ['container', 'automation', 'virtualization']
   )
   assert.equal(文档.querySelector('.platform-switch').tagName, 'NAV')
   assert.equal(文档.querySelector('[data-platform-domain="container"]').getAttribute('aria-current'), 'page')
@@ -49,6 +49,7 @@ test('正式页面可以在三个平台域之间切换', () => {
   assert.equal(文档.querySelector('.variant-a-nav'), null)
 
   文档.querySelector('[data-platform-domain="automation"]').click()
+  文档.querySelector('[data-automation-nav="tools"]').click()
   assert.equal(文档.querySelector('.page-head h1').textContent, '自动化工具')
   assert.equal(文档.querySelector('[data-automation-capability="auto-ut"] h2').textContent, 'UT 治理')
 
@@ -56,7 +57,7 @@ test('正式页面可以在三个平台域之间切换', () => {
   assert.equal(文档.querySelector('.page-head h1').textContent, 'UT 治理')
   assert.equal(文档.querySelector('[data-report-source="csv"]'), null)
   assert.equal(文档.querySelector('#auto-ut-report'), null)
-  文档.querySelector('[data-qw-auto-tab="plan"]').click()
+
   assert.ok(文档.querySelector('[data-report-fetch]'))
   文档.querySelector('[data-qw-drawer="execution"]').click()
   assert.equal(文档.querySelector('#auto-ut-username').value, '')
@@ -66,7 +67,7 @@ test('正式页面可以在三个平台域之间切换', () => {
   assert.ok(文档.querySelector('[data-auto-ut-workspace-picker]'))
   文档.querySelector('[data-qw-close]').click()
   assert.equal(文档.querySelector('[data-auto-ut-mode-switch]'), null)
-  assert.match(文档.body.textContent, /全自动执行/)
+  assert.equal(文档.querySelector('.governance-stats'), null)
   assert.doesNotMatch(文档.body.textContent, /报告数据日期/)
   assert.match(文档.body.textContent, /自动获取最新数据/)
   assert.ok(文档.querySelector('[data-schedule-new="auto-ut"]'))
@@ -106,6 +107,7 @@ test('工作目录从此电脑开始在网页内选择', async () => {
   const 文档 = 页面实例.window.document
 
   文档.querySelector('[data-platform-domain="automation"]').click()
+  文档.querySelector('[data-automation-nav="tools"]').click()
   文档.querySelector('[data-automation-capability="auto-ut"]').click()
   await 等待界面更新()
   文档.querySelector('[data-qw-drawer="execution"]').click()
@@ -127,6 +129,7 @@ test('工作目录从此电脑开始在网页内选择', async () => {
   文档.querySelector('[data-auto-ut-directory-select]').click()
   assert.match(文档.querySelector('[data-auto-ut-workspace-picker]').textContent, /configured\/ut/)
 
+  await 页面实例.window.loadNavigationPage()
   页面实例.window.close()
 })
 
@@ -144,12 +147,15 @@ test('外部错误任务可以从页面重试当前阶段', async () => {
   const 文档 = 页面实例.window.document
 
   文档.querySelector('[data-platform-domain="automation"]').click()
+  文档.querySelector('[data-automation-nav="tools"]').click()
   文档.querySelector('[data-automation-capability="auto-ut"]').click()
   await 等待界面更新()
 
-  文档.querySelector('[data-qw-auto-tab="tasks"]').click()
+  文档.querySelector('[data-automation-nav="tasks"]').click()
+  文档.querySelector('[data-governance-detail="task-1"]').click()
   assert.match(文档.querySelector('[data-auto-ut-continue="task-1"]').textContent, /重试/)
 
+  await 页面实例.window.loadNavigationPage()
   页面实例.window.close()
 })
 
@@ -172,6 +178,7 @@ test('在线报告使用默认CodeHub仓库且修改后保存映射', async () =
   const 页面实例 = 打开页面(请求)
   const 文档 = 页面实例.window.document
   文档.querySelector('[data-platform-domain="automation"]').click()
+  文档.querySelector('[data-automation-nav="tools"]').click()
   文档.querySelector('[data-automation-capability="auto-ut"]').click()
   await 等待界面更新()
   await 等待界面更新()
@@ -190,10 +197,11 @@ test('在线报告使用默认CodeHub仓库且修改后保存映射', async () =
 
   assert.equal(保存请求.url, 修改地址)
   assert.match(文档.querySelector('[data-auto-ut-repository-save="FMInsightService"]').parentElement.parentElement.textContent, /已保存/)
+  await 页面实例.window.loadNavigationPage()
   页面实例.window.close()
 })
 
-test('项目进度只显示每个仓库的最新任务和当前信息', async () => {
+test('执行记录保留历史任务，打开详情只显示所选任务', async () => {
   const 最新任务 = {
     id: 'new-task', repository: 'coder', status: 'REPAIRING', nextStage: 'REPAIR', progress: 45,
     message: '正在执行 Pi 修复。', repairBranch: 'master_test_user_ticket', workspaceRoot: '/configured/ut',
@@ -209,14 +217,17 @@ test('项目进度只显示每个仓库的最新任务和当前信息', async ()
   const 文档 = 页面实例.window.document
 
   文档.querySelector('[data-platform-domain="automation"]').click()
+  文档.querySelector('[data-automation-nav="tools"]').click()
   文档.querySelector('[data-automation-capability="auto-ut"]').click()
   await 等待界面更新()
 
-  文档.querySelector('[data-qw-auto-tab="tasks"]').click()
-  assert.equal(文档.querySelectorAll('[data-auto-ut-task]').length, 1)
-  assert.match(文档.querySelector('[data-auto-ut-task]').textContent, /正在执行 Pi 修复/)
-  assert.doesNotMatch(文档.querySelector('[data-auto-ut-task]').textContent, /旧任务错误|不应显示的历史信息/)
+  文档.querySelector('[data-automation-nav="tasks"]').click()
+  assert.equal(文档.querySelectorAll('[data-auto-ut-task]').length, 2)
+  文档.querySelector('[data-governance-detail="new-task"]').click()
+  assert.match(文档.querySelector('.ut-task-detail').textContent, /正在执行 Pi 修复/)
+  assert.doesNotMatch(文档.querySelector('.ut-task-detail').textContent, /旧任务错误|不应显示的历史信息/)
 
+  await 页面实例.window.loadNavigationPage()
   页面实例.window.close()
 })
 
@@ -240,9 +251,12 @@ test('Agent过程合并增量并在回复到达时保留用户展开选择', asy
   const 文档 = 页面实例.window.document
 
   文档.querySelector('[data-platform-domain="automation"]').click()
+  文档.querySelector('[data-automation-nav="tools"]').click()
   文档.querySelector('[data-automation-capability="auto-ut"]').click()
   await new Promise(完成 => setTimeout(完成, 10))
-  文档.querySelector('[data-qw-auto-tab="tasks"]').click()
+  文档.querySelector('[data-automation-nav="tasks"]').click()
+  文档.querySelector('[data-governance-detail="task-live"]').click()
+  await 等待界面更新()
   assert.match(模拟事件源.instances[0].url, /task-live\/events/)
 
   模拟事件源.instances[0].emit({sequence: 1, type: 'prompt', content: '只修改测试代码并修复失败用例', toolCallId: 'attempt-1'})
@@ -266,6 +280,7 @@ test('Agent过程合并增量并在回复到达时保留用户展开选择', asy
   assert.equal(文档.querySelector('.page-head'),页面标题)
   assert.match(文档.querySelector('[data-auto-ut-live="task-live"]').textContent, /已修复测试/)
 
+  await 页面实例.window.loadNavigationPage()
   页面实例.window.close()
 })
 
@@ -285,14 +300,17 @@ test('刷新任务列表后恢复已保存的 Pi 交互记录', async () => {
   const 页面实例 = 打开页面(请求)
   const 文档 = 页面实例.window.document
   文档.querySelector('[data-platform-domain="automation"]').click()
+  文档.querySelector('[data-automation-nav="tools"]').click()
   文档.querySelector('[data-automation-capability="auto-ut"]').click()
   await new Promise(完成 => setTimeout(完成, 160))
-  文档.querySelector('[data-qw-auto-tab="tasks"]').click()
+  文档.querySelector('[data-automation-nav="tasks"]').click()
+  文档.querySelector('[data-governance-detail="task-history"]').click()
   const 面板 = 文档.querySelector('[data-auto-ut-live="task-history"]')
   assert.match(面板.textContent, /修复两个失败用例/)
   assert.match(面板.textContent, /检查失败堆栈/)
   assert.match(面板.textContent, /修复完成并通过验证/)
   assert.equal(面板.querySelectorAll('.auto-ut-conversation').length, 1)
+  await 页面实例.window.loadNavigationPage()
   页面实例.window.close()
 })
 
@@ -316,9 +334,12 @@ test('基线阶段展示细分流程且不提前显示Pi等待内容', async () 
   const 文档 = 页面实例.window.document
 
   文档.querySelector('[data-platform-domain="automation"]').click()
+  文档.querySelector('[data-automation-nav="tools"]').click()
   文档.querySelector('[data-automation-capability="auto-ut"]').click()
   await new Promise(完成 => setTimeout(完成, 10))
-  文档.querySelector('[data-qw-auto-tab="tasks"]').click()
+  文档.querySelector('[data-automation-nav="tasks"]').click()
+  文档.querySelector('[data-governance-detail="task-baseline"]').click()
+  await 等待界面更新()
   模拟事件源.instances[0].emit({
     sequence: 1, type: 'operation_start', content: '基线测试', toolCallId: 'operation-1', toolName: 'mvn -B -ntp clean test'
   })
@@ -329,5 +350,6 @@ test('基线阶段展示细分流程且不提前显示Pi等待内容', async () 
   assert.match(实时面板.textContent, /mvn -B -ntp clean test/)
   assert.doesNotMatch(实时面板.textContent, /等待 Pi 输出|等待 Pi 回复|等待模型/)
 
+  await 页面实例.window.loadNavigationPage()
   页面实例.window.close()
 })

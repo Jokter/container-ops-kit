@@ -16,9 +16,10 @@ async function setup({events=[],saved}={}){
   }})
   const d=dom.window.document
   d.querySelector('[data-platform-domain="automation"]').click()
-  d.querySelector('[data-automation-capability="auto-ut"]').click()
+
   await pause()
-  d.querySelector('[data-qw-auto-tab="tasks"]').click()
+  d.querySelector('[data-automation-nav="tasks"]').click()
+  d.querySelector('[data-governance-detail="agent-ui"]').click()
   return {dom,d,task,emit:event=>streams[0].onmessage({data:JSON.stringify(event)})}
 }
 

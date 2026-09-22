@@ -8,12 +8,12 @@ test('默认成果看板展示真实指标与失败原因，执行详情按需�
  const requests=[];const now=new Date().toISOString();
  const tasks=[{id:'failed',repository:'FailService',reportVersion:'R27C10',status:'WAITING_EXTERNAL',nextStage:'BASELINE',message:'依赖下载失败',createdAt:now,updatedAt:now,progress:25},
  {id:'done',repository:'FixedService',reportVersion:'R27C00',status:'RESOLVED',nextStage:'DONE',message:'完成',createdAt:now,updatedAt:now,governance:{fixedIds:['X#test'],addedIds:['Y#test'],mrState:'PENDING'},pullRequestUrl:'https://example.com/mr/1'}];
- const dom=new JSDOM(html,{url:'http://localhost/#/automation/auto-ut',runScripts:'dangerously',beforeParse(w){w.scrollTo=()=>{};w.fetch=async url=>{requests.push(url);return{ok:true,status:200,json:async()=>url==='/api/auto-ut/tasks'?tasks:url.startsWith('/api/auto-ut/governance')?{metrics:{streak:7,fixedServices:1,fixedCases:1,supplementedServices:1,addedCases:1},records:tasks}:[]};};}});
+ const dom=new JSDOM(html,{url:'http://localhost/#/automation',runScripts:'dangerously',beforeParse(w){w.scrollTo=()=>{};w.fetch=async url=>{requests.push(url);return{ok:true,status:200,json:async()=>url==='/api/auto-ut/tasks'?tasks:url.startsWith('/api/auto-ut/governance')?{metrics:{streak:7,fixedServices:1,fixedCases:1,supplementedServices:1,addedCases:1},records:tasks}:[]};};}});
  try{
   await pause();const d=dom.window.document;
-  assert.equal(d.querySelector('.page-head h1').textContent,'UT 治理');
-  assert.equal(d.querySelectorAll('.governance-stats .qw-stat').length,5);
-  assert.match(d.querySelector('.governance-stats').textContent,/连续执行7/);
+  assert.equal(d.querySelector('.page-head h1').textContent,'自动化概览');
+  assert.equal(d.querySelectorAll('.governance-stats .studio-stat').length,3);
+  assert.match(d.querySelector('.governance-dashboard').textContent,/连续执行 7 天/);
   assert.match(d.querySelector('.governance-dashboard').textContent,/依赖下载失败/);
   assert.equal(d.querySelector('[data-auto-ut-live]'),null);
   const version=d.querySelector('#governance-version');version.value='R27C10';version.dispatchEvent(new dom.window.Event('change'));await pause();
@@ -21,5 +21,30 @@ test('默认成果看板展示真实指标与失败原因，执行详情按需�
   d.querySelector('[data-governance-detail="failed"]').click();
   assert.ok(d.querySelector('[data-auto-ut-live]'));
   assert.match(d.querySelector('.ut-task-detail').textContent,/依赖下载失败/);
- }finally{dom.window.close();}
+ }finally{await pause();dom.window.close();}
+});
+
+test('概览聚合三类任务，成果下钻沿用版本与时间范围，记录可按工具筛选',async()=>{
+ const now=new Date().toISOString(),old=new Date(Date.now()-40*86400000).toISOString();
+ const tasks=[{id:'new',repository:'NewService',reportVersion:'R27C10',status:'RESOLVED',updatedAt:now,governance:{fixedIds:['A#test']}},{id:'old',repository:'OldService',reportVersion:'R27C10',status:'RESOLVED',updatedAt:old,governance:{fixedIds:['B#test']}},{id:'partial',repository:'PartialService',reportVersion:'R27C10',status:'RESOLVED',updatedAt:now,governance:{classResults:[{target:'DemoTest',status:'FAILED',message:'回归失败'}]}}];
+ const config={versions:[{version:'R27C10',baseBranch:'master'}],username:'',ticket:'',workspaceRoot:''};
+ const report={id:'report',status:'READY',createdAt:now,config,plan:[],claimed:[],messages:[]};
+ const dom=new JSDOM(html,{url:'http://localhost/#/automation',runScripts:'dangerously',beforeParse(w){w.scrollTo=()=>{};w.fetch=async url=>({ok:true,status:200,json:async()=>url==='/api/auto-ut/tasks'?tasks:url.startsWith('/api/auto-ut/governance')?{metrics:{fixedCases:2},records:tasks}:url==='/api/auto-ut/report-settings'?{config}:url==='/api/auto-ut/reports'?[report]:url==='/api/quality/settings'?{url:'http://grafana/api/query'}:url==='/api/quality/jobs'?[{id:'quality',status:'FAILED',createdAt:now,input:{versions:['R27C10']}}]:[]});}});
+ try{
+  await pause();const d=dom.window.document;
+  assert.ok(d.querySelector('[data-studio-record="quality"]'));
+  assert.ok(d.querySelector('[data-studio-record="report"]'));
+  assert.match(d.querySelector('.governance-dashboard').textContent,/DemoTest：回归失败/);
+  const days=d.querySelector('#governance-days');days.value='7';days.dispatchEvent(new dom.window.Event('change'));await pause();
+  d.querySelector('[data-studio-outcome="fixed"]').click();await pause();
+  assert.equal(dom.window.location.hash,'#/automation/tasks');
+  assert.deepEqual([...d.querySelectorAll('[data-auto-ut-task]')].map(el=>el.dataset.autoUtTask),['new']);
+  d.querySelector('[data-studio-reset-outcome]').click();
+  assert.equal(d.querySelectorAll('[data-auto-ut-task]').length,3);
+  const kind=d.querySelector('#studio-record-kind');kind.value='quality';kind.dispatchEvent(new dom.window.Event('change'));
+  assert.equal(d.querySelectorAll('.studio-record-table tbody tr').length,1);
+  assert.ok(d.querySelector('[data-studio-record="quality"]'));
+  const switcher=d.querySelector('.studio-workspace');switcher.querySelector('summary').click();assert.equal(switcher.open,true);
+  d.dispatchEvent(new dom.window.KeyboardEvent('keydown',{key:'Escape'}));assert.equal(switcher.open,false);
+ }finally{await pause();dom.window.close();}
 });
