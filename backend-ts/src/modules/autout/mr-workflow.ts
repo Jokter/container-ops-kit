@@ -2,9 +2,11 @@ import {createHash} from 'node:crypto';
 import type {AutoUtTask} from './autout.js';
 import {type MrSettings} from './mr-settings.js';
 import {gateSchema,issueTitle,jsonValues,listObjects,mrIid,mrSchema,parseMr,parseObject,pendingMembers,pipelineSchema,roleMembers,safeMrUrl,type MrView} from './mr-codehub.js';
+type MrRole='reviewers'|'approvers'|'assignees';
 export type MrPhase='SETUP'|'PIPELINE'|'REVIEW'|'APPROVE'|'MERGE';
 export interface MrTracking {
  config:MrSettings;iid:string;sha:string;phase:MrPhase;nextAt:number;paused:boolean;error:string;
+ rejectedRoles?:Partial<Record<MrRole,string[]>>;
  setup:{linked?:boolean;title?:boolean;reviewers?:boolean;approvers?:boolean;assignees?:boolean};
  awaitingSha?:string;awaitingSince?:number;repairBaseSha?:string;repairCommitSha?:string;uploadAttempted?:boolean;writePending?:string;rounds:number;handled:string[];fingerprint?:string;stalled:number;
  notifications:Record<string,{count:number;at:number;pending?:boolean;escalated?:boolean}>;
@@ -37,12 +39,39 @@ export class MrWorkflow {
  }
  attach(task:AutoUtTask,m:MrView){const tracking=task.mr!;tracking.iid=mrIid(m);const url=m.mr_url||m.web_url;if(!url)throw Error('MR 已存在但没有地址，请检查 CLI 返回。');task.pullRequestUrl=safeMrUrl(url);task.governance!.mrState='PENDING';delete task.governance!.completedAt;this.done(task);this.hooks.state(task,'MR_PENDING','MR 已创建，正在补齐单号、标题和处理人员。');this.save(task);}
  private async view(task:AutoUtTask){return parseMr((await this.command(task,['mr','view',task.mr!.iid],'读取MR状态与人员')).output);}
+ private people(task:AutoUtTask,role:MrRole){
+  const m=task.mr!,excluded=m.rejectedRoles?.[role]??[];
+  const people=m.config.roles[role].filter(p=>!excluded.includes(p));
+  if(m.config.roles[role].length&&!people.length)throw Error('MR '+role+' 配置人员均不在授权名单，请配置有效人员后应用最新人员配置。');
+  return people;
+ }
+ private async configurePeople(task:AutoUtTask,role:MrRole){
+  const m=task.mr!,flag=role==='reviewers'?'--approval-reviewers':role==='approvers'?'--approval-approvers':'--assignees';
+  for(;;){
+   const people=this.people(task,role);
+   // Read again before submitting a corrected personnel list.
+   const current=await this.view(task);
+   if(people.every(p=>roleMembers(current,role).some(v=>v.username?.toLowerCase()===p.toLowerCase())))return current;
+   this.pending(task,role);
+   try{await this.command(task,['mr','update',m.iid,flag,people.join(',')],'配置MR'+role);}
+   catch(error){
+    const message=error instanceof Error?error.message:'';
+    const rejected=rejectedAuthorizedPeople(message,role,people);
+    if(!rejected.length)throw error;
+    m.rejectedRoles??={};m.rejectedRoles[role]=[...new Set([...(m.rejectedRoles[role]??[]),...rejected])];
+    this.done(task);
+    this.hooks.event(task,'CodeHub 明确拒绝 '+role+' 人员 '+rejected.join(',')+'，已从当前任务该角色中剔除。');
+    continue;
+   }
+   return this.view(task);
+  }
+ }
  async setup(task:AutoUtTask){
   const tracking=task.mr!;let view=await this.view(task);if(this.terminal(task,view))return;
   // Every write is preceded by a read. An interrupted/failed write is never blindly replayed.
   for(const step of ['linked','title','reviewers','approvers','assignees'] as const){
    if(tracking.setup[step])continue;
-   const people=step==='linked'||step==='title'?[]:tracking.config.roles[step];
+   let people=step==='linked'||step==='title'?[]:this.people(task,step);
    const title=issueTitle(view,task.ticket);
    const matches=step==='linked'?!!view.e2e_issues?.some(i=>[i.id,i.issue_num,i.issue_id,i.number].some(n=>String(n)===task.ticket)):step==='title'?!!title&&view.title===title:!people.length||people.every(p=>roleMembers(view,step).some(m=>m.username?.toLowerCase()===p.toLowerCase()));
    if(matches){tracking.setup[step]=true;if(tracking.writePending===step)this.done(task);this.save(task);continue;}
@@ -50,8 +79,8 @@ export class MrWorkflow {
    if(step==='title'&&!title)throw Error('关联单号未返回匹配的标题，请核对 CodeHub E2E 单号字段。');
    const args=step==='linked'?['--e2e-issues',task.ticket]:step==='title'?['--title',title!]:[step==='reviewers'?'--approval-reviewers':step==='approvers'?'--approval-approvers':'--assignees',people.join(',')];
    this.pending(task,step);
-   await this.command(task,['mr','update',tracking.iid,...args],step==='linked'?'关联单号':step==='title'?'同步单号标题':'配置MR'+step);
-   view=await this.view(task);
+   if(step==='linked'||step==='title'){await this.command(task,['mr','update',tracking.iid,...args],step==='linked'?'关联单号':'同步单号标题');view=await this.view(task);}
+   else{view=await this.configurePeople(task,step);people=this.people(task,step);}
    const verified=step==='linked'?!!issueTitle(view,task.ticket):step==='title'?view.title===title:people.every(p=>roleMembers(view,step).some(m=>m.username?.toLowerCase()===p.toLowerCase()));
    if(!verified)throw Error('MR '+step+' 尚未确认生效，请核对权限或配置后重试。');
    tracking.setup[step]=true;this.done(task);
@@ -135,4 +164,16 @@ export class MrWorkflow {
   if(m.notifications[key]?.count||m.notifications[key]?.pending)return;
   try{await this.send(task,receiver,`UT 治理 MR 需要介入。\n仓库：${task.repository}\nMR：${task.pullRequestUrl}\n原因：${reason.slice(0,600)}`,key,now);}catch(error){this.hooks.event(task,error instanceof Error?error.message:'异常通知失败');}
  }
+}
+
+export function rejectedAuthorizedPeople(message:string,role:MrRole,people:string[]):string[]{
+ if(role==='assignees'||!/HTTP 400\b/i.test(message))return [];
+ const match=message.match(/The approval (approvers|reviewers) must be in the authorized user list\. Please check the following users:\s*([^\r\n]*?)\s*\(CH\.00201400\)/i);
+ if(!match||match[1]!.toLowerCase()!==role)return [];
+ const tokens:string[]=match[2]!.toLowerCase().match(/[a-z0-9._-]+/g)??[];
+ return people.filter(person=>{
+  if(tokens.includes(person.toLowerCase()))return true;
+  const number=person.match(/^[a-z](\d+)$/i)?.[1];
+  return !!number&&tokens.includes(number)&&people.filter(p=>p.match(/^[a-z](\d+)$/i)?.[1]===number).length===1;
+ });
 }

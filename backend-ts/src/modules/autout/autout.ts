@@ -107,7 +107,7 @@ export class AutoUtService{
   if(task.governance?.mrState!=='PENDING')throw Object.assign(new Error('MR 已结束'),{statusCode:409});
   if(action==='pause'){m.paused=true;m.error='已手动暂停自动处理';this.save(task);return task;}
   if(action==='retry-notifications'){for(const entry of Object.values(m.notifications)){if(entry.pending){entry.pending=false;entry.at=0;}}}
-  if(action==='apply-settings'){m.config=this.mrConfiguration.snapshot(task.repository);m.setup={};m.phase='SETUP';m.generation++;}
+  if(action==='apply-settings'){delete m.rejectedRoles;m.config=this.mrConfiguration.snapshot(task.repository);m.setup={};m.phase='SETUP';m.generation++;}
   if(action!=='check'&&m.writePending==='pipeline-repair'){
    const expected=(await this.command(task,['git','rev-parse','HEAD'],autoUtWorkspace(task),120000,'恢复前检查本地提交')).output.trim();
    const remote=(await this.command(task,['git','ls-remote','--heads','origin',task.repairBranch],autoUtWorkspace(task),120000,'恢复前检查远端提交')).output.split(/\s+/)[0];

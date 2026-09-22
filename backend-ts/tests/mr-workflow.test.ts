@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {TaskStore} from '../src/platform/store.js';
 import {MrConfiguration} from '../src/modules/autout/mr-settings.js';
-import {MrWorkflow,newTracking,type MrHooks} from '../src/modules/autout/mr-workflow.js';
+import {MrWorkflow,newTracking,rejectedAuthorizedPeople,type MrHooks} from '../src/modules/autout/mr-workflow.js';
 import {parseMr,mrIid} from '../src/modules/autout/mr-codehub.js';
 import type {AutoUtTask} from '../src/modules/autout/autout.js';
 const now=Date.parse('2026-09-22T01:00:00Z');
@@ -108,4 +108,49 @@ test('setup failures preserve IID and stop on unauthorized personnel',async()=>{
 });
 test('setup resumes confirmed steps and matches the actual issue number',async()=>{
  const f=fixture();f.task.mr!.phase='SETUP';f.view.e2e_issues.unshift({id:'DTS999',title:'其他单号'});await f.workflow.setup(f.task);assert.equal(f.task.mr!.phase,'PIPELINE');assert.equal(f.task.nextStage,'TRACK');assert.ok(!f.calls.some(c=>c.includes('update')));
+});
+
+test('explicit unauthorized approver is excluded only for this MR and remaining approver is verified',async()=>{
+ const f=fixture();f.task.mr!.phase='SETUP';f.task.mr!.config.roles.approvers=['x00660165','z30003938'];
+ const original=structuredClone(f.task.mr!.config),run=f.hooks.run,updates:string[][]=[];
+ f.hooks.run=async(t,args,label,required)=>{
+  if(args.includes('--approval-approvers')){
+   updates.push(args);const people=args[args.indexOf('--approval-approvers')+1]!;
+   if(people.includes('z30003938'))throw Error('配置MRapprovers失败，退出码 1：error: HTTP 400: The approval approvers must be in the authorized user list. Please check the following users: zhangzeze 30003938 (CH.00201400)');
+   f.view.approval_merge_request_approvers=people.split(',').map(username=>({username,approved:false}));
+   return {exitCode:0,output:'{}'};
+  }
+  return run(t,args,label,required);
+ };
+ await f.workflow.setup(f.task);
+ assert.deepEqual(updates.map(c=>c[c.indexOf('--approval-approvers')+1]),['x00660165,z30003938','x00660165']);
+ assert.deepEqual(f.task.mr!.config,original);assert.deepEqual(f.task.mr!.rejectedRoles,{approvers:['z30003938']});
+ assert.equal(f.task.mr!.phase,'PIPELINE');assert.equal(f.task.mr!.writePending,undefined);
+ const restored=structuredClone(f.task);restored.mr!.setup.approvers=false;
+ await new MrWorkflow(f.hooks).setup(restored);assert.equal(updates.length,2);
+});
+test('all explicitly rejected approvers stop without submitting an empty role list',async()=>{
+ const f=fixture();f.task.mr!.config.roles.approvers=['z30003938'];const run=f.hooks.run;let writes=0;
+ f.hooks.run=async(t,args,label,required)=>{
+  if(args.includes('--approval-approvers')){writes++;throw Error('HTTP 400: The approval approvers must be in the authorized user list. Please check the following users: zhangzeze 30003938 (CH.00201400)');}
+  return run(t,args,label,required);
+ };
+ await assert.rejects(f.workflow.setup(f.task),/均不在授权名单/);
+ await assert.rejects(f.workflow.setup(f.task),/均不在授权名单/);
+ assert.equal(writes,1);assert.deepEqual(f.task.mr!.config.roles.approvers,['z30003938']);
+});
+test('uncertain personnel update never removes users or resubmits',async()=>{
+ const f=fixture();f.task.mr!.config.roles.approvers=['z30003938'];const run=f.hooks.run;let writes=0;
+ f.hooks.run=async(t,args,label,required)=>{if(args.includes('--approval-approvers')){writes++;throw Error('HTTP 500: connection timeout');}return run(t,args,label,required);};
+ await assert.rejects(f.workflow.setup(f.task),/timeout/);await assert.rejects(f.workflow.setup(f.task),/结果未确认/);
+ assert.equal(writes,1);assert.equal(f.task.mr!.rejectedRoles,undefined);
+});
+
+test('authorization rejection matching requires an exact unambiguous account and role',()=>{
+ const message='HTTP 400: The approval approvers must be in the authorized user list. Please check the following users: zhangzeze 30003938 (CH.00201400)';
+ assert.deepEqual(rejectedAuthorizedPeople(message,'approvers',['x00660165','z30003938']),['z30003938']);
+ assert.deepEqual(rejectedAuthorizedPeople(message,'approvers',['z300039380']),[]);
+ assert.deepEqual(rejectedAuthorizedPeople(message,'approvers',['z30003938','x30003938']),[]);
+ assert.deepEqual(rejectedAuthorizedPeople(message,'reviewers',['z30003938']),[]);
+ assert.deepEqual(rejectedAuthorizedPeople(message.replace('CH.00201400','CH.OTHER'),'approvers',['z30003938']),[]);
 });
