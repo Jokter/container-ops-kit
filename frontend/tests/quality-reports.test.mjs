@@ -139,3 +139,22 @@ test('批量清理逐项失败显示原因，失败记录保留',async()=>{
  const dom=page(path=>path==='/api/auto-ut/tasks'?[task]:path==='/api/automation/records/cleanup'?{deleted:[],failed:[{kind:'ut',id:task.id,message:'进程停止失败'}]}:undefined);
  try{dom.window.confirm=()=>true;const d=open(dom,'auto-ut');await pause();d.querySelector('[data-automation-nav="tasks"]').click();await pause();d.querySelector('[data-cleanup-records]').click();await pause();assert.match(d.querySelector('[role="alert"]').textContent,/进程停止失败/);assert.equal(d.querySelectorAll('[data-delete-record]').length,1);assert.equal(d.querySelector('[data-cleanup-records]').disabled,false);}finally{dom.window.close();}
 });
+
+test('已有自动单可刷新并继续草稿流转，成功后隐藏继续按钮',async()=>{
+ const actions=[];let creates=0;
+ const dom=page((path,options)=>{
+  if(path==='/api/auto-ut/tickets'){creates++;return {};}
+  if(path==='/api/auto-ut/tickets/control'){
+   const body=JSON.parse(options.body);actions.push(body);
+   return {ticket:'DTS1',username:'tester',status:body.action==='check'?'REVIEW':'READY',nodeStatus:body.action==='check'?'DTS001':'DTS009',currentHandler:'tester',message:body.action==='check'?'当前节点：草稿':'已到开发人员实施修改；处理人：tester'};
+  }
+ });
+ try{const d=open(dom,'auto-ut');await pause();d.querySelector('[data-qw-drawer="execution"]').click();
+ assert.equal(d.querySelector('[data-dts-action="continue"]'),null);
+ d.querySelector('[data-dts-action="check"]').click();await pause();
+ assert.match(d.querySelector('[role="dialog"]').textContent,/当前节点：草稿/);
+ d.querySelector('[data-dts-action="continue"]').click();assert.equal(d.querySelector('[data-dts-action="continue"]').disabled,true);await pause();
+ assert.equal(d.querySelector('[data-dts-action="continue"]'),null);assert.match(d.querySelector('[role="dialog"]').textContent,/开发人员实施修改/);
+ assert.deepEqual(actions,[{ticket:'DTS1',username:'tester',action:'check'},{ticket:'DTS1',username:'tester',action:'continue'}]);assert.equal(creates,0);
+ }finally{await pause();dom.window.close();}
+});
