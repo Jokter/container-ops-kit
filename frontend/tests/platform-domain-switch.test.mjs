@@ -50,12 +50,13 @@ test('正式页面可以在三个平台域之间切换', () => {
 
   文档.querySelector('[data-platform-domain="automation"]').click()
   assert.equal(文档.querySelector('.page-head h1').textContent, '自动化工具')
-  assert.equal(文档.querySelector('[data-automation-capability="auto-ut"] h2').textContent, 'UT 自动修复')
+  assert.equal(文档.querySelector('[data-automation-capability="auto-ut"] h2').textContent, 'UT 治理')
 
   文档.querySelector('[data-automation-capability="auto-ut"]').click()
-  assert.equal(文档.querySelector('.page-head h1').textContent, 'UT 自动修复')
+  assert.equal(文档.querySelector('.page-head h1').textContent, 'UT 治理')
   assert.equal(文档.querySelector('[data-report-source="csv"]'), null)
   assert.equal(文档.querySelector('#auto-ut-report'), null)
+  文档.querySelector('[data-qw-auto-tab="plan"]').click()
   assert.ok(文档.querySelector('[data-report-fetch]'))
   文档.querySelector('[data-qw-drawer="execution"]').click()
   assert.equal(文档.querySelector('#auto-ut-username').value, '')
@@ -174,6 +175,7 @@ test('在线报告使用默认CodeHub仓库且修改后保存映射', async () =
   文档.querySelector('[data-automation-capability="auto-ut"]').click()
   await 等待界面更新()
   await 等待界面更新()
+  文档.querySelector('[data-qw-auto-tab="plan"]')?.click()
   文档.querySelector('[data-report-fetch]').click()
   await 等待界面更新()
   await 等待界面更新()

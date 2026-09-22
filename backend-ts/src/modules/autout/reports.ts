@@ -8,7 +8,7 @@ import {metric,QualityService,qualityCsv,releaseVersion,type QualityJob,type Qua
 import {AutoUtService} from './autout.js';
 const branch=z.string().trim().max(200).refine(v=>!v||/^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(v)&&!v.includes('..')&&!v.includes('//')&&!v.endsWith('/')&&!v.endsWith('.'));
 const ident=z.string().trim().max(120).regex(/^[A-Za-z0-9._-]*$/);
-export const reportConfig=z.object({versions:z.array(z.object({version:releaseVersion,baseBranch:branch})).min(1).max(10).refine(v=>new Set(v.map(x=>x.version)).size===v.length),dateMode:z.enum(['today','yesterday']),username:ident,ticket:ident,workspaceRoot:z.string().trim().max(4096),schedule:z.object({enabled:z.boolean(),frequency:z.enum(['daily','weekdays','weekly']),weekday:z.number().int().min(0).max(6),time:z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),timezone:z.enum(['Asia/Shanghai','UTC']),action:z.enum(['FETCH','REPAIR'])})});
+export const reportConfig=z.object({maxClasses:z.coerce.number().int().min(1).max(20).optional(),versions:z.array(z.object({version:releaseVersion,baseBranch:branch})).min(1).max(10).refine(v=>new Set(v.map(x=>x.version)).size===v.length),dateMode:z.enum(['today','yesterday']),username:ident,ticket:ident,workspaceRoot:z.string().trim().max(4096),schedule:z.object({enabled:z.boolean(),frequency:z.enum(['daily','weekdays','weekly']),weekday:z.number().int().min(0).max(6),time:z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),timezone:z.enum(['Asia/Shanghai','UTC']),action:z.enum(['FETCH','REPAIR'])})});
 export type ReportConfig=z.infer<typeof reportConfig>;
 interface SavedConfig{config:ReportConfig;nextRunAt:string|null;}
 interface PlanItem{version:string;repository:string;failedTests:number;lineCoverage:number;lineGoal:number;branchCoverage:number;branchGoal:number;baseBranch:string;repositoryUrl:string;repositoryCustomized:boolean;configured:boolean;repairBranch:string;}
@@ -54,10 +54,10 @@ export class AutoUtReports{
   try{const items=run.plan.filter(p=>!selected||selected.includes(`${p.version}/${p.repository}`));
    for(const item of items){const key=`${item.version}/${item.repository}`;if(run.claimed.includes(key))continue;
     // Reusing any unfinished/MR-bearing workspace would replay external side effects.
-    if(this.autoUt.tasks().some(t=>t.repository.toLowerCase()===item.repository.toLowerCase()&&(t.reportVersion===item.version||!t.reportVersion&&t.baseBranch===item.baseBranch))){run.messages.push(`${key}：已有执行记录，跳过；请在原任务中继续或处理 MR`);this.save(run);continue;}
+    if(this.autoUt.blocksRepository(item.repository,item.version,item.baseBranch)){run.messages.push(`${key}：已有执行记录，跳过；请在原任务中继续或处理 MR`);this.save(run);continue;}
     run.claimed.push(key);this.save(run);
     const row:QualityRow={'代码仓':item.repository,'语言':'Java','PL组':'Access_智能驾舱组','失败用例':item.failedTests,'行覆盖率':item.lineCoverage,'行覆盖率目标':item.lineGoal,'分支覆盖率':item.branchCoverage,'分支覆盖率目标':item.branchGoal};
-    try{const tasks=await this.autoUt.start(Buffer.from(qualityCsv({columns:Object.keys(row),rows:[row]})),run.config.username,run.config.ticket,item.baseBranch,run.config.workspaceRoot,mode,{version:item.version,reportId:run.id});run.taskIds.push(...tasks.map(t=>t.id));run.messages.push(`${key}：已创建修复任务`);}catch{run.messages.push(`${key}：启动失败，请检查工作目录；本次不会自动重试`);}this.save(run);
+    try{const tasks=await this.autoUt.start(Buffer.from(qualityCsv({columns:Object.keys(row),rows:[row]})),run.config.username,run.config.ticket,item.baseBranch,run.config.workspaceRoot,mode,{version:item.version,reportId:run.id,maxClasses:run.config.maxClasses??5,reportAt:run.createdAt});run.taskIds.push(...tasks.map(t=>t.id));run.messages.push(`${key}：已创建修复任务`);}catch{run.messages.push(`${key}：启动失败，请检查工作目录；本次不会自动重试`);}this.save(run);
    }
    if(!items.length){run.messages.push('没有符合条件的 Java 异常仓库，未启动修复');this.save(run);}return run;
   }finally{this.starting=false;}

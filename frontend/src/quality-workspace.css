@@ -32,6 +32,7 @@
 @media(max-width:780px){.ut-task-list-head{display:none}.ut-task-row{grid-template-columns:1fr auto}.ut-task-stage,.ut-task-progress{grid-column:1/-1}.ut-task-timeline{grid-template-columns:repeat(3,1fr);row-gap:17px}.ut-task-meta{display:grid}.ut-task-current{align-items:flex-start;flex-wrap:wrap}.ut-task-toolbar .qw-search{width:100%}}
 
 /* Execution records share one scroll container; context stays visually quiet. */
+.governance-stats{grid-template-columns:repeat(5,minmax(0,1fr))}.governance-stats .qw-stat-icon{display:none}.governance-stats .qw-stat{min-width:0}.governance-caption{font-size:12px;margin:-6px 0 22px}.governance-empty{padding:26px;color:#64748b}.governance-recent{margin-top:22px}.governance-row-actions{display:flex;gap:12px;flex-wrap:wrap;align-items:center}.governance-mr summary{cursor:pointer;font-size:12px;color:#64748b}.governance-mr button{display:block;margin-top:8px}.governance-dashboard .qw-toolbar{padding-left:0;padding-right:0}.governance-dashboard .panel-head h2{font-size:15px}.governance-dashboard .qw-stats .qw-stat strong{font-size:30px}@media(max-width:900px){.governance-stats{grid-template-columns:repeat(3,minmax(0,1fr))}}@media(max-width:560px){.governance-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.governance-dashboard .qw-toolbar{flex-wrap:wrap}}
 .ut-agent-overview{grid-template-columns:repeat(3,minmax(0,1fr))}
 .ut-task-context{border:0;background:transparent;padding:4px 0 0 8px}
 .ut-agent-feed{scrollbar-gutter:stable;min-height:220px}
