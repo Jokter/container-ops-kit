@@ -28,7 +28,7 @@ async function fixture(t: test.TestContext){
  const original=service['command'].bind(service);
  service['command']=async(task,args,dir,timeout,label,required=true)=>{
   if(args[0]==='codehub-cli'&&args[1]==='mr'&&args[2]==='list')return {exitCode:0,output:'[]'};
-  if(args[0]==='codehub-cli'&&args[1]==='mr'&&args[2]==='view')return {exitCode:0,output:JSON.stringify({iid:1,state:'opened',title:'UT治理',e2e_issues:[{id:'DTS123',title:'UT治理'}]})};
+  if(args[0]==='codehub-cli'&&args[1]==='mr'&&args[2]==='view')return {exitCode:0,output:JSON.stringify({iid:1,state:'opened',title:'UT治理',issue_nums:['DTS123'],e2e_issues:[{id:'DTS123',title:'UT治理'}]})};
   if(label==='提交修改'&&failCommit)throw Error('commit hook rejected');
   if(label==='创建CodeHub-MR'){uploads++;if(failUpload)throw Error('upload rejected');return {exitCode:0,output:JSON.stringify({id:1,mr_url:'https://codehub.example/demo/merge_requests/1'})};}
   return original(task,args,dir,timeout,label,required);
