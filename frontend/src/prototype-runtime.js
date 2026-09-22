@@ -1,3 +1,4 @@
+import {createBuildResults} from './build-results.js'
 import {loadDeploymentSelection, saveDeploymentSelection as persistDeploymentSelection} from './deployment-selection.js'
 import {canConvertFailedQuickDeploymentToReview, canDeployReviewedTask, deploymentProgress, deploymentReviewBlockers, deploymentReviewWarnings} from './deployment-presentation.js'
 
@@ -420,6 +421,8 @@ import {canConvertFailedQuickDeploymentToReview, canDeployReviewedTask, deployme
     latestMessage: '尚未开始构建'
   }
 
+  const buildResults = createBuildResults({request,render:reset=>render(reset),toast:message=>showToast(message),escapeHtml})
+
   const baseRender = render
   render = function (resetScroll = true) {
     const previousTerminal = document.querySelector('#build-log-terminal')
@@ -535,6 +538,7 @@ import {canConvertFailedQuickDeploymentToReview, canDeployReviewedTask, deployme
 
   function buildExecutionResult() {
     const task = buildRuntime.task
+    if (task && (state.buildTab === 'single') !== (task.mode === 'SINGLE')) return ''
     if (!task) {
       return '<div class="summary-stack"><section class="panel"><div class="panel-head"><div><h2>执行状态</h2><p style="color:var(--muted);margin-top:3px;font-size:12px">选择分支后开始构建</p></div><span class="badge">未开始</span></div><div class="panel-body"><div class="progress"><span style="width:0"></span></div></div></section><section class="panel"><div class="panel-head"><h2>实时日志</h2></div><div class="panel-body"><div class="terminal">构建开始后将在这里显示远端输出</div></div></section></div>'
     }
@@ -544,7 +548,7 @@ import {canConvertFailedQuickDeploymentToReview, canDeployReviewedTask, deployme
       ? visibleLogs.slice(-500).map(item => '<div><b>' + escapeHtml(item.time) + '</b> ' + escapeHtml(item.message) + '</div>').join('')
       : '<div>' + (buildRuntime.logQuery ? '没有匹配的日志' : '等待远端输出…') + '</div>'
     const logCount = buildRuntime.logQuery ? visibleLogs.length + ' / ' + buildRuntime.logs.length : buildRuntime.logs.length
-    return '<div class="summary-stack"><section class="panel"><div class="panel-head"><div><h2>执行状态</h2><p style="color:var(--muted);margin-top:3px;font-size:12px">' + escapeHtml(buildRuntime.latestMessage) + '</p></div><span class="badge ' + presentation[1] + '">' + presentation[0] + ' ' + task.progress + '%</span></div><div class="panel-body"><div class="progress"><span style="width:' + task.progress + '%"></span></div></div></section><section class="panel"><div class="panel-head"><h2>实时日志</h2><span class="mono" style="color:var(--muted);font-size:12px">' + escapeHtml(task.id) + '</span></div><div class="panel-body"><div class="build-log-toolbar"><input id="build-log-search" value="' + escapeHtml(buildRuntime.logQuery) + '" placeholder="搜索日志关键字"><span>' + logCount + ' 条</span><button class="button small ghost" data-copy-build-logs>复制' + (buildRuntime.logQuery ? '搜索结果' : '全部日志') + '</button></div><div id="build-log-terminal" class="terminal build-terminal">' + lines + '</div></div></section>' + buildDirectoryActions(task) + '</div>'
+    return buildResults.html(task) + '<div class="summary-stack"><section class="panel"><div class="panel-head"><div><h2>执行状态</h2><p style="color:var(--muted);margin-top:3px;font-size:12px">' + escapeHtml(buildRuntime.latestMessage) + '</p></div><span class="badge ' + presentation[1] + '">' + presentation[0] + ' ' + task.progress + '%</span></div><div class="panel-body"><div class="progress"><span style="width:' + task.progress + '%"></span></div></div></section><details class="panel br-logs" ' + (task.status === 'SUCCEEDED' ? '' : 'open') + '><summary class="panel-head"><h2>执行日志</h2><span class="mono" style="color:var(--muted);font-size:12px">' + escapeHtml(task.id) + '</span></summary><div class="panel-body"><div class="build-log-toolbar"><input id="build-log-search" value="' + escapeHtml(buildRuntime.logQuery) + '" placeholder="搜索日志关键字"><span>' + logCount + ' 条</span><button class="button small ghost" data-copy-build-logs>复制' + (buildRuntime.logQuery ? '搜索结果' : '全部日志') + '</button></div><div id="build-log-terminal" class="terminal build-terminal">' + lines + '</div></div></details>' + buildDirectoryActions(task) + '</div>'
   }
 
   buildContent = function () {
@@ -556,9 +560,8 @@ import {canConvertFailedQuickDeploymentToReview, canDeployReviewedTask, deployme
     if (!environments.some(item => item.id === state.selectedBuildEnvironment)) state.selectedBuildEnvironment = environment.id
     const body = state.buildTab === 'single' ? singleBuildForm() : state.buildTab === 'compare' ? compareBuildForm() : buildConfig()
     if (state.buildTab === 'config') return environmentBar() + buildStorageSummary() + buildTabs() + body
-    return environmentBar() + buildStorageSummary() + buildTabs() + (state.buildTab === 'single'
-      ? '<div class="build-layout">' + body + buildExecutionResult() + '</div>'
-      : body + '<div style="margin-top:16px">' + buildExecutionResult() + '</div>')
+    const completed = buildRuntime.task?.status === 'SUCCEEDED' && (state.buildTab === 'single') === (buildRuntime.task.mode === 'SINGLE')
+    return environmentBar() + buildStorageSummary() + buildTabs() + '<details class="panel br-config" ' + (completed ? '' : 'open') + '><summary>构建配置 <span class="br-sub">· ' + escapeHtml(buildRuntime.task?.module || '选择模块与分支') + '</span></summary><div class="br-config-body">' + body + '</div></details><div style="margin-top:16px">' + buildExecutionResult() + '</div>'
   }
 
   async function loadBuildConfiguration() {

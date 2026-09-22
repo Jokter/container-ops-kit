@@ -1,6 +1,7 @@
 import {Client} from 'ssh2';
 import type {ConnectConfig, SFTPWrapper} from 'ssh2';
 import {dirname, posix} from 'node:path';
+import {PassThrough} from 'node:stream';
 
 export interface SshTarget {host: string; port: number; username: string; password: string}
 export interface CommandResult {exitCode: number; lines: string[]}
@@ -69,6 +70,34 @@ export class SshOperations {
     const result = await this.execute(target, `cat ${shellQuote(path)}`, () => {}, signal);
     if (result.exitCode !== 0) throw new Error(`远程文件读取失败：${path}`);
     return result.lines.map(line => line.replace(/^\[stderr\] /, '')).join('\n') + '\n';
+  }
+  async stream(target:SshTarget,command:string,signal?:AbortSignal):Promise<PassThrough> {
+    if(signal?.aborted)throw new Error('操作已取消');
+    const client=await this.connect(target,signal);
+    return new Promise((resolve,reject)=>{
+      const output=new PassThrough();let started=false,finished=false,stderr='';
+      const cleanup=()=>{clearTimeout(timer);signal?.removeEventListener('abort',abort);client.end();};
+      const fail=(error:Error)=>{if(finished)return;finished=true;cleanup();if(started)output.destroy(error);else{output.destroy();reject(error);}};
+      const abort=()=>fail(new Error('下载已取消'));
+      const timer=setTimeout(()=>fail(new Error('构建包下载超时')),this.commandTimeout);
+      signal?.addEventListener('abort',abort,{once:true});
+      client.on('error',fail);
+      client.once('close',()=>{if(!finished)fail(new Error('SSH 下载连接已关闭'));});
+      output.once('close',()=>{if(!finished){finished=true;cleanup();}});
+      if(signal?.aborted){abort();return;}
+      client.exec(`bash -lc ${shellQuote(command)}`,(error,channel)=>{
+        if(error){fail(error);return;}
+        channel.stderr.on('data',(chunk:Buffer)=>{stderr=(stderr+chunk.toString('utf8')).slice(-4000);});
+        channel.once('data',()=>{if(!finished){started=true;resolve(output);}});
+        channel.pipe(output,{end:false});
+        channel.once('error',fail);
+        channel.once('close',(code:number|undefined)=>{
+          if(finished)return;
+          if(code!==0){fail(new Error(stderr.trim()||'构建包下载失败'));return;}
+          finished=true;cleanup();if(!started)resolve(output);output.end();
+        });
+      });
+    });
   }
   async uploadFiles(target: SshTarget, remoteDirectory: string, files: ReadonlyMap<string, Buffer>, signal?: AbortSignal): Promise<void> {
     for (const name of files.keys()) if (name.startsWith('/') || name.includes('..') || name.includes('\\')) throw new Error('上传路径不合法');
