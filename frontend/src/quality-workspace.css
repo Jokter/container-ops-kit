@@ -49,3 +49,6 @@
 .qw-drawer-head>[data-qw-close]{flex-shrink:0}
 .ut-task-detail-title{min-width:0;flex-wrap:wrap}
 @media(max-width:600px){.quality-workspace .qw-stats{grid-template-columns:1fr}.quality-workspace .qw-progress{flex-wrap:wrap}.qw-drawer-body{padding:18px}.qw-drawer-head{padding:18px}.qw-drawer-foot{padding:14px 18px}}
+
+/* Progress and detail stay in the existing repository rows. */
+.qw-plan-progress{min-width:145px;font-size:12px;color:#68768a}.qw-plan-progress>small{display:block;font-size:11px;color:var(--muted);margin-top:4px}.qw-plan-track{height:3px;max-width:160px;border-radius:3px;background:#edf1f7;margin-top:7px;overflow:hidden}.qw-plan-track>i{display:block;height:100%;background:#8ba2dc;border-radius:inherit}
