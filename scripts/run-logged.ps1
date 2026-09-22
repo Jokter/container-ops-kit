@@ -47,9 +47,11 @@ try {
     if ($LoggedCommand -eq 'npm start') {
         $entry = Join-Path ([System.IO.Path]::GetFullPath($WorkingDirectory)) 'dist\backend-ts\src\main.js'
         $executionCommand = 'node "' + $entry + '"'
-    } elseif ($LoggedCommand -eq 'npm run dev -- --host 127.0.0.1 --strictPort') {
+    } elseif ($LoggedCommand -match '^npm run dev -- --host 127\.0\.0\.1(?: --port ([0-9]{1,5}))? --strictPort$') {
+        $vitePort = if ($Matches[1]) { [int]$Matches[1] } else { 5173 }
+        if ($vitePort -lt 1 -or $vitePort -gt 65535) { throw 'Invalid frontend port.' }
         $entry = Join-Path ([System.IO.Path]::GetFullPath($WorkingDirectory)) 'node_modules\vite\bin\vite.js'
-        $executionCommand = 'node "' + $entry + '" --host 127.0.0.1 --strictPort'
+        $executionCommand = 'node "' + $entry + '" --host 127.0.0.1 --port ' + $vitePort + ' --strictPort'
     }
     $commandWithRedirect = $executionCommand + ' 2>&1'
     & cmd.exe /d /s /c $commandWithRedirect | ForEach-Object { Write-LogLine ([string]$_) }

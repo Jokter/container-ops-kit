@@ -342,6 +342,7 @@
   </style>
   <link rel="stylesheet" href="/frontend/src/quality-workspace.css">
   <link rel="stylesheet" href="/frontend/src/studio-workspace.css">
+  <link rel="stylesheet" href="/frontend/src/home-workbench.css">
 </head>
 <body>
   <div id="app"></div>
@@ -363,11 +364,7 @@
       { id: 'container-27a-01', type: 'container', version: 'r27c00', name: '27A 容器环境 01', ip: '10.28.4.16', port: '22', user: 'sopuser', workdir: '/opt/cok/runtime', architecture: 'x86_64', sshPasswordConfigured: true, maePasswordConfigured: true, osmuPasswordConfigured: true, status: 'untested', lastTest: '尚未测试', latency: '—', outcome: 'online', mae: 'mae-27a-01', maeUser: 'maeadmin', osmu: 'osmu-27a-01', osmuUser: 'osmuadmin', history: [] },
     ];
 
-    const tasks = [
-      { id: 'build-1048', kind: 'build', input: 'swmfrontendservice · master', environment: '上海构建环境', status: 'failed', statusLabel: '失败', updated: '2 分钟前' },
-      { id: 'release-0828', kind: 'build', input: '2 个业务仓 · master', environment: '上海构建环境', status: 'success', statusLabel: '成功', updated: '18 分钟前' },
-      { id: 'deploy-0682', kind: 'deploy', input: 'user-service · a82f91', environment: '生产容器环境', status: 'success', statusLabel: '已部署', updated: '44 分钟前' }
-    ];
+    const tasks = [];
 
     const statusPresentation = {
       online: { label: '可连接', className: 'ok' },
@@ -570,21 +567,16 @@
       return '';
     }
 
+    function navIcon(name) {
+      const paths={home:'M3 10 12 3l9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1Z',build:'m12 3 9 5-9 5-9-5Zm-9 9 9 5 9-5M3 16l9 5 9-5',deploy:'M12 16V3m-5 5 5-5 5 5M4 14v6h16v-6',resources:'M4 4h16v6H4Zm0 10h16v6H4ZM7 7h1m-1 10h1',operations:'M3 12h4l3-8 4 16 3-8h4',tools:'M4 4h6v6H4Zm10 0h6v6h-6ZM4 14h6v6H4Zm10 0h6v6h-6Z',tasks:'M8 5h12M8 12h12M8 19h12M3 5h1m-1 7h1m-1 7h1',schedules:'M12 8v5l3 2M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0'};
+      return `<svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${paths[name]||paths.home}"/></svg>`;
+    }
     function dashboardA() {
-      const buildEnvironments = environments.filter(item => item.type === 'build');
-      const containerEnvironments = environments.filter(item => item.type === 'container');
-      const onlineCount = environments.filter(item => item.status === 'online').length;
-      const activeCount = environments.length;
-      const queuedCount = tasks.filter(item => item.kind === 'build' && item.status === 'running').length;
-      const deployCount = tasks.filter(item => item.kind === 'deploy' && item.status === 'running').length;
-      const failedCount = tasks.filter(item => item.status === 'failed').length;
-      const metrics = [
-        [queuedCount, '构建队列', queuedCount ? '执行中的构建任务' : '当前没有执行中的构建任务'],
-        [deployCount, '部署中', '正在执行的部署任务'],
-        [`${onlineCount}/${activeCount}`, '环境在线', '构建与容器环境实时状态'],
-        [failedCount, '失败任务', '需要关注的执行结果']
-      ].map(item => `<div class="variant-a-status-item"><div class="variant-a-status-top"><strong class="metric-value">${item[0]}</strong><span class="metric-label">${item[1]}</span></div><div class="metric-foot">${item[2]}</div></div>`).join('');
-      return `${pageTitle('工作台', '集中查看任务、环境和需要处理的事项。','<button class="button" data-page="deploy">开始部署</button><button class="button primary" data-page="build">新建构建</button>')}<section class="variant-a-status-strip">${metrics}</section><div class="variant-a-columns"><section class="panel"><div class="panel-head"><div><h2>需要处理</h2><p class="metric-foot">优先展示失败和异常任务</p></div><span class="badge brand">${failedCount} 项</span></div><div class="panel-body">${attentionRows()}</div></section><section class="panel"><div class="panel-head"><div><h2>最近活动</h2><p class="metric-foot">任务状态与环境变化</p></div></div><div class="panel-body">${activityRows()}</div></section></div><div class="variant-a-overview"><button class="panel overview-card" data-resource-card="build"><div><h2>构建环境</h2><p>${buildEnvironments.length} 个在线可用</p></div><div class="overview-card-meta"><span>共 ${environments.filter(item => item.type === 'build').length} 个</span><span class="status ok">管理环境</span></div></button><button class="panel overview-card" data-resource-card="container"><div><h2>容器环境</h2><p>${containerEnvironments.length} 个在线可用</p></div><div class="overview-card-meta"><span>共 ${environments.filter(item => item.type === 'container').length} 个</span><span class="status warn">管理环境</span></div></button></div>${recentTasks()}`;
+      const running=tasks.filter(t=>t.status==='running'),failed=tasks.filter(t=>t.status==='failed');
+      const online=environments.filter(e=>e.status==='online').length;
+      const quick=[['build','构建','从仓库与分支生成可部署产物。'],['deploy','部署','选择产物，完成检查并发布到环境。'],['operations','服务资源','查看容器环境与服务资源。'],['resources','环境管理','维护环境信息，检查 SSH 连接。']];
+      const metric=[['当前执行',running.length,'本次会话任务'],['需要处理',failed.length,'本次会话失败任务'],['可连接环境',online,'最近一次连接检查'],['已配置环境',environments.length,'构建与容器环境']];
+      return `<div class="home-workbench"><header class="home-welcome"><div><span class="home-eyebrow">容器运维 / 工作台</span><h1>从这里开始今天的工作</h1><p>构建、部署与环境管理，一处直达。</p></div><span class="home-context">统一基础设施工作台</span></header><section class="home-shortcuts" aria-label="常用功能">${quick.map(([id,title,copy])=>`<button class="home-shortcut" data-page="${id}"><span class="home-shortcut-icon">${navIcon(id)}</span><strong>${title}</strong><span>${copy}</span><span class="home-shortcut-link">进入${title}<span aria-hidden="true"> →</span></span></button>`).join('')}</section><section class="home-metrics" aria-label="执行与环境概况">${metric.map(([title,value,copy])=>`<div><span>${title}</span><strong>${value}</strong><small>${copy}</small></div>`).join('')}</section><div class="home-columns"><section class="panel home-panel"><div class="panel-head"><h2>最近任务</h2><span class="home-caption">本次会话</span></div>${tasks.length?`<div class="home-task-list">${tasks.slice(0,6).map(t=>`<button class="home-task" data-page="${t.kind==='build'?'build':'deploy'}"><span class="home-task-copy"><strong>${escapeHtml(t.input)}</strong><small>${escapeHtml(t.environment)} · ${escapeHtml(t.id)}</small></span>${taskBadge(t)}<span class="home-caption">${escapeHtml(t.updated)}</span></button>`).join('')}</div>`:'<div class="home-empty"><span class="home-empty-icon">'+navIcon('tasks')+'</span><h3>还没有任务记录</h3><p>发起构建或部署后，在这里查看本次会话的任务。</p><button class="button" data-page="build">新建构建</button></div>'}</section><section class="panel home-panel"><div class="panel-head"><h2>环境概况</h2><button class="qw-link" data-page="resources">管理环境 →</button></div><div class="home-environments">${[['build','构建环境'],['container','容器环境']].map(([type,title])=>{const items=environments.filter(e=>e.type===type);return `<button data-resource-card="${type}"><span class="home-env-icon">${navIcon(type==='build'?'build':'resources')}</span><span><strong>${title}</strong><small>${items.length} 个环境 · ${items.filter(e=>e.status==='online').length} 个可连接</small></span><span aria-hidden="true">→</span></button>`;}).join('')}<p class="home-caption">连接状态以最近一次测试结果为准。</p></div></section></div></div>`;
     }
 
     const autoUtStatus = {
@@ -969,7 +961,8 @@
 
     function variantA() {
       const platformSwitch = `<details class="studio-workspace" data-qw-open="workspace"><summary aria-label="切换工作空间"><span class="studio-space-icon">${state.platformDomain==='automation'?'A':state.platformDomain==='container'?'C':'V'}</span>${state.platformDomain==='automation'?'自动化空间':state.platformDomain==='container'?'容器运维空间':'虚拟化空间'}<span class="studio-chevron">⌄</span></summary><nav class="platform-switch" aria-label="工作空间"><div class="platform-switch-title">切换工作空间</div>${[['container','容器运维','环境、构建与部署'],['automation','自动化工具','治理、检查与定时任务'],['virtualization','虚拟化','预留空间']].map(([id,title,copy])=>`<button type="button" class="platform-option ${state.platformDomain===id?'active':''}" data-platform-domain="${id}" ${state.platformDomain===id?'aria-current="page"':''}><span><strong>${title}</strong><small>${copy}</small></span><span>${state.platformDomain===id?'✓':''}</span></button>`).join('')}</nav></details>`;
-      const nav = `<div class="variant-a-nav"><button data-page="dashboard" class="${state.page === 'dashboard' ? 'active' : ''}">工作台</button><div class="nav-section">研发流程</div><button data-page="build" class="${state.page === 'build' ? 'active' : ''}">构建</button><button data-page="deploy" class="${state.page === 'deploy' ? 'active' : ''}">部署</button><div class="nav-section">容器运维</div><button data-page="operations" class="${state.page === 'operations' ? 'active' : ''}">服务资源</button><div class="nav-section">系统管理</div><button data-page="resources" class="${state.page === 'resources' ? 'active' : ''}">环境管理</button><div class="nav-section">任务</div><button>任务中心</button></div>`;
+      const navItem=(id,title,icon)=>`<button data-page="${id}" class="${state.page===id?'active':''}" ${state.page===id?'aria-current="page"':''}>${navIcon(icon)}<span>${title}</span></button>`;
+      const nav = `<nav class="variant-a-nav" aria-label="容器运维导航">${navItem('dashboard','工作台','home')}<div class="nav-section">研发流程</div>${navItem('build','构建','build')}${navItem('deploy','部署','deploy')}<div class="nav-section">容器运维</div>${navItem('operations','服务资源','operations')}<div class="nav-section">系统管理</div>${navItem('resources','环境管理','resources')}</nav>`;
       const placeholders = {
         virtualization: ['虚', '虚拟化', '这里先作为独立平台域预留，不提前定义功能和页面。']
       };
@@ -979,7 +972,7 @@
         : state.platformDomain === 'automation'
           ? automationContent()
           : `<section class="panel platform-placeholder"><div class="platform-placeholder-content"><div class="platform-placeholder-symbol">${placeholder[0]}</div><h1>${placeholder[1]}</h1><p>${placeholder[2]}</p><span class="platform-boundary">平台边界已预留</span></div></section>`;
-      return `<div class="variant-a-shell studio-shell"><header class="studio-topbar"><div class="studio-brand"><span class="studio-logo">O</span><strong>Ops Studio</strong><span class="studio-divider">/</span></div>${platformSwitch}<span class="studio-product">运维平台</span></header><aside class="variant-a-sidebar">${state.platformDomain==='container'?nav:state.platformDomain==='automation'?automationNav():''}<div class="studio-sidebar-bottom">${state.platformDomain==='automation'?'<button class="studio-settings-link" data-automation-nav="settings">连接与设置</button>':''}<div class="variant-a-user">V0.2.18</div></div></aside><main class="variant-a-main">${content}</main></div>`;
+      return `<div class="variant-a-shell studio-shell"><header class="studio-topbar"><div class="studio-brand">${taiji}<strong>运维平台</strong><span class="studio-divider">/</span></div>${platformSwitch}<span class="studio-product">统一基础设施工作台</span></header><aside class="variant-a-sidebar">${state.platformDomain==='container'?nav:state.platformDomain==='automation'?automationNav():''}<div class="studio-sidebar-bottom">${state.platformDomain==='automation'?'<button class="studio-settings-link" data-automation-nav="settings">连接与设置</button>':''}<div class="variant-a-user">V0.2.19</div></div></aside><main class="variant-a-main">${content}</main></div>`;
 
     }
 
@@ -1444,7 +1437,7 @@
     const navUi={scroll:new Map(),loaded:new Set(),route:'',loads:new Map()};
     const schedulerUi={items:[],kind:'',status:'',query:'',draft:null,editing:null,runs:[],busy:false,poll:null};
     const schedulerNames={quality:'质量检查','auto-ut':'UT 治理','auto-ut-cleanup':'UT 任务清理',csv:'UT 治理 · CSV'};
-    function automationNav(){return `<nav class="variant-a-nav" aria-label="自动化工具导航"><div class="nav-section">工作台</div>${[['catalog','概览'],['tools','工具'],['tasks','执行记录'],['schedules','定时计划']].map(([p,n])=>`<button data-automation-nav="${p}" class="${state.automationPage===p||(p==='tools'&&['auto-ut','quality'].includes(state.automationPage))?'active':''}" ${state.automationPage===p?'aria-current="page"':''}>${n}</button>`).join('')}</nav>`;}
+    function automationNav(){return `<nav class="variant-a-nav" aria-label="自动化工具导航"><div class="nav-section">工作台</div>${[['catalog','概览'],['tools','工具'],['tasks','执行记录'],['schedules','定时计划']].map(([p,n])=>`<button data-automation-nav="${p}" class="${state.automationPage===p||(p==='tools'&&['auto-ut','quality'].includes(state.automationPage))?'active':''}" ${state.automationPage===p?'aria-current="page"':''}>${navIcon(p==='catalog'?'home':p)}<span>${n}</span></button>`).join('')}</nav>`;}
     function appRoute(){return state.platformDomain==='automation'?'#/automation'+(state.automationPage==='catalog'?'':'/'+state.automationPage):state.platformDomain==='container'?'#/container/'+state.page:'#/virtualization';}
     function parseAppRoute(hash){const m=hash.match(/^#\/automation(?:\/(quality|auto-ut|schedules|tools|tasks|settings))?$/);if(m)return{domain:'automation',page:m[1]||'catalog'};const c=hash.match(/^#\/container\/(dashboard|build|deploy|operations|resources)$/);if(c)return{domain:'container',page:c[1]};if(hash==='#/virtualization')return{domain:'virtualization',page:''};return{domain:'container',page:'dashboard'};}
     function loadNavigationPage(){if(typeof fetch!=='function')return Promise.resolve();const key=appRoute();if(navUi.loads.has(key))return navUi.loads.get(key);if(navUi.loaded.has(key))return Promise.resolve();navUi.loaded.add(key);let work=Promise.resolve();if(state.platformDomain==='automation'){

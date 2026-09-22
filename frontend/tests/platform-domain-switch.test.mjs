@@ -353,3 +353,22 @@ test('基线阶段展示细分流程且不提前显示Pi等待内容', async () 
   await 页面实例.window.loadNavigationPage()
   页面实例.window.close()
 })
+
+test('工作台恢复原图标，分组不伪装成按钮，入口跳转且不展示示例任务', () => {
+ const dom=打开页面();
+ try {
+  const d=dom.window.document;
+  assert.ok(d.querySelector('.studio-brand .taiji svg'));
+  assert.equal(d.querySelector('.studio-brand strong').textContent,'运维平台');
+  assert.equal(d.querySelectorAll('.home-shortcut').length,4);
+  assert.ok(d.querySelector('.home-empty'));
+  assert.doesNotMatch(d.querySelector('.home-workbench').textContent,/build-1048|release-0828|production-mae/);
+  for(const label of d.querySelectorAll('.variant-a-nav .nav-section'))assert.equal(label.closest('button'),null);
+  d.querySelector('.home-shortcut[data-page="build"]').click();
+  assert.equal(d.querySelector('.variant-a-nav [aria-current="page"]').dataset.page,'build');
+  assert.equal(d.querySelector('.page-head h1').textContent,'构建');
+  d.querySelector('.variant-a-nav [data-page="dashboard"]').click();
+  d.querySelector('.home-shortcut[data-page="deploy"]').click();
+  assert.equal(d.querySelector('.variant-a-nav [aria-current="page"]').dataset.page,'deploy');
+ } finally {dom.window.close();}
+})
