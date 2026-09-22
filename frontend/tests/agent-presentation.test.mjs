@@ -92,15 +92,36 @@ test('手动滚动暂停跟随，后续输出保持滚动位置，回到底部�
   const {dom,d,emit}=await setup()
   try{
     const feed=d.querySelector('[data-ut-feed]')
+    const panel=d.querySelector('[data-auto-ut-live]')
     Object.defineProperties(feed,{scrollHeight:{value:1200},clientHeight:{value:400}})
     feed.scrollTop=120
     feed.dispatchEvent(new dom.window.Event('scroll'))
     assert.equal(d.querySelector('[data-ut-follow]').checked,false)
     emit({sequence:1,type:'message_delta',content:'新输出'})
     await pause()
-    assert.equal(d.querySelector('[data-ut-feed]').scrollTop,120)
+    assert.equal(d.querySelector('[data-auto-ut-live]'),panel)
+    assert.equal(d.querySelector('[data-ut-feed]'),feed)
+    assert.equal(feed.scrollTop,120)
     d.querySelector('[data-ut-latest]').click()
     assert.equal(d.querySelector('[data-ut-follow]').checked,true)
+  }finally{dom.window.close()}
+})
+
+test('拖动滚动条期间延迟实时刷新，松开后更新且保留滚动容器',async()=>{
+  const {dom,d,emit}=await setup()
+  try{
+    const panel=d.querySelector('[data-auto-ut-live]'),feed=d.querySelector('[data-ut-feed]')
+    feed.getBoundingClientRect=()=>({right:500})
+    feed.dispatchEvent(new dom.window.MouseEvent('pointerdown',{bubbles:true,clientX:495}))
+    emit({sequence:1,type:'message_delta',content:'拖动期间到达的输出'})
+    await pause()
+    assert.doesNotMatch(feed.textContent,/拖动期间到达的输出/)
+    dom.window.dispatchEvent(new dom.window.MouseEvent('pointerup'))
+    await pause()
+    assert.equal(d.querySelector('[data-auto-ut-live]'),panel)
+    assert.equal(d.querySelector('[data-ut-feed]'),feed)
+    assert.match(feed.textContent,/拖动期间到达的输出/)
+    assert.equal(d.querySelector('[data-ut-follow]').checked,false)
   }finally{dom.window.close()}
 })
 

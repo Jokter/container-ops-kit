@@ -619,7 +619,15 @@
     function bindAutoUtView() {
       document.querySelectorAll('[data-auto-ut-live]').forEach(panel=>{
         const taskId=panel.dataset.autoUtLive,live=autoUtLiveState(taskId),feed=panel.querySelector('[data-ut-feed]');
-        if(feed){feed.scrollTop=live.ui.follow?feed.scrollHeight:live.ui.top;live.ui.top=feed.scrollTop;feed.addEventListener('scroll',()=>{if(feed.scrollTop===live.ui.top)return;live.ui.top=feed.scrollTop;live.ui.follow=feed.scrollHeight-feed.clientHeight-feed.scrollTop<32;const follow=panel.querySelector('[data-ut-follow]');if(follow)follow.checked=live.ui.follow;const jump=panel.querySelector('[data-ut-latest]');if(jump)jump.hidden=live.ui.follow;saveAutoUtView(taskId);},{passive:true});}
+        if(feed){
+          feed.scrollTop=live.ui.follow?feed.scrollHeight:live.ui.top;live.ui.top=feed.scrollTop;
+          if(!feed.dataset.utScrollBound){
+            feed.dataset.utScrollBound='true';
+            feed.addEventListener('scroll',()=>{if(feed.scrollTop===live.ui.top)return;live.ui.top=feed.scrollTop;live.ui.follow=feed.scrollHeight-feed.clientHeight-feed.scrollTop<32;const follow=panel.querySelector('[data-ut-follow]');if(follow)follow.checked=live.ui.follow;const jump=panel.querySelector('[data-ut-latest]');if(jump)jump.hidden=live.ui.follow;saveAutoUtView(taskId);},{passive:true});
+            feed.addEventListener('pointerdown',event=>{live.ui.interacting=true;if(event.clientX>=feed.getBoundingClientRect().right-24){live.ui.follow=false;saveAutoUtView(taskId);}window.addEventListener('pointerup',()=>{if(!live.ui.interacting)return;live.ui.interacting=false;if(live.ui.pendingRender){live.ui.pendingRender=false;render(false);}else refreshAutoUtLivePanel();},{once:true});});
+            feed.addEventListener('pointercancel',()=>{live.ui.interacting=false;});
+          }
+        }
         panel.querySelectorAll('[data-ut-entry]').forEach(detail=>detail.addEventListener('toggle',()=>{if(!detail.isConnected||detail.open===(detail.dataset.utDefaultOpen==='true'))return;live.ui.open[detail.dataset.utEntry]=detail.open;saveAutoUtView(taskId);}));
         const follow=panel.querySelector('[data-ut-follow]');follow?.addEventListener('change',()=>{live.ui.follow=follow.checked;if(feed&&live.ui.follow)feed.scrollTop=feed.scrollHeight;saveAutoUtView(taskId);});
         panel.querySelector('[data-ut-latest]')?.addEventListener('click',()=>{live.ui.follow=true;if(follow)follow.checked=true;if(feed)feed.scrollTop=feed.scrollHeight;panel.querySelector('[data-ut-latest]').hidden=true;saveAutoUtView(taskId);});
@@ -629,6 +637,7 @@
       if(state.platformDomain!=='automation'||state.automationPage!=='auto-ut')return;
       const item=state.autoUtTasks.find(task=>task.id===workspaceUi.selectedTaskId);
       const panel=document.querySelector('[data-auto-ut-live]');if(!item||!panel)return;
+      const live=autoUtLiveState(item.id);if(live.ui.interacting)return;
       const selection=window.getSelection();if(selection&&!selection.isCollapsed&&panel.contains(selection.anchorNode))return;
       const focused=document.activeElement;
       const detailFocus=panel.contains(focused)&&focused?.tagName==='SUMMARY'?focused.parentElement.dataset.utEntry:null;
@@ -637,8 +646,14 @@
       // Keep identical output mounted: polling must not interrupt selecting text or opening a detail.
       const html=autoUtLivePanel(item,workspaceUi.taskDetailTab||(item.status==='REPAIRING'?'pi':'process'));
       if(panel._renderedHtml===html)return;
-      panel.outerHTML=html;
-      const updated=document.querySelector('[data-auto-ut-live]');if(updated)updated._renderedHtml=html;
+      const template=document.createElement('template');template.innerHTML=html;
+      const next=template.content.firstElementChild,feed=panel.querySelector('[data-ut-feed]'),nextFeed=next.querySelector('[data-ut-feed]');
+      panel.querySelector('.auto-ut-live-head').innerHTML=next.querySelector('.auto-ut-live-head').innerHTML;
+      feed.innerHTML=nextFeed.innerHTML;
+      panel.querySelector('.ut-agent-toolbar').innerHTML=next.querySelector('.ut-agent-toolbar').innerHTML;
+      const result=panel.querySelector('.ut-agent-result'),nextResult=next.querySelector('.ut-agent-result');
+      if(result&&nextResult)result.replaceWith(nextResult);else if(result)result.remove();else if(nextResult)panel.append(nextResult);
+      const updated=panel;updated._renderedHtml=html;
       bindAutoUtView();
       if(detailFocus)[...updated.querySelectorAll('[data-ut-entry]')].find(el=>el.dataset.utEntry===detailFocus)?.querySelector('summary')?.focus({preventScroll:true});
       if(followFocus)updated.querySelector('[data-ut-follow]')?.focus({preventScroll:true});
@@ -827,7 +842,10 @@
         const previous=presentation(state.autoUtTasks);
         state.autoUtTasks = await autoUtCall('/api/auto-ut/tasks');
         state.autoUtTasks.forEach(task => (task.liveEvents || []).forEach(event => applyAutoUtLiveEvent(task.id, event)));
-        if(previous!==presentation(state.autoUtTasks))render(false);else refreshAutoUtLivePanel();
+        if(previous!==presentation(state.autoUtTasks)){
+          const selected=state.autoUtLive[workspaceUi.selectedTaskId];
+          if(selected?.ui.interacting)selected.ui.pendingRender=true;else render(false);
+        }else refreshAutoUtLivePanel();
         scheduleAutoUtPolling();
       } catch (error) {
         showToast(error.message || '任务加载失败');
@@ -914,7 +932,7 @@
         : state.platformDomain === 'automation'
           ? automationContent()
           : `<section class="panel platform-placeholder"><div class="platform-placeholder-content"><div class="platform-placeholder-symbol">${placeholder[0]}</div><h1>${placeholder[1]}</h1><p>${placeholder[2]}</p><span class="platform-boundary">平台边界已预留</span></div></section>`;
-      return `<div class="variant-a-shell"><aside class="variant-a-sidebar"><div class="variant-a-brand">${taiji}<div><strong>运维平台</strong><span>统一基础设施工作台</span></div></div>${platformSwitch}${state.platformDomain === 'container' ? nav : state.platformDomain === 'automation' ? automationNav() : ''}<div class="variant-a-user">V0.2.5</div></aside><main class="variant-a-main">${content}</main></div>`;
+      return `<div class="variant-a-shell"><aside class="variant-a-sidebar"><div class="variant-a-brand">${taiji}<div><strong>运维平台</strong><span>统一基础设施工作台</span></div></div>${platformSwitch}${state.platformDomain === 'container' ? nav : state.platformDomain === 'automation' ? automationNav() : ''}<div class="variant-a-user">V0.2.6</div></aside><main class="variant-a-main">${content}</main></div>`;
     }
 
     let toastTimer;
