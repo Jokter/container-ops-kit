@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {TaskStore} from '../src/platform/store.js';
-import {MrConfiguration,businessMinutes,inNotificationWindow} from '../src/modules/autout/mr-settings.js';
+import {MrConfiguration} from '../src/modules/autout/mr-settings.js';
 import {MrWorkflow,newTracking,type MrHooks} from '../src/modules/autout/mr-workflow.js';
 import {parseMr,mrIid} from '../src/modules/autout/mr-codehub.js';
 import type {AutoUtTask} from '../src/modules/autout/autout.js';
@@ -35,8 +35,25 @@ test('mixed multiline MR output distinguishes upload IID from view ID',()=>{
 test('settings persist roles, repository overrides and reject invalid accounts',()=>{
  const store=new TaskStore(':memory:');try{const service=new MrConfiguration(store),config=service.get();config.roles.reviewers=['r123'];config.repositories=[{repository:'Demo',roles:{approvers:['a123']}}];service.save(config);assert.deepEqual(service.snapshot('demo').roles,{reviewers:['r123'],approvers:['a123'],assignees:[]});assert.throws(()=>service.save({...config,roles:{...config.roles,reviewers:['bad;command']}}));}finally{store.close();}
 });
-test('notification clock excludes overnight and weekends',()=>{
- const f=fixture();assert.equal(businessMinutes(Date.parse('2026-09-25T09:00:00Z'),Date.parse('2026-09-28T02:00:00Z'),f.task.mr!.config),120);assert.equal(inNotificationWindow(Date.parse('2026-09-26T02:00:00Z'),f.task.mr!.config),false);
+test('phase notifications run at night and weekends despite legacy work hours',async()=>{
+ for(const time of ['2026-09-22T15:00:00Z','2026-09-26T15:00:00Z']){
+  const f=fixture();f.task.mr!.config.workHours={weekdaysOnly:true,start:9,end:18};
+  const at=Date.parse(time);await f.workflow.tick(f.task,at);
+  f.gate.approval_reviewers_required_passed=true;await f.workflow.tick(f.task,at+60000);
+  f.gate.approval_approvers_required_passed=true;await f.workflow.tick(f.task,at+120000);
+  assert.deepEqual(f.calls.filter(c=>c[0]==='welink-cli').map(c=>c[c.indexOf('--receiver')+1]),['r123','a123','m123']);
+ }
+});
+test('reminders and escalation use elapsed minutes across weekends',async()=>{
+ const f=fixture();f.task.mr!.config.workHours={weekdaysOnly:true,start:9,end:18};
+ const at=Date.parse('2026-09-25T15:00:00Z');
+ for(const minutes of [0,119,120,239,240,241])await f.workflow.tick(f.task,at+minutes*60000);
+ const sent=f.calls.filter(c=>c[0]==='welink-cli');
+ assert.equal(sent.filter(c=>c.includes('r123')).length,2);assert.equal(sent.filter(c=>c.includes('owner1')).length,1);
+});
+test('night notifications still respect the global switch',async()=>{
+ const f=fixture();f.task.mr!.config.notifications=false;await f.workflow.tick(f.task,Date.parse('2026-09-26T15:00:00Z'));
+ assert.ok(!f.calls.some(c=>c[0]==='welink-cli'));
 });
 test('pipeline success is not task completion; stages notify actual pending members',async()=>{
  const f=fixture();await f.workflow.tick(f.task,now);assert.equal(f.task.status,'MR_PENDING');assert.equal(f.task.mr!.phase,'REVIEW');assert.equal(f.calls.filter(c=>c[0]==='welink-cli').length,1);

@@ -1,6 +1,6 @@
 import {createHash} from 'node:crypto';
 import type {AutoUtTask} from './autout.js';
-import {businessMinutes,inNotificationWindow,type MrSettings} from './mr-settings.js';
+import {type MrSettings} from './mr-settings.js';
 import {gateSchema,issueTitle,jsonValues,listObjects,mrIid,mrSchema,parseMr,parseObject,pendingMembers,pipelineSchema,roleMembers,safeMrUrl,type MrView} from './mr-codehub.js';
 export type MrPhase='SETUP'|'PIPELINE'|'REVIEW'|'APPROVE'|'MERGE';
 export interface MrTracking {
@@ -118,19 +118,19 @@ export class MrWorkflow {
   entry.pending=false;entry.count++;entry.at=now;this.save(task);
  }
  private async notifyPhase(task:AutoUtTask,view:MrView,now:number){
-  const m=task.mr!;if(!m.config.notifications||!inNotificationWindow(now,m.config))return;
+  const m=task.mr!;if(!m.config.notifications)return;
   const role=m.phase==='REVIEW'?'reviewers':m.phase==='APPROVE'?'approvers':'assignees',label=m.phase==='REVIEW'?'检视':m.phase==='APPROVE'?'审核':'合并';
   const people=pendingMembers(view,role);if(!people.length){this.pause(task,'MR 未返回待处理的'+label+'人员，请配置或核对门禁。');return;}
   for(const receiver of [...new Set(people)]){
    const key=m.sha+':'+m.generation+':'+m.phase+':'+receiver,entry=m.notifications[key];
    if(entry?.pending){m.error='有通知发送结果待确认，请核对 WeLink 发送记录。';await this.notifyIntervention(task,now,m.error);continue;}
-   if(entry&&businessMinutes(entry.at,now,m.config)<m.config.reminderMinutes)continue;
+   if(entry&&Math.max(0,now-entry.at)/60000<m.config.reminderMinutes)continue;
    if(entry&&entry.count>=2){if(!entry.escalated){await this.notifyIntervention(task,now,label+'已提醒两次仍未处理');entry.escalated=true;this.save(task);}continue;}
    await this.send(task,receiver,`UT 治理 MR 请${label}${entry?'（再次提醒）':''}。\n仓库：${task.repository}\nMR：${task.pullRequestUrl}`,key,now);
   }
  }
  private async notifyIntervention(task:AutoUtTask,now:number,reason=task.mr!.error){
-  const m=task.mr!;if(!m.config.notifications||!inNotificationWindow(now,m.config)||!reason)return;
+  const m=task.mr!;if(!m.config.notifications||!reason)return;
   const receiver=m.config.contact||task.username,key='intervention:'+m.sha+':'+m.generation+':'+m.phase;
   if(m.notifications[key]?.count||m.notifications[key]?.pending)return;
   try{await this.send(task,receiver,`UT 治理 MR 需要介入。\n仓库：${task.repository}\nMR：${task.pullRequestUrl}\n原因：${reason.slice(0,600)}`,key,now);}catch(error){this.hooks.event(task,error instanceof Error?error.message:'异常通知失败');}
