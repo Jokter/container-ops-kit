@@ -314,7 +314,7 @@ export class AutoUtService{
   task.mr.uploadAttempted=true;task.mr.writePending='upload';this.save(task);
   const command=[settings.codehub,'mr','upload','--dest',task.baseBranch,'--br',task.repairBranch,'--topic',task.repairBranch,'-T',title,'-D',`实际修复 ${task.governance?.fixedIds?.length??0} 个失败用例，新增 ${task.governance?.addedIds?.length??0} 个通过用例。完整 UT 回归通过。`,'-y','--format','json'];
   const uploaded=await this.command(task,command,workspace,600000,'创建CodeHub-MR');
-  await this.mrWorkflow.attachUploaded(task,uploaded.output);task.governance!.mrState='PENDING';delete task.governance!.completedAt;this.save(task);
+  this.mrWorkflow.attach(task,parseMr(uploaded.output));task.governance!.mrState='PENDING';delete task.governance!.completedAt;this.save(task);
   await this.mrWorkflow.setup(task);
  }
  private async repairPipeline(task:AutoUtTask,details:string,sha:string){

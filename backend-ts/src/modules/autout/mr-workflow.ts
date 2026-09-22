@@ -1,7 +1,7 @@
 import {createHash} from 'node:crypto';
 import type {AutoUtTask} from './autout.js';
 import {businessMinutes,inNotificationWindow,type MrSettings} from './mr-settings.js';
-import {gateSchema,hasLinkedIssue,linkedIssueNumbers,parseIssueTitle,issueTitle,jsonValues,listObjects,mrIid,mrSchema,parseMr,parseObject,pendingMembers,pipelineSchema,roleMembers,safeMrUrl,type MrView} from './mr-codehub.js';
+import {gateSchema,issueTitle,jsonValues,listObjects,mrIid,mrSchema,parseMr,parseObject,pendingMembers,pipelineSchema,roleMembers,safeMrUrl,type MrView} from './mr-codehub.js';
 export type MrPhase='SETUP'|'PIPELINE'|'REVIEW'|'APPROVE'|'MERGE';
 export interface MrTracking {
  config:MrSettings;iid:string;sha:string;phase:MrPhase;nextAt:number;paused:boolean;error:string;
@@ -22,7 +22,7 @@ export class MrWorkflow {
  constructor(private hooks:MrHooks){}
  private async command(task:AutoUtTask,args:string[],label:string){
   const operation=args.slice(0,2).join(' ');
-  const columns=operation==='issue view'?'title':operation==='mr gate'?'ci_state_passed,quality_gate,merge_gate_passed,conflict_passed,approval_reviewers_required_passed,approval_approvers_required_passed,pipeline':operation==='mr pipeline'||operation==='pipeline view'?'id,status,sha,commit_id,commit':operation==='pipeline failure'?'id,status,ref,failures,quality,codecheck,jobs':'id,iid,mr_url,web_url,state,title,description,source_branch,target_branch,sha,diff_refs,issue_nums,e2e_issues,approval_merge_request_reviewers,approval_merge_request_approvers,merge_request_assignee_list';
+  const columns=operation==='mr gate'?'ci_state_passed,quality_gate,merge_gate_passed,conflict_passed,approval_reviewers_required_passed,approval_approvers_required_passed,pipeline':operation==='mr pipeline'||operation==='pipeline view'?'id,status,sha,commit_id,commit':operation==='pipeline failure'?'id,status,ref,failures,quality,codecheck,jobs':'id,iid,mr_url,web_url,state,title,description,source_branch,target_branch,sha,diff_refs,e2e_issues,approval_merge_request_reviewers,approval_merge_request_approvers,merge_request_assignee_list';
   return this.hooks.run(task,['codehub-cli',...args,'--format','json','--columns',columns],label);
  }
  private save(task:AutoUtTask){this.hooks.save(task);}
@@ -36,32 +36,24 @@ export class MrWorkflow {
   this.attach(task,candidates[0]!);return true;
  }
  attach(task:AutoUtTask,m:MrView){const tracking=task.mr!;tracking.iid=mrIid(m);const url=m.mr_url||m.web_url;if(!url)throw Error('MR 已存在但没有地址，请检查 CLI 返回。');task.pullRequestUrl=safeMrUrl(url);task.governance!.mrState='PENDING';delete task.governance!.completedAt;this.done(task);this.hooks.state(task,'MR_PENDING','MR 已创建，正在补齐单号、标题和处理人员。');this.save(task);}
- async attachUploaded(task:AutoUtTask,output:string){
-  const uploaded=parseMr(output);
-  if(uploaded.mr_url||uploaded.web_url){this.attach(task,uploaded);return;}
-  const iid=uploaded.iid||uploaded.id;if(!iid)throw Error('上传结果缺少 MR IID');
-  const view=parseMr((await this.command(task,['mr','view',iid],'核对上传MR')).output);
-  if(mrIid(view)!==iid)throw Error('上传 MR 与回读 IID 不一致');
-  this.attach(task,view);
- }
  private async view(task:AutoUtTask){return parseMr((await this.command(task,['mr','view',task.mr!.iid],'读取MR状态与人员')).output);}
  async setup(task:AutoUtTask){
   const tracking=task.mr!;let view=await this.view(task);if(this.terminal(task,view))return;
   // Every write is preceded by a read. An interrupted/failed write is never blindly replayed.
   for(const step of ['linked','title','reviewers','approvers','assignees'] as const){
-   // Revalidate remote state, including flags persisted by older releases.
+   if(tracking.setup[step])continue;
    const people=step==='linked'||step==='title'?[]:tracking.config.roles[step];
-   const title=step==='title'?(issueTitle(view,task.ticket)||parseIssueTitle((await this.command(task,['issue','view',task.ticket],'读取问题单标题')).output)):undefined;
-   const matches=step==='linked'?hasLinkedIssue(view,task.ticket):step==='title'?!!title&&view.title===title:!people.length||people.every(p=>roleMembers(view,step).some(m=>m.username?.toLowerCase()===p.toLowerCase()));
+   const title=issueTitle(view,task.ticket);
+   const matches=step==='linked'?!!view.e2e_issues?.some(i=>[i.id,i.issue_num,i.issue_id,i.number].some(n=>String(n)===task.ticket)):step==='title'?!!title&&view.title===title:!people.length||people.every(p=>roleMembers(view,step).some(m=>m.username?.toLowerCase()===p.toLowerCase()));
    if(matches){tracking.setup[step]=true;if(tracking.writePending===step)this.done(task);this.save(task);continue;}
    if(tracking.writePending)throw Error('上次 '+tracking.writePending+' 结果未确认；已读取远端但未满足目标，请重试当前步骤。');
    if(step==='title'&&!title)throw Error('关联单号未返回匹配的标题，请核对 CodeHub E2E 单号字段。');
-   const args=step==='linked'?['--issue-nums',[...new Set([...linkedIssueNumbers(view),task.ticket])].join(',')]:step==='title'?['--title',title!]:[step==='reviewers'?'--approval-reviewers':step==='approvers'?'--approval-approvers':'--assignees',people.join(',')];
+   const args=step==='linked'?['--e2e-issues',task.ticket]:step==='title'?['--title',title!]:[step==='reviewers'?'--approval-reviewers':step==='approvers'?'--approval-approvers':'--assignees',people.join(',')];
    this.pending(task,step);
    await this.command(task,['mr','update',tracking.iid,...args],step==='linked'?'关联单号':step==='title'?'同步单号标题':'配置MR'+step);
    view=await this.view(task);
-   const verified=step==='linked'?hasLinkedIssue(view,task.ticket):step==='title'?view.title===title:people.every(p=>roleMembers(view,step).some(m=>m.username?.toLowerCase()===p.toLowerCase()));
-   if(!verified)throw Error(step==='linked'?'MR 未确认关联问题单 '+task.ticket+'（issue_nums），请核对 CLI 返回、单号和权限后重试。':'MR '+step+' 尚未确认生效，请核对权限或配置后重试。');
+   const verified=step==='linked'?!!issueTitle(view,task.ticket):step==='title'?view.title===title:people.every(p=>roleMembers(view,step).some(m=>m.username?.toLowerCase()===p.toLowerCase()));
+   if(!verified)throw Error('MR '+step+' 尚未确认生效，请核对权限或配置后重试。');
    tracking.setup[step]=true;this.done(task);
   }
   tracking.phase='PIPELINE';tracking.error='';tracking.paused=false;tracking.nextAt=0;task.nextStage='TRACK';task.progress=92;this.hooks.state(task,'MR_PENDING','MR 已就绪，等待当前提交的流水线。');this.save(task);
@@ -80,7 +72,6 @@ export class MrWorkflow {
    if(m.paused){if(m.error!=='已手动暂停自动处理')await this.notifyIntervention(task,now);return;}
    if(m.writePending){m.paused=true;m.error='检测到未确认的写操作，请重试当前步骤核对远端。';this.save(task);return;}
    if(m.phase==='SETUP'){await this.setup(task);return;}
-   if(!hasLinkedIssue(view,task.ticket)){m.phase='SETUP';delete m.setup.linked;this.pause(task,'MR 未关联任务问题单 '+task.ticket+'，请重试当前步骤补关联。');return;}
    const sha=view.diff_refs?.head_sha||view.sha;if(!sha)throw Error('MR 未返回当前提交 SHA，暂停判断流水线。');
    if(m.awaitingSha&&sha!==m.awaitingSha){if(now-(m.awaitingSince||now)>1800000)this.pause(task,'远端 MR 尚未更新到已推送提交，请核对 MR 来源分支。');else this.hooks.state(task,'MR_PENDING','已推送新提交，等待 CodeHub 更新 MR。');return;}delete m.awaitingSha;delete m.awaitingSince;
    if(m.sha!==sha){m.sha=sha;m.phase='PIPELINE';m.generation++;this.hooks.event(task,'检测到 MR 新提交，重新检查流水线与审批状态。');}

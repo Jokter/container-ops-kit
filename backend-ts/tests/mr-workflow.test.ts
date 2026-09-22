@@ -11,7 +11,7 @@ function fixture(){
  config.roles={reviewers:['r123'],approvers:['a123'],assignees:['m123']};
  const task:AutoUtTask={id:'task',repository:'Demo',username:'owner1',ticket:'DTS123',baseBranch:'main',repairBranch:'repair',reportedFailedTests:1,lineGoal:.8,branchGoal:.7,workspaceRoot:'/tmp',status:'MR_PENDING',nextStage:'TRACK',executionMode:'AUTOMATIC',progress:92,attempts:1,message:'',pullRequestUrl:'https://codehub.example/demo/merge_requests/7',createdAt:new Date(now).toISOString(),updatedAt:new Date(now).toISOString(),history:[],liveEvents:[],liveSequence:0,governance:{mode:'REPAIR',coverageLow:false,maxClasses:5,mrState:'PENDING'},mr:newTracking(config)};
  task.mr!.iid='7';task.mr!.sha='sha1';task.mr!.phase='PIPELINE';
- const view={iid:7,id:900,state:'opened',sha:'sha1',source_branch:'repair',target_branch:'main',web_url:task.pullRequestUrl,title:'工单标题',issue_nums:['DTS123'],e2e_issues:[{id:'DTS123',title:'工单标题'}],approval_merge_request_reviewers:[{username:'r123',approved:false}],approval_merge_request_approvers:[{username:'a123',approved:false}],merge_request_assignee_list:[{username:'m123',approved:false}]};
+ const view={iid:7,id:900,state:'opened',sha:'sha1',source_branch:'repair',target_branch:'main',web_url:task.pullRequestUrl,title:'工单标题',e2e_issues:[{id:'DTS123',title:'工单标题'}],approval_merge_request_reviewers:[{username:'r123',approved:false}],approval_merge_request_approvers:[{username:'a123',approved:false}],merge_request_assignee_list:[{username:'m123',approved:false}]};
  const gate={ci_state_passed:true,quality_gate:{passed:true},approval_reviewers_required_passed:false,approval_approvers_required_passed:false,conflict_passed:true};
  const pipeline={id:10,status:'success',sha:'sha1'};const calls:string[][]=[];let repairCount=0,failSend=false,failUpdate=false;
  const hooks:MrHooks={save:()=>{},event:()=>{},state:(t,s,m)=>{t.status=s;t.message=m;},repair:async()=>{repairCount++;return 'sha2';},run:async(_t,args)=>{
@@ -85,49 +85,10 @@ test('MR recovery permits an empty opened list but refuses ambiguous opened matc
  f.hooks.run=async()=>({exitCode:0,output:JSON.stringify([f.view,{...f.view,iid:8}])});
  await assert.rejects(f.workflow.recoverUpload(f.task),/多个 opened MR/);
 });
+
 test('setup failures preserve IID and stop on unauthorized personnel',async()=>{
  const f=fixture();f.task.mr!.phase='SETUP';f.view.approval_merge_request_reviewers=[];f.setFailUpdate();await assert.rejects(f.workflow.setup(f.task),/permission denied/);assert.equal(f.task.mr!.iid,'7');assert.equal(f.task.mr!.writePending,'reviewers');await f.workflow.tick(f.task,now);assert.equal(f.task.mr!.paused,true);assert.equal(f.calls.filter(c=>c.includes('update')).length,1);
 });
 test('setup resumes confirmed steps and matches the actual issue number',async()=>{
  const f=fixture();f.task.mr!.phase='SETUP';f.view.e2e_issues.unshift({id:'DTS999',title:'其他单号'});await f.workflow.setup(f.task);assert.equal(f.task.mr!.phase,'PIPELINE');assert.equal(f.task.nextStage,'TRACK');assert.ok(!f.calls.some(c=>c.includes('update')));
-});
-
-test('missing issue association is updated and verified despite stale setup flags',async()=>{
- const f=fixture();f.view.issue_nums=['DTS999'];f.task.mr!.setup.linked=true;
- const run=f.hooks.run;f.hooks.run=async(t,args,label,required)=>{
-  if(args.includes('--issue-nums'))f.view.issue_nums=args[args.indexOf('--issue-nums')+1]!.split(',');
-  return run(t,args,label,required);
- };
- await f.workflow.setup(f.task);
- assert.deepEqual(f.view.issue_nums,['DTS999','DTS123']);
- assert.equal(f.calls.filter(c=>c.includes('--issue-nums')).length,1);
- assert.ok(!f.calls.some(c=>c.includes('--e2e-issues')));
- assert.ok(f.calls.filter(c=>c[2]==='view').every(c=>c[c.indexOf('--columns')+1]!.includes('issue_nums')));
- await f.workflow.setup(f.task);assert.equal(f.calls.filter(c=>c.includes('--issue-nums')).length,1);
-});
-test('successful update without matching issue_nums cannot advance or automatically repeat',async()=>{
- const f=fixture();f.task.mr!.phase='SETUP';f.view.issue_nums=['DTS1234'];
- await assert.rejects(f.workflow.setup(f.task),/未确认关联问题单 DTS123/);
- assert.equal(f.task.mr!.phase,'SETUP');assert.equal(f.task.mr!.writePending,'linked');
- await assert.rejects(f.workflow.setup(f.task),/结果未确认/);
- assert.equal(f.calls.filter(c=>c.includes('--issue-nums')).length,1);
-});
-test('legacy tracked MR without issue association pauses before pipeline and notifications',async()=>{
- const f=fixture();f.view.issue_nums=[];f.task.mr!.setup.linked=true;
- await f.workflow.tick(f.task,now);
- assert.equal(f.task.mr!.phase,'SETUP');assert.equal(f.task.mr!.paused,true);
- assert.equal(f.task.status,'WAITING_EXTERNAL');assert.equal(f.calls.length,1);
-});
-test('issue title can be read from array output when E2E details are absent',async()=>{
- const f=fixture();f.view.e2e_issues=[];
- const run=f.hooks.run;f.hooks.run=async(t,args,label,required)=>args[1]==='issue'?{exitCode:0,output:JSON.stringify([{title:'工单标题'}])}:run(t,args,label,required);
- await f.workflow.setup(f.task);assert.equal(f.task.mr!.phase,'PIPELINE');
-});
-
-test('upload id-only output is resolved through MR view before setup',async()=>{
- const f=fixture();f.task.mr!.iid='';f.task.mr!.writePending='upload';
- await f.workflow.attachUploaded(f.task,'{"id":7}');
- assert.equal(f.task.mr!.iid,'7');assert.equal(f.task.mr!.writePending,undefined);
- assert.equal(f.calls[0]![3],'7');await f.workflow.setup(f.task);
- assert.equal(f.task.mr!.phase,'PIPELINE');
 });
