@@ -188,3 +188,42 @@ test('MR parsing accepts single-item arrays and rejects ambiguous arrays',()=>{
  assert.equal(mrIid(parseMr('[{"iid":7,"id":900}]')),'7');
  assert.throws(()=>parseMr('[{"iid":7},{"iid":8}]'),/多个 MR/);
 });
+
+const assigneeRejection='HTTP 400: The assignee user must be Committer or higher-level or setting in protected branches, or set the disable merge by self. Please check the following noAuthUsers: x00660165 (CH.00201400)';
+test('all three roles exclude only explicitly rejected members for the current MR',async()=>{
+ for(const role of ['reviewers','approvers','assignees'] as const){
+  const f=fixture();f.task.mr!.phase='SETUP';f.task.mr!.config.roles[role]=['x00660165','l00831259'];
+  const original=structuredClone(f.task.mr!.config),run=f.hooks.run,updates:string[]=[];
+  const flag=role==='reviewers'?'--approval-reviewers':role==='approvers'?'--approval-approvers':'--assignees';
+  f.hooks.run=async(t,args,label,required)=>{
+   if(args.includes(flag)){
+    const people=args[args.indexOf(flag)+1]!;updates.push(people);
+    if(people.includes('x00660165'))throw Error(role==='assignees'?assigneeRejection:`HTTP 400: The approval ${role} must be in the authorized user list. Please check the following users: x00660165 (CH.00201400)`);
+    const members=people.split(',').map(username=>({username,approved:false}));
+    if(role==='reviewers')f.view.approval_merge_request_reviewers=members;
+    else if(role==='approvers')f.view.approval_merge_request_approvers=members;
+    else f.view.merge_request_assignee_list=members;
+    return {exitCode:0,output:'{}'};
+   }
+   return run(t,args,label,required);
+  };
+  await f.workflow.setup(f.task);
+  assert.deepEqual(updates,['x00660165,l00831259','l00831259']);assert.deepEqual(f.task.mr!.config,original);
+  assert.deepEqual(f.task.mr!.rejectedRoles,{[role]:['x00660165']});assert.equal(f.task.mr!.phase,'PIPELINE');
+  const restored=structuredClone(f.task);restored.mr!.setup[role]=false;await new MrWorkflow(f.hooks).setup(restored);assert.equal(updates.length,2);
+ }
+});
+test('assignee rejection does not alter other roles or infer unauthorized accounts',()=>{
+ assert.deepEqual(rejectedAuthorizedPeople(assigneeRejection,'assignees',['x00660165','l00831259']),['x00660165']);
+ assert.deepEqual(rejectedAuthorizedPeople(assigneeRejection,'approvers',['x00660165']),[]);
+ assert.deepEqual(rejectedAuthorizedPeople(assigneeRejection,'reviewers',['x00660165']),[]);
+ assert.deepEqual(rejectedAuthorizedPeople(assigneeRejection,'assignees',['x006601650']),[]);
+ assert.deepEqual(rejectedAuthorizedPeople(assigneeRejection.replace('HTTP 400','HTTP 403'),'assignees',['x00660165']),[]);
+ assert.deepEqual(rejectedAuthorizedPeople(assigneeRejection.replace('CH.00201400','CH.UNKNOWN'),'assignees',['x00660165']),[]);
+});
+test('all invalid assignees stop rather than clear the role or change protection settings',async()=>{
+ const f=fixture();f.task.mr!.config.roles.assignees=['x00660165'];const run=f.hooks.run;let writes=0;
+ f.hooks.run=async(t,args,label,required)=>{if(args.includes('--assignees')){writes++;throw Error(assigneeRejection);}return run(t,args,label,required);};
+ await assert.rejects(f.workflow.setup(f.task),/均不在授权名单/);await assert.rejects(f.workflow.setup(f.task),/均不在授权名单/);
+ assert.equal(writes,1);assert.deepEqual(f.task.mr!.config.roles.assignees,['x00660165']);
+});

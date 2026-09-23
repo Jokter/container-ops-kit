@@ -178,10 +178,16 @@ export class MrWorkflow {
 }
 
 export function rejectedAuthorizedPeople(message:string,role:MrRole,people:string[]):string[]{
- if(role==='assignees'||!/HTTP 400\b/i.test(message))return [];
- const match=message.match(/The approval (approvers|reviewers) must be in the authorized user list\. Please check the following users:\s*([^\r\n]*?)\s*\(CH\.00201400\)/i);
- if(!match||match[1]!.toLowerCase()!==role)return [];
- const tokens:string[]=match[2]!.toLowerCase().match(/[a-z0-9._-]+/g)??[];
+ if(!/HTTP 400\b/i.test(message))return [];
+ let rejected:string|undefined;
+ if(role==='assignees'){
+  rejected=message.match(/The assignee user must be Committer or higher-level or setting in protected branches, or set the disable merge by self\. Please check the following noAuthUsers:\s*([^\r\n]*?)\s*\(CH\.00201400\)/i)?.[1];
+ }else{
+  const match=message.match(/The approval (approvers|reviewers) must be in the authorized user list\. Please check the following users:\s*([^\r\n]*?)\s*\(CH\.00201400\)/i);
+  if(match?.[1]?.toLowerCase()===role)rejected=match[2];
+ }
+ if(!rejected)return [];
+ const tokens:string[]=rejected.toLowerCase().match(/[a-z0-9._-]+/g)??[];
  return people.filter(person=>{
   if(tokens.includes(person.toLowerCase()))return true;
   const number=person.match(/^[a-z](\d+)$/i)?.[1];
