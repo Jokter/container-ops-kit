@@ -161,3 +161,30 @@ test('only explicit MR absence permits automatic unblocking, never generic 404 o
  for(const output of ['error: HTTP 404: Not found','error: HTTP 403: Merge request not found','error: HTTP 404: Project not found','error: HTTP 404: Merge request not found or access denied','{}'])assert.equal(explicitlyMissingMr(1,output),false,output);
  assert.equal(explicitlyMissingMr(0,'error: HTTP 404: Merge request not found'),false);
 });
+
+test('successful upload with short or non-JSON output confirms existing MR without another write',async()=>{
+ for(const output of ['{}','{"id":7}','upload completed','[{"id":7}]']){
+  const f=fixture();f.task.mr!.iid='';f.task.mr!.writePending='upload';
+  await f.workflow.confirmUpload(f.task,output);
+  assert.equal(f.task.mr!.iid,'7');assert.equal(f.task.mr!.writePending,undefined);
+  assert.equal(f.calls.length,1);assert.equal(f.calls[0]![2],'list');
+ }
+});
+test('upload confirmation tolerates delayed visibility with bounded reads',async()=>{
+ const f=fixture();let reads=0;const waits:number[]=[];
+ f.hooks.run=async(_t,args)=>{assert.equal(args[2],'list');return{exitCode:0,output:JSON.stringify(++reads<3?[]:[f.view])};};
+ await new MrWorkflow(f.hooks,async ms=>{waits.push(ms);}).confirmUpload(f.task,'{}');
+ assert.equal(reads,3);assert.deepEqual(waits,[2000,2000]);assert.equal(f.task.mr!.iid,'7');
+});
+test('unconfirmed and ambiguous uploads preserve pending state without replay',async()=>{
+ const f=fixture();f.task.mr!.iid='';f.task.mr!.writePending='upload';let reads=0;
+ f.hooks.run=async()=>{reads++;return{exitCode:0,output:'[]'};};
+ const flow=new MrWorkflow(f.hooks,async()=>{});await assert.rejects(flow.confirmUpload(f.task,'{}'),/暂未查到唯一/);
+ assert.equal(reads,3);assert.equal(f.task.mr!.writePending,'upload');assert.equal(f.task.mr!.iid,'');
+ f.hooks.run=async()=>({exitCode:0,output:JSON.stringify([f.view,{...f.view,iid:8}])});await assert.rejects(flow.confirmUpload(f.task,'{}'),/多个 opened/);
+ assert.equal(f.task.mr!.writePending,'upload');
+});
+test('MR parsing accepts single-item arrays and rejects ambiguous arrays',()=>{
+ assert.equal(mrIid(parseMr('[{"iid":7,"id":900}]')),'7');
+ assert.throws(()=>parseMr('[{"iid":7},{"iid":8}]'),/多个 MR/);
+});

@@ -102,3 +102,14 @@ test('pipeline repair refuses production changes from Pi before commit or push',
  f.service['runPi']=async()=>{await writeFile(join(f.root,'production.java'),'class Changed {}');return {exitCode:0,output:''};};
  await assert.rejects(f.service['repairPipeline'](f.task,'test failure',head),/测试目录之外/);assert.equal(await f.git('rev-parse','HEAD'),head);
 });
+
+test('first publish recovers a successful upload with incomplete output in the same execution',async t=>{
+ const f=await fixture(t);f.allowUpload();const command=f.service['command'].bind(f.service);let lists=0;
+ f.service['command']=async(task,args,dir,timeout,label,required=true)=>{
+  if(args[0]==='codehub-cli'&&args[1]==='mr'&&args[2]==='list'){lists++;return{exitCode:0,output:JSON.stringify([{iid:1,state:'opened',source_branch:'repair',target_branch:'main',web_url:'https://codehub.example/demo/merge_requests/1'}])};}
+  const result=await command(task,args,dir,timeout,label,required);
+  return label==='创建CodeHub-MR'?{...result,output:'{"id":1}'}:result;
+ };
+ await f.service['publish'](f.task,f.root);
+ assert.equal(f.counts().uploads,1);assert.equal(lists,1);assert.equal(f.task.mr!.iid,'1');assert.equal(f.task.mr!.phase,'PIPELINE');assert.equal(f.task.nextStage,'TRACK');
+});

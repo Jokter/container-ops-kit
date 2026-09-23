@@ -21,7 +21,7 @@ export interface MrHooks {
 }
 export function newTracking(config:MrSettings):MrTracking {return {config,iid:'',sha:'',phase:'SETUP',nextAt:0,paused:false,error:'',setup:{},rounds:0,handled:[],stalled:0,notifications:{},queryFailures:0,generation:0};}
 export class MrWorkflow {
- constructor(private hooks:MrHooks){}
+ constructor(private hooks:MrHooks,private readonly wait:(ms:number)=>Promise<void>=ms=>new Promise(resolve=>setTimeout(resolve,ms))){}
  private async command(task:AutoUtTask,args:string[],label:string){
   const operation=args.slice(0,2).join(' ');
   const columns=operation==='mr gate'?'ci_state_passed,quality_gate,merge_gate_passed,conflict_passed,approval_reviewers_required_passed,approval_approvers_required_passed,pipeline':operation==='mr pipeline'||operation==='pipeline view'?'id,status,sha,commit_id,commit':operation==='pipeline failure'?'id,status,ref,failures,quality,codecheck,jobs':'id,iid,mr_url,web_url,state,title,description,source_branch,target_branch,sha,diff_refs,e2e_issues,approval_merge_request_reviewers,approval_merge_request_approvers,merge_request_assignee_list';
@@ -37,7 +37,18 @@ export class MrWorkflow {
   if(!candidates.length)return false;
   this.attach(task,candidates[0]!);return true;
  }
- attach(task:AutoUtTask,m:MrView){const tracking=task.mr!;tracking.iid=mrIid(m);const url=m.mr_url||m.web_url;if(!url)throw Error('MR 已存在但没有地址，请检查 CLI 返回。');task.pullRequestUrl=safeMrUrl(url);task.governance!.mrState='PENDING';delete task.governance!.completedAt;this.done(task);this.hooks.state(task,'MR_PENDING','MR 已创建，正在补齐单号、标题和处理人员。');this.save(task);}
+ async confirmUpload(task:AutoUtTask,output:string){
+  let uploaded:MrView|undefined;
+  try{const candidate=parseMr(output);mrIid(candidate);const url=candidate.mr_url||candidate.web_url;if(url){safeMrUrl(url);uploaded=candidate;}}catch{/* Upload output is not necessarily a complete MR view. */}
+  if(uploaded){this.attach(task,uploaded);return;}
+  this.hooks.event(task,'MR 上传已返回成功，正在按来源和目标分支查询确认；不会重复上传。');
+  for(let attempt=0;attempt<3;attempt++){
+   if(attempt)await this.wait(2000);
+   if(await this.recoverUpload(task))return;
+  }
+  throw Error('MR 上传已返回成功，但暂未查到唯一的 opened MR。请核对远端后重试当前步骤；未重复上传。');
+ }
+ attach(task:AutoUtTask,m:MrView){const tracking=task.mr!,iid=mrIid(m);const url=m.mr_url||m.web_url;if(!url)throw Error('MR 已存在但没有地址，请检查 CLI 返回。');const checkedUrl=safeMrUrl(url);tracking.iid=iid;task.pullRequestUrl=checkedUrl;task.governance!.mrState='PENDING';delete task.governance!.completedAt;this.done(task);this.hooks.state(task,'MR_PENDING','MR 已创建，正在补齐单号、标题和处理人员。');this.save(task);}
  private async view(task:AutoUtTask){return parseMr((await this.command(task,['mr','view',task.mr!.iid],'读取MR状态与人员')).output);}
  private people(task:AutoUtTask,role:MrRole){
   const m=task.mr!,excluded=m.rejectedRoles?.[role]??[];
