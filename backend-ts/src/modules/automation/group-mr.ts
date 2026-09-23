@@ -39,8 +39,24 @@ function piConclusion(raw:string):{ok:boolean;summary:string;findings:Array<{pat
  const parsed=z.object({ok:z.boolean(),summary:z.string().max(1000),findings:z.array(z.object({path:z.string().max(400),line:z.number().int().positive(),body:z.string().min(3).max(1000)})).max(20),resolvedDiscussionIds:z.array(z.string()).max(100)});
  const candidates=jsonValues(raw);for(const v of candidates){const found=parsed.safeParse(v);if(found.success)return found.data;}throw Error('Pi 未返回可验证的检视结论');
 }
+// Inspect CLI diagnostics only; never group message bodies or MR/diff content.
+export function groupMrAccessFailure(result:{exitCode:number;output:string}):boolean{
+ if(result.exitCode===124)return false;
+ const values=jsonValues(result.output);
+ const responses=values.map(object).filter(v=>v!==undefined);
+ const failures=responses.filter(v=>v.resultCode!==undefined&&v.resultCode!==0&&v.resultCode!=='0');
+ if(result.exitCode===0&&!failures.length)return false;
+ if(failures.some(v=>v.resultCode===401||v.resultCode===403||v.resultCode==='401'||v.resultCode==='403'))return true;
+ const diagnostic=result.exitCode===0?JSON.stringify(failures):result.output;
+ return /\b(?:401|403|unauthorized|forbidden)\b|permission denied|access denied|not (?:logged|signed) in|(?:token|authentication|session).{0,20}(?:expired|invalid)|auth(?:entication)? (?:required|failed)|login (?:required|first)|please (?:login|log in)|未(?:登录|登陆)|(?:认证|登录|登陆|令牌).{0,12}(?:过期|失效|失败)|请先(?:登录|登陆)|无(?:访问)?权限|权限不足|(?:welink-cli|codehub-cli) auth login/i.test(diagnostic);
+}
+function retryableRead(args:readonly string[]):boolean{
+ if(args[0]==='welink-cli')return args[1]==='im'&&(args[2]==='query-history-message'||(args[2]==='send-to-group'&&args.includes('--help')));
+ if(args[0]!=='codehub-cli')return false;
+ return args[1]==='user'||(args[1]==='mr'&&(['view','gate','pipeline','changes'].includes(args[2]??'')||(args[2]==='review'&&args[3]==='list')));
+}
 export class GroupMrService {
- private timer:NodeJS.Timeout;private busy=false;private closing=false;private active=new Set<string>();private initialised=false;private lastPoll=0;private controller=new AbortController();private pollPromise:Promise<void>|undefined;private activeCommand='';
+ private timer:NodeJS.Timeout;private busy=false;private closing=false;private active=new Set<string>();private initialised=false;private lastPoll=0;private controller=new AbortController();private pollPromise:Promise<void>|undefined;private activeCommand='';private lastLoginAt:number|undefined;
  constructor(private store:TaskStore,private readonly execute:typeof runProcess=runProcess,private readonly logs:LogSink=noFileLogs){
   for(const entry of this.list()){if(entry.reply?.status==='sending'){entry.reply.status='unconfirmed';this.save(entry);}}
   for(const entry of this.list().filter(e=>!['DONE','ISSUES','FAILED','NO_PERMISSION','INTERRUPTED'].includes(e.phase))){entry.phase='INTERRUPTED';entry.status='服务重启，原执行中断，请重新发送 MR 链接';entry.writePending=entry.writePending||'需核对远端';this.save(entry);}
@@ -61,7 +77,24 @@ export class GroupMrService {
  private async command(args:string[],timeout=120000){
   // Log only fixed command names and outcomes, never arguments or raw CLI output.
   const action=args.slice(0,3).join(' '),start=Date.now();this.activeCommand=action;this.recordLog('info',`开始 ${action}`);
-  try{const r=await this.execute(args,process.cwd(),timeout,undefined,undefined,undefined,this.controller.signal);if(r.exitCode!==0){const hint=/401|unauthorized|not logged|login|登录|认证/i.test(r.output)?'请检查 CLI 登录状态':/403|无权限|permission denied/i.test(r.output)?'HTTP 403 / 无权限，请检查当前账号访问权限':/unknown (?:option|command)|unexpected argument|unrecognized/i.test(r.output)?'CLI 不支持当前命令或参数，请检查版本':'请在启动服务的同一终端手动验证 CLI 命令';throw Error(`${action} 失败，退出码 ${r.exitCode}；${hint}`);}this.recordLog('info',`${action} 完成，耗时 ${Date.now()-start} ms`);return r.output;}
+  try{
+   let r=await this.execute(args,process.cwd(),timeout,undefined,undefined,undefined,this.controller.signal);
+   if(groupMrAccessFailure(r)){
+    if(this.lastLoginAt!==undefined&&Date.now()-this.lastLoginAt<300000)throw Error(`${action} 认证或访问权限仍异常；最近已尝试 welink-cli auth login，5 分钟内不重复登录，请检查 ${args[0]} 登录状态及仓库/群组权限`);
+    this.lastLoginAt=Date.now();this.activeCommand='welink-cli auth login';
+    this.recordLog('info',`${action} 认证或访问权限异常，正在执行 welink-cli auth login`);
+    this.updateMonitor({message:'正在执行 welink-cli auth login，请在运行服务的机器完成登录'});
+    const login=await this.execute(['welink-cli','auth','login'],process.cwd(),120000,undefined,undefined,undefined,this.controller.signal);
+    if(login.exitCode!==0||groupMrAccessFailure(login))throw Error('welink-cli auth login 未完成，请在运行服务的机器手动登录；本次处理停止');
+    this.recordLog('info','welink-cli auth login 已结束');this.activeCommand=action;
+    if(!retryableRead(args))throw Error(`${action} 遇到权限问题，已执行登录；该写操作不自动重试，请核对远端结果后手动处理`);
+    this.recordLog('info',`登录后重新读取 ${action}`);
+    r=await this.execute(args,process.cwd(),timeout,undefined,undefined,undefined,this.controller.signal);
+    if(groupMrAccessFailure(r))throw Error(`${action} 登录后仍存在认证或访问权限问题，请检查 ${args[0]} 登录状态及仓库/群组权限`);
+   }
+   if(r.exitCode!==0){const hint=/401|unauthorized|not logged|login|登录|认证/i.test(r.output)?`请检查 ${args[0]} 登录状态`:/403|无权限|permission denied/i.test(r.output)?'HTTP 403 / 无权限，请检查当前账号访问权限':/unknown (?:option|command)|unexpected argument|unrecognized/i.test(r.output)?'CLI 不支持当前命令或参数，请检查版本':'请在启动服务的同一终端手动验证 CLI 命令';throw Error(`${action} 失败，退出码 ${r.exitCode}；${hint}`);}
+   this.recordLog('info',`${action} 完成，耗时 ${Date.now()-start} ms`);return r.output;
+  }
   catch(error){const code=object(error)?.code;const message=code==='ENOENT'?`${args[0]} 未找到，请安装并确认启动服务的 PATH 中可用`:code==='EACCES'?`${args[0]} 无法执行，请检查文件权限`:error instanceof Error?error.message:'命令执行失败';this.recordLog('error',message);throw Error(message);}
   finally{this.activeCommand='';}
  }

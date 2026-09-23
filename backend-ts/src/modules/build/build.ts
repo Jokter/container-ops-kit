@@ -22,7 +22,8 @@ const modules=[
 export interface BuildModule {name:string;chartsPath:string;archDirectory:string}
 export const buildModules: BuildModule[]=modules.map(([name,chartsPath])=>({name,chartsPath,archDirectory:`Chart/${name}`}));
 const branch=z.string().trim().min(1).max(200).regex(/^[A-Za-z0-9][A-Za-z0-9._/-]*$/).refine(v=>!v.includes('..')&&!v.includes('//')&&!v.endsWith('/')&&!v.endsWith('.'),'分支名称格式不正确');
-const branches=z.object({cbbWebDevBranch:branch.default('master'),archDesignBranch:branch.default('master')}).strict();
+const businessRepository=z.object({repository:z.string().trim().max(500).regex(/^(?:https:\/\/[A-Za-z0-9.-]+(?::[0-9]+)?\/|ssh:\/\/git@[A-Za-z0-9.-]+(?::[0-9]+)?\/|git@[A-Za-z0-9.-]+:)[A-Za-z0-9_-][A-Za-z0-9._/-]*\.git$/).refine(v=>!v.includes('..')&&!v.replace(/^[a-z]+:\/\//,'').includes('//'),'仓库地址格式不正确'),branch:branch.default('master')}).strict();
+const branches=z.object({cbbWebDevBranch:branch.default('master'),archDesignBranch:branch.default('master'),businessRepositories:z.array(businessRepository).max(100).optional()}).strict();
 const startInput=z.object({mode:z.enum(['SINGLE','COMPARE']),environmentId:z.number().int().positive(),module:z.string(),baseline:branches,candidate:branches.nullable().optional()}).strict()
   .refine(v=>v.mode!=='COMPARE'||v.candidate!=null,'双分支构建必须填写验证版本分支');
 type BuildStatus='PENDING'|'RUNNING'|'SUCCEEDED'|'FAILED'; type StepStatus='PENDING'|'RUNNING'|'SUCCEEDED'|'FAILED'|'SKIPPED';
@@ -52,13 +53,16 @@ export class BuildService {
     const module=buildModules.find(item=>item.name===value.module);if(!module)throw Object.assign(new Error('构建模块不存在'),{statusCode:400});
     const id=randomUUID(),root=String(environment.workDirectory).replace(/\/+$/,'')+`/container-ops-kit/builds/${id}`;
     const task:BuildTask={id,mode:value.mode,environmentId:environment.id,environmentName:String(environment.name),module:module.name,baseline:value.baseline,candidate:value.candidate??null,status:'PENDING',progress:0,error:null,
-      createdAt:new Date().toISOString(),startedAt:null,finishedAt:null,workspaceRoot:root,steps:this.steps(value.mode),events:[],sequence:0,completedSteps:0};
+      createdAt:new Date().toISOString(),startedAt:null,finishedAt:null,workspaceRoot:root,steps:this.steps(value.mode,value.baseline,value.candidate),events:[],sequence:0,completedSteps:0};
     this.event(task,'TASK',null,'构建任务已创建');this.save(task);const controller=new AbortController();this.controllers.set(id,controller);const execution=this.execute(task,module,this.environments.target(environment),controller.signal);this.executions.set(id,execution);void execution.finally(()=>this.executions.delete(id));return this.response(task);
   }
   response(task:BuildTask,summary=false){if(summary){const {mode,environmentId,environmentName,module,status,progress,error,createdAt,finishedAt,workspaceRoot}=task;return{id:task.id,mode,environmentId,environmentName,module,status,progress,error,createdAt,finishedAt,workspaceRoot};}
     const root=task.workspaceRoot;const directories=task.mode==='SINGLE'?[{label:'CBB-Web-Dev',path:`${root}/single/CBB-Web-Dev/chart-codegen-plugin`},{label:task.module,path:`${root}/single/ArchDesign/Chart/${task.module}`}]:[
       {label:'基准 · CBB-Web-Dev',path:`${root}/baseline/CBB-Web-Dev/chart-codegen-plugin`},{label:`基准 · ${task.module}`,path:`${root}/baseline/ArchDesign/Chart/${task.module}`},
       {label:'验证 · CBB-Web-Dev',path:`${root}/candidate/CBB-Web-Dev/chart-codegen-plugin`},{label:`验证 · ${task.module}`,path:`${root}/candidate/ArchDesign/Chart/${task.module}`}];
+    for(const [side,input] of task.mode==='SINGLE'?[['single',task.baseline] as const]:[['baseline',task.baseline] as const,['candidate',task.candidate] as const]){
+      (input?.businessRepositories??[]).forEach((repo,i)=>directories.push({label:`${side} · ${repo.repository.split(/[/:]/).at(-1)}/chart`,path:`${root}/${side}/business-${i}/chart`}));
+    }
     const {sequence:_s,completedSteps:_c,...base}=task;return{...base,directories};
   }
   private resultTask(id:string){
@@ -88,8 +92,16 @@ export class BuildService {
   events(id:string,after:number){return this.get(id).events.filter(e=>e.sequence>after);}
   terminal(id:string){return ['SUCCEEDED','FAILED'].includes(this.get(id).status);}
   async close(){for(const controller of this.controllers.values())controller.abort();await this.results.close();await Promise.allSettled(this.executions.values());}
-  private steps(mode:'SINGLE'|'COMPARE'){const values:BuildStep[]=[];const add=(side:string,label:string)=>['准备目录','检出 CBB-Web-Dev','构建 CBB-Web-Dev','检出 ArchDesign','构建 ArchDesign'].forEach((name,i)=>values.push({id:`${side}:${['prepare','clone-cbb','build-cbb','clone-arch','build-arch'][i]}`,label:`${label} · ${name}`,status:'PENDING'}));
-    if(mode==='SINGLE'){add('single','单分支');values.push({id:'single:results',label:'读取服务构建包',status:'PENDING'});}else{add('baseline','基准版本 A');add('candidate','验证版本 B');values.push({id:'compare:diff',label:'对比 ArchDesign 产物',status:'PENDING'});}return values;}
+  private steps(mode:'SINGLE'|'COMPARE',baseline:z.infer<typeof branches>,candidate?:z.infer<typeof branches>|null){
+    const values:BuildStep[]=[];
+    const add=(side:string,label:string,input:z.infer<typeof branches>)=>{
+      const step=(id:string,name:string)=>values.push({id:`${side}:${id}`,label:`${label} · ${name}`,status:'PENDING'});
+      step('prepare','准备目录');step('clone-cbb','检出 CBB-Web-Dev');step('build-cbb','构建 CBB-Web-Dev');
+      (input.businessRepositories??[]).forEach((repo,i)=>{const name=repo.repository.split(/[/:]/).at(-1)!.replace(/\.git$/,'');step(`clone-business-${i}`,`检出业务仓 ${name}`);step(`build-business-${i}`,`构建业务仓 ${name}/chart`);});
+      step('clone-arch','检出 ArchDesign');step('build-arch','构建 ArchDesign');
+    };
+    if(mode==='SINGLE'){add('single','单分支',baseline);values.push({id:'single:results',label:'读取服务构建包',status:'PENDING'});}else{add('baseline','基准版本 A',baseline);add('candidate','验证版本 B',candidate!);values.push({id:'compare:diff',label:'对比 ArchDesign 产物',status:'PENDING'});}return values;
+  }
   private save(task:BuildTask){this.store.putRecord('build-task',task.id,task,task.createdAt);}
   private event(task:BuildTask,type:BuildEvent['type'],stepId:string|null,message:string){task.events.push({sequence:++task.sequence,occurredAt:new Date().toISOString(),type,stepId,message,progress:task.progress,taskStatus:task.status});
     this.logs.task('build',task.id,task.events.at(-1));
@@ -107,10 +119,16 @@ export class BuildService {
   private async branch(task:BuildTask,target:SshTarget,directory:string,side:string,module:BuildModule,value:z.infer<typeof branches>,signal:AbortSignal){
     if(!await this.runStep(task,target,`${side}:prepare`,'创建远端工作目录',`mkdir -p ${shellQuote(directory)}`,signal))return false;
     const cbb=`${directory}/CBB-Web-Dev`,arch=`${directory}/ArchDesign`;
+    const command=BUILD+(task.mode==='COMPARE'?` -Dmaven.repo.local=${shellQuote(`${directory}/.m2/repository`)}`:'');
     if(!await this.runStep(task,target,`${side}:clone-cbb`,'检出 CBB-Web-Dev',this.clone(CBB,value.cbbWebDevBranch,cbb),signal))return false;
-    if(!await this.runStep(task,target,`${side}:build-cbb`,'构建 CBB-Web-Dev',`cd ${shellQuote(`${cbb}/chart-codegen-plugin`)} && ${BUILD}`,signal))return false;
+    if(!await this.runStep(task,target,`${side}:build-cbb`,'构建 CBB-Web-Dev',`cd ${shellQuote(`${cbb}/chart-codegen-plugin`)} && ${command}`,signal))return false;
+    for(const [i,repo] of (value.businessRepositories??[]).entries()){
+      const path=`${directory}/business-${i}`;
+      if(!await this.runStep(task,target,`${side}:clone-business-${i}`,'检出业务仓',this.clone(repo.repository,repo.branch,path),signal))return false;
+      if(!await this.runStep(task,target,`${side}:build-business-${i}`,'构建业务仓 chart',`cd ${shellQuote(`${path}/chart`)} && ${command}`,signal))return false;
+    }
     if(!await this.runStep(task,target,`${side}:clone-arch`,'检出 ArchDesign',this.clone(ARCH,value.archDesignBranch,arch),signal))return false;
-    return this.runStep(task,target,`${side}:build-arch`,'构建 ArchDesign',`cd ${shellQuote(`${arch}/${module.archDirectory}`)} && ${BUILD}`,signal);}
+    return this.runStep(task,target,`${side}:build-arch`,'构建 ArchDesign',`cd ${shellQuote(`${arch}/${module.archDirectory}`)} && ${command}`,signal);}
   private async diff(task:BuildTask,target:SshTarget,module:BuildModule,signal:AbortSignal){
     this.setStep(task,'compare:diff','RUNNING');
     try{const result=await this.results.inspect(task,module,target,signal);const changed=result.comparison?.filter(s=>s.status!=='UNCHANGED').length??0;

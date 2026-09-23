@@ -68,3 +68,32 @@ test('结果持久化、下载版本校验、并发清理保护及重启后查�
  const {stream}=await service.download(id,{side:'single',services:'demo'});await assert.rejects(service.delete(id,true),/正在读取或下载/);assert.ok(store.getRecord('build-task',id));
  stream.destroy();await new Promise(resolve=>setImmediate(resolve));await service.delete(id,false);assert.equal(store.getRecord('build-task',id),undefined);assert.equal(store.getRecord('build-result',id),undefined);
 });
+
+for(const mode of ['SINGLE','COMPARE'] as const)for(const failBusiness of [false,true])test(`业务仓顺序、chart目录及失败阻断 ${mode} ${failBusiness}`,async t=>{
+ class FakeSsh extends SshOperations{
+  commands:string[]=[];
+  override async execute(_target:SshTarget,command:string):Promise<CommandResult>{this.commands.push(command);return{exitCode:failBusiness&&command.includes("business-0/chart'")?1:0,lines:[JSON.stringify({packages:[],comparison:mode==='COMPARE'?[]:null})]};}
+ }
+ const store=new TaskStore(':memory:'),ssh=new FakeSsh(),environments=new EnvironmentService(store,ssh);
+ const environment=environments.create(environmentInput.parse({releaseVersionId:1,type:'BUILD',name:'build',host:'localhost',sshPort:22,password:'test',workDirectory:'/opt/build'}));
+ const service=new BuildService(store,environments,ssh);t.after(async()=>{await service.close();store.close()});
+ const baseline={cbbWebDevBranch:'master',archDesignBranch:'master',businessRepositories:[{repository:'https://codehub.example/Team/One.git',branch:'feature/a'},{repository:'ssh://git@codehub.example:2222/Team/Two.git',branch:'master'}]};
+ const task=service.start({mode,environmentId:environment.id,module:'mae-access',baseline,candidate:mode==='COMPARE'?{...baseline,businessRepositories:[{repository:'https://codehub.example/Team/One.git',branch:'feature/b'}]}:null});
+ for(let i=0;i<100&&!service.terminal(task.id);i++)await new Promise(resolve=>setImmediate(resolve));
+ const saved=service.get(task.id);assert.equal(saved.status,failBusiness?'FAILED':'SUCCEEDED');assert.deepEqual(saved.baseline.businessRepositories,baseline.businessRepositories);
+ for(const side of mode==='SINGLE'?['single']:['baseline','candidate']){
+  const cmds=ssh.commands.filter(c=>c.includes('/'+side+'/'));
+  const builds=cmds.filter(c=>c.includes('mvn clean install'));
+  assert.match(builds[0]!,/CBB-Web-Dev\/chart-codegen-plugin/);assert.match(builds[1]!,/business-0\/chart/);
+  if(failBusiness){assert.equal(builds.length,2);assert.equal(cmds.some(c=>c.includes('ArchDesign')),false)}
+  else{assert.match(builds.at(-1)!,/ArchDesign\/Chart\/mae-access/);assert.equal(builds.length,side==='candidate'?3:4);const response=service.response(saved);assert.ok('directories' in response&&response.directories.some(d=>d.path.endsWith(`/${side}/business-0/chart`)));}
+  if(mode==='COMPARE')assert.ok(builds.every(c=>c.includes(`/${side}/.m2/repository`)));
+ }
+});
+test('业务仓输入兼容零仓库并拒绝凭据、命令及路径穿越',async t=>{
+ class FakeSsh extends SshOperations{override async execute():Promise<CommandResult>{return{exitCode:0,lines:['{"packages":[],"comparison":null}']}}}
+ const store=new TaskStore(':memory:'),ssh=new FakeSsh(),environments=new EnvironmentService(store,ssh),service=new BuildService(store,environments,ssh);t.after(async()=>{await service.close();store.close()});
+ const environment=environments.create(environmentInput.parse({releaseVersionId:1,type:'BUILD',name:'build',host:'localhost',sshPort:22,password:'test',workDirectory:'/opt/build'}));
+ for(const repository of ['https://user:secret@host/Team/Repo.git','file:///etc/repo.git','https://host/../Repo.git','https://host/Repo.git;touch /tmp/x'])assert.throws(()=>service.start({mode:'SINGLE',environmentId:environment.id,module:'mae-access',baseline:{businessRepositories:[{repository,branch:'master'}]}}));
+ for(const baseline of [{},{businessRepositories:[]}]){const task=service.start({mode:'SINGLE',environmentId:environment.id,module:'mae-access',baseline});for(let i=0;i<100&&!service.terminal(task.id);i++)await new Promise(resolve=>setImmediate(resolve));assert.equal(service.get(task.id).status,'SUCCEEDED');assert.equal(service.get(task.id).steps.length,6)}
+});

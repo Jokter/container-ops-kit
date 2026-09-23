@@ -7,13 +7,13 @@ import {join} from 'node:path';
 import {TaskStore} from '../src/platform/store.js';
 import {WelinkMcp,confirmedWelinkResult,welinkMcpArgs} from '../src/modules/autout/welink-mcp.js';
 import {WelinkSettings} from '../src/modules/autout/welink-settings.js';
-const server=`const readline=require('node:readline');let initialized=false,calls=0;readline.createInterface({input:process.stdin}).on('line',line=>{const m=JSON.parse(line);let result;
+const server=`process.stdout.write('Starting welink-msg stdio...\\n');const readline=require('node:readline');let initialized=false,calls=0;readline.createInterface({input:process.stdin}).on('line',line=>{const m=JSON.parse(line);let result;
 if(m.method==='initialize')result={protocolVersion:'2024-11-05'};
 else if(m.method==='notifications/initialized'){initialized=true;return;}
 else if(m.method==='tools/list')result={tools:[{name:'send_welink_message'}]};
-else if(m.method==='tools/call'){calls++;const a=m.params.arguments;result={isError:!initialized||calls!==1||a.receiver!=='w00789509'||a.token!==''||process.env.WELINK_TOKEN!=='test-only-token',content:[{type:'text',text:JSON.stringify({resultCode:'0'})}]};}
+else if(m.method==='tools/call'){calls++;const a=m.params.arguments;result={isError:!initialized||calls!==1||a.receiver!=='w00789509'||Object.keys(a).sort().join(',')!=='content,receiver'||a.content!=='test message'||process.env.WELINK_TOKEN!=='test-only-token',content:[{type:'text',text:JSON.stringify({status:'ok'})}]};}
 process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');});`;
-test('stdio MCP initializes, discovers tool, sends exactly once and supplies token only in environment',async()=>{
+test('reference MCP flow tolerates startup banners, sends only content/receiver once and reads token from environment',async()=>{
  const client=new WelinkMcp(token=>spawn(process.execPath,['-e',server],{detached:process.platform!=='win32',stdio:['pipe','pipe','pipe'],env:{...process.env,WELINK_TOKEN:token}}),5000);
  await client.send('w00789509','test message','test-only-token');
 });
@@ -33,6 +33,36 @@ test('WeLink token is encrypted and can fall back to backend environment',()=>{
 
 test('stdio launcher reads private package locations from runtime configuration',()=>{
  assert.deepEqual(welinkMcpArgs({WELINK_MCP_PACKAGE:'https://packages.example.test/welink.tar.gz',WELINK_MCP_INDEX_URL:'https://index.example.test/simple',WELINK_MCP_INSECURE_HOSTS:'index.example.test,packages.example.test'}),['--index-url','https://index.example.test/simple','--allow-insecure-host','index.example.test','--allow-insecure-host','packages.example.test','--from','https://packages.example.test/welink.tar.gz','welink-msg','stdio']);
- assert.throws(()=>welinkMcpArgs({}),/WELINK_MCP_PACKAGE/);
+ assert.deepEqual(welinkMcpArgs({}),['--index-url','https://mirrors.tools.huawei.com/pypi/simple','--allow-insecure-host','mirrors.tools.huawei.com','--allow-insecure-host','cmc.centralrepo.rnd.huawei.com','--from','https://cmc.centralrepo.rnd.huawei.com/artifactory/product_generic/hw-generic_computing_mcp_server/servers/welink-msg/1.1.0/welink_msg-1.1.0.tar.gz','welink-msg','stdio']);
  assert.throws(()=>welinkMcpArgs({WELINK_MCP_PACKAGE:'file:///tmp/code'}),/地址无效/);
+});
+
+test('MCP acknowledgement accepts explicit ok responses and rejects ambiguous or contradictory success',()=>{
+ for(const result of [
+  {structuredContent:{status:'ok'}},
+  {content:[{type:'text',text:'{"status": "ok"}'}]},
+  {content:[{type:'text',text:'消息发送成功，接收者：w00789509'}]},
+  {content:[{type:'text',text:'✅ 消息已成功发送！'}]}
+ ])assert.equal(confirmedWelinkResult(result),true);
+ for(const result of [
+  {content:[{type:'text',text:'消息发送不成功'}]},
+  {content:[{type:'text',text:'未确认发送成功'}]},
+  {content:[{type:'text',text:'{"status":"ok","resultCode":1}'}]},
+  {structuredContent:{status:'failed'},content:[{type:'text',text:'消息发送成功'}]},
+  {content:[{type:'text',text:'消息发送成功'},{type:'text',text:'{"success":false}'}]}
+ ])assert.equal(confirmedWelinkResult(result),false);
+});
+
+test('reference WELINK_MCP_UVX_ARGS overrides defaults while keeping the stdio executable fixed',()=>{
+ const command=['uvx','--from','https://packages.example.test/welink.tar.gz','welink-msg','stdio'];
+ assert.deepEqual(welinkMcpArgs({WELINK_MCP_UVX_ARGS:JSON.stringify(command)}),command.slice(1));
+ assert.throws(()=>welinkMcpArgs({WELINK_MCP_UVX_ARGS:'not-json'}),/JSON/);
+ assert.throws(()=>welinkMcpArgs({WELINK_MCP_UVX_ARGS:JSON.stringify(['sh','-c','echo secret'])}),/uvx/);
+ assert.throws(()=>welinkMcpArgs({WELINK_MCP_UVX_ARGS:JSON.stringify(['uvx','--from','https://packages.example.test/a','--allow-insecure-host','welink-msg','stdio'])}),/缺少值/);
+});
+
+test('a tool error is not retried even if its content contains a success sentence',async()=>{
+ let calls=0;const childSource=server.replace("result={isError:!initialized", "process.stderr.write('tool-call\\n');result={isError:true||!initialized");
+ const client=new WelinkMcp(token=>{const child=spawn(process.execPath,['-e',childSource],{detached:process.platform!=='win32',stdio:['pipe','pipe','pipe'],env:{...process.env,WELINK_TOKEN:token}});child.stderr.on('data',chunk=>{calls+=String(chunk).split('tool-call').length-1;});return child;},5000);
+ await assert.rejects(client.send('w00789509','test message','test-only-token'),/未返回明确/);assert.equal(calls,1);
 });

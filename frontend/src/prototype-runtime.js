@@ -437,6 +437,7 @@ import {canConvertFailedQuickDeploymentToReview, canDeployReviewedTask, deployme
       ? previousDeploymentTerminal.scrollHeight - previousDeploymentTerminal.clientHeight - previousDeploymentTerminal.scrollTop < 8
       : true
     baseRender(resetScroll)
+    for(const form of document.querySelectorAll('#single-build-form,#compare-build-form'))for(const [name,value] of Object.entries(buildFormDraft[form.id]||{})){const input=form.elements.namedItem(name);if(input)input.value=value}
     const nextTerminal = document.querySelector('#build-log-terminal')
     if (nextTerminal) nextTerminal.scrollTop = followedLatest ? nextTerminal.scrollHeight : previousScrollTop
     const nextDeploymentTerminal = document.querySelector('#deployment-log-terminal')
@@ -463,13 +464,33 @@ import {canConvertFailedQuickDeploymentToReview, canDeployReviewedTask, deployme
       + '</select></div>'
   }
 
+  const businessDraft={single:[],baseline:[],candidate:[]}
+  const buildFormDraft={}
+  function businessFields(side){
+    return '<div class="repo-list" data-business-side="'+side+'"><p class="br-sub">业务仓（可不填，按列表顺序在 chart 目录构建）</p>'+businessDraft[side].map((repo,i)=>'<div class="repo-row" data-business-row="'+i+'"><div><div class="repo-row-title"><span>业务仓地址</span><button type="button" class="button small ghost" data-business-remove="'+i+'">移除</button></div><input aria-label="业务仓地址" data-business-field="repository" value="'+escapeHtml(repo.repository)+'" placeholder="https://…/Service.git" maxlength="500" required></div><div><span>业务分支</span><input aria-label="业务分支" data-business-field="branch" value="'+escapeHtml(repo.branch)+'" placeholder="master" maxlength="200"></div></div>').join('')+'<button type="button" class="button small ghost" data-business-add>＋ 添加业务仓</button></div>'
+  }
+  document.addEventListener('input',event=>{
+    const input=event.target,section=input.closest?.('[data-business-side]');
+    const form=input.closest?.('#single-build-form,#compare-build-form');if(form&&input.name)(buildFormDraft[form.id]??={})[input.name]=input.value
+    if(section&&input.dataset.businessField){const row=input.closest('[data-business-row]');businessDraft[section.dataset.businessSide][Number(row.dataset.businessRow)][input.dataset.businessField]=input.value}
+  })
+  document.addEventListener('click',event=>{
+    const button=event.target.closest?.('[data-business-add],[data-business-remove]');if(!button)return;
+    const side=button.closest('[data-business-side]').dataset.businessSide;
+    if(button.hasAttribute('data-business-add')){if(businessDraft[side].length>=100){showToast('最多添加 100 个业务仓');return}businessDraft[side].push({repository:'',branch:'master'})}
+    else businessDraft[side].splice(Number(button.dataset.businessRemove),1)
+    render(false)
+  })
+  document.addEventListener('change',event=>{const input=event.target,form=input.closest?.('#single-build-form,#compare-build-form');if(form&&input.name)(buildFormDraft[form.id]??={})[input.name]=input.value})
+  const businessPayload=side=>businessDraft[side].map(repo=>({repository:repo.repository.trim(),branch:repo.branch.trim()||'master'}))
+
   singleBuildForm = function () {
     const configuration = buildRuntime.configuration
-    return '<section class="panel build-input-panel"><div class="panel-head"><div><h2>创建构建</h2><p style="color:var(--muted);margin-top:3px;font-size:12px">选择模块并确认两个仓库的分支</p></div><span class="badge green">仓库已锁定</span></div><div class="panel-body"><form id="single-build-form"><div class="form-grid">'
+    return '<section class="panel build-input-panel"><div class="panel-head"><div><h2>创建构建</h2><p style="color:var(--muted);margin-top:3px;font-size:12px">构建顺序：CBB-Web-Dev → 业务仓 → ArchDesign</p></div><span class="badge green">按顺序构建</span></div><div class="panel-body"><form id="single-build-form"><div class="form-grid">'
       + buildModuleField(configuration)
       + buildBranchField('CBB-Web-Dev 仓库', configuration?.cbbWebDevRepository, 'cbbWebDevBranch', configuration?.defaultBranch)
       + buildBranchField('ArchDesign 仓库', configuration?.archDesignRepository, 'archDesignBranch', configuration?.defaultBranch)
-      + '</div><div style="display:flex;justify-content:flex-end;align-items:center;margin-top:15px"><button type="button" class="button primary" data-create-build-task="single" ' + (buildRuntime.starting || !configuration ? 'disabled' : '') + '>开始构建</button></div></form></div></section>'
+      + '</div>' + businessFields('single') + '<div style="display:flex;justify-content:flex-end;align-items:center;margin-top:15px"><button type="button" class="button primary" data-create-build-task="single" ' + (buildRuntime.starting || !configuration ? 'disabled' : '') + '>开始构建</button></div></form></div></section>'
   }
 
   compareBuildForm = function () {
@@ -479,10 +500,10 @@ import {canConvertFailedQuickDeploymentToReview, canDeployReviewedTask, deployme
       + '</div></div></section><div class="resource-grid"><section class="panel"><div class="panel-head"><h2>基准版本 A</h2><span class="badge violet">左侧</span></div><div class="panel-body"><div class="form-grid">'
       + buildBranchField('CBB-Web-Dev 仓库', configuration?.cbbWebDevRepository, 'baselineCbbWebDevBranch', configuration?.defaultBranch)
       + buildBranchField('ArchDesign 仓库', configuration?.archDesignRepository, 'baselineArchDesignBranch', configuration?.defaultBranch)
-      + '</div></div></section><section class="panel"><div class="panel-head"><h2>验证版本 B</h2><span class="badge green">右侧</span></div><div class="panel-body"><div class="form-grid">'
+      + '</div>' + businessFields('baseline') + '</div></section><section class="panel"><div class="panel-head"><h2>验证版本 B</h2><span class="badge green">右侧</span></div><div class="panel-body"><div class="form-grid">'
       + buildBranchField('CBB-Web-Dev 仓库', configuration?.cbbWebDevRepository, 'candidateCbbWebDevBranch', configuration?.defaultBranch)
       + buildBranchField('ArchDesign 仓库', configuration?.archDesignRepository, 'candidateArchDesignBranch', configuration?.defaultBranch)
-      + '</div></div></section></div><div style="display:flex;justify-content:flex-end;margin-top:14px"><button type="button" class="button primary" data-create-build-task="compare" ' + (buildRuntime.starting || !configuration ? 'disabled' : '') + '>并发构建并对比</button></div></form>'
+      + '</div>' + businessFields('candidate') + '</div></section></div><div style="display:flex;justify-content:flex-end;margin-top:14px"><button type="button" class="button primary" data-create-build-task="compare" ' + (buildRuntime.starting || !configuration ? 'disabled' : '') + '>并发构建并对比</button></div></form>'
   }
 
   buildConfig = function () {
@@ -662,7 +683,8 @@ import {canConvertFailedQuickDeploymentToReview, canDeployReviewedTask, deployme
   function branchPayload(values, prefix) {
     return {
       cbbWebDevBranch: values[prefix + 'CbbWebDevBranch'],
-      archDesignBranch: values[prefix + 'ArchDesignBranch']
+      archDesignBranch: values[prefix + 'ArchDesignBranch'],
+      businessRepositories: businessPayload(prefix)
     }
   }
 
@@ -676,7 +698,7 @@ import {canConvertFailedQuickDeploymentToReview, canDeployReviewedTask, deployme
     const values = Object.fromEntries(new FormData(form))
     const body = mode === 'compare'
       ? {mode: 'COMPARE', environmentId: environment._apiId, module: values.module, baseline: branchPayload(values, 'baseline'), candidate: branchPayload(values, 'candidate')}
-      : {mode: 'SINGLE', environmentId: environment._apiId, module: values.module, baseline: {cbbWebDevBranch: values.cbbWebDevBranch, archDesignBranch: values.archDesignBranch}, candidate: null}
+      : {mode: 'SINGLE', environmentId: environment._apiId, module: values.module, baseline: {cbbWebDevBranch: values.cbbWebDevBranch, archDesignBranch: values.archDesignBranch, businessRepositories: businessPayload('single')}, candidate: null}
     buildRuntime.starting = true
     buildRuntime.logs = []
     buildRuntime.sequences.clear()
