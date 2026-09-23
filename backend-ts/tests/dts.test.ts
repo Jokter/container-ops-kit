@@ -135,3 +135,21 @@ test('查询不到目标版本时禁止远端建单，可修复后重新查询',
  const service=new DtsTickets(store,async()=>async(method,params)=>{if(method==='initialize')return{};if(params.name==='queryPbiLikeName'){queries++;return reply([]);}creates++;throw Error('must not create');});
  try{const result=await service.create('a','tester','R28C10');assert.match(result.message,/V100R028C10B001/);assert.equal(creates,0);assert.equal(queries,1);assert.equal(store.records('dts-ticket').length,0);}finally{store.close();}
 });
+
+test('已撤销旧单确认后退出恢复队列，新请求可以建单且保留旧记录',async()=>{
+ const store=testStore();let creates=0,executes=0;
+ store.putRecord('dts-ticket','old',{requestId:'old',username:'tester',version:'R27C10',ticket:'DTS123',status:'REVIEW',message:''});
+ const service=new DtsTickets(store,async()=>async(method,params)=>{
+  if(method==='initialize')return{};if(params.name==='queryPbiLikeName')return pbiReply(params);
+  if(params.name==='createTicket'){creates++;return reply('DTS456');}
+  if(params.name==='executeTicket'){executes++;return reply({});}
+  const args=params.arguments as {arg0:string[]};const old=args.arg0[0]==='DTS123';return reply({datas:[{dtsBizNo:args.arg0[0],dtsStatus:old?'UNKNOWN_CANCEL_CODE':'DTS009',dtsStatusName:old?'撤销':'开发人员实施修改',currentHandler:old?'wangyu 00789509':'tester'}]});
+ },async()=>{});
+ try{
+  assert.equal((await service.create('retry','tester','R27C10')).status,'CANCELLED');assert.equal(creates,0);
+  assert.equal((await service.create('new','tester','R27C10')).ticket,'DTS456');assert.equal(creates,1);assert.equal(executes,1);
+  assert.equal(store.getRecord<{status:string}>('dts-ticket','old')?.status,'CANCELLED');
+  assert.equal((await service.create('old','tester','R27C10')).status,'CANCELLED');assert.equal(creates,1);
+  await service.control('DTS123','tester','continue','R27C10');assert.equal(executes,1);
+ }finally{store.close();}
+});

@@ -972,7 +972,7 @@
         : state.platformDomain === 'automation'
           ? automationContent()
           : `<section class="panel platform-placeholder"><div class="platform-placeholder-content"><div class="platform-placeholder-symbol">${placeholder[0]}</div><h1>${placeholder[1]}</h1><p>${placeholder[2]}</p><span class="platform-boundary">平台边界已预留</span></div></section>`;
-      return `<div class="variant-a-shell studio-shell"><header class="studio-topbar"><div class="studio-brand">${taiji}<strong>运维平台</strong><span class="studio-divider">/</span></div>${platformSwitch}<span class="studio-product">统一基础设施工作台</span></header><aside class="variant-a-sidebar">${state.platformDomain==='container'?nav:state.platformDomain==='automation'?automationNav():''}<div class="studio-sidebar-bottom">${state.platformDomain==='automation'?'<button class="studio-settings-link" data-automation-nav="settings">连接与设置</button>':''}<div class="variant-a-user">V0.2.40</div></div></aside><main class="variant-a-main">${content}</main></div>`;
+      return `<div class="variant-a-shell studio-shell"><header class="studio-topbar"><div class="studio-brand">${taiji}<strong>运维平台</strong><span class="studio-divider">/</span></div>${platformSwitch}<span class="studio-product">统一基础设施工作台</span></header><aside class="variant-a-sidebar">${state.platformDomain==='container'?nav:state.platformDomain==='automation'?automationNav():''}<div class="studio-sidebar-bottom">${state.platformDomain==='automation'?'<button class="studio-settings-link" data-automation-nav="settings">连接与设置</button>':''}<div class="variant-a-user">V0.2.41</div></div></aside><main class="variant-a-main">${content}</main></div>`;
 
     }
 
@@ -1440,10 +1440,20 @@
       const result=dtsTicketResult?.ticket===state.autoUtTicket&&dtsTicketResult?.username===state.autoUtUsername&&dtsTicketResult?.version===currentTicketVersion()?.version?dtsTicketResult:null;
       return `<span><button type="button" class="qw-link" data-dts-action="check" ${workspaceUi.drawerBusy?'disabled':''}>刷新单号状态</button>${result?.nodeStatus==='DTS001'?`<button type="button" class="qw-link" data-dts-action="continue" ${workspaceUi.drawerBusy?'disabled':''}>继续流转到开发人员</button>`:''}${result?`<small class="qw-muted">${escapeHtml(result.message)}</small>`:''}</span>`;
     }
+    async function releaseCancelledTicket(result){
+      if(result.status!=='CANCELLED')return false;
+      const version=currentTicketVersion().version;
+      if(result.username!==state.autoUtUsername||result.version!==version)throw Error('返回的问题单用户或版本不匹配');
+      sessionStorage.removeItem('ut-dts-request:'+state.autoUtUsername+':'+version);
+      state.autoUtTicket='';currentTicketVersion().ticket='';reportUi.config.ticket='';workspaceUi.reportDirty=true;
+      const input=document.querySelector('#auto-ut-ticket');if(input)input.value='';
+      if(workspaceUi.snapshot){workspaceUi.snapshot.ticket='';workspaceUi.snapshot.config.ticket='';const v=workspaceUi.snapshot.config.versions.find(v=>v.version===version);if(v)v.ticket='';workspaceUi.snapshot.reportDirty=true;}
+      await saveReportSettings();workspaceUi.drawerError=result.message;showToast(result.message);return true;
+    }
     async function controlAutoUtTicket(action){
       if(workspaceUi.drawerBusy)return;
       captureAutoUtInputs();workspaceUi.drawerBusy=true;workspaceUi.drawerError='';render(false);
-      try{dtsTicketResult=await autoUtCall('/api/auto-ut/tickets/control',jsonOptions('POST',{ticket:state.autoUtTicket,username:state.autoUtUsername,version:currentTicketVersion().version,action}));workspaceUi.drawerError=dtsTicketResult.status==='READY'?'':dtsTicketResult.message;showToast(dtsTicketResult.message);}
+      try{dtsTicketResult=await autoUtCall('/api/auto-ut/tickets/control',jsonOptions('POST',{ticket:state.autoUtTicket,username:state.autoUtUsername,version:currentTicketVersion().version,action}));if(await releaseCancelledTicket(dtsTicketResult))return;workspaceUi.drawerError=dtsTicketResult.status==='READY'?'':dtsTicketResult.message;showToast(dtsTicketResult.message);}
       catch(e){workspaceUi.drawerError=e.message;}
       finally{workspaceUi.drawerBusy=false;render(false);}
     }
@@ -1461,6 +1471,7 @@
         await saveReportSettings();
         const result=await autoUtCall('/api/auto-ut/tickets',jsonOptions('POST',{requestId,username:state.autoUtUsername,version}));
         dtsTicketResult=result;
+        if(await releaseCancelledTicket(result))return;
         if(result.ticket){state.autoUtTicket=result.ticket;currentTicketVersion().ticket=result.ticket;reportUi.config.ticket=result.ticket;workspaceUi.reportDirty=true;if(workspaceUi.snapshot){workspaceUi.snapshot.ticket=result.ticket;workspaceUi.snapshot.config.ticket=result.ticket;const v=workspaceUi.snapshot.config.versions.find(v=>v.version===version);if(v)v.ticket=result.ticket;workspaceUi.snapshot.reportDirty=true;}}
         if(result.ticket){const input=document.querySelector('#auto-ut-ticket');if(input)input.value=result.ticket;await saveReportSettings();}
         if(result.status==='READY')sessionStorage.removeItem(key);

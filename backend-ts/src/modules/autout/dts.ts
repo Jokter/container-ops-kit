@@ -6,7 +6,7 @@ import type {TaskStore} from '../../platform/store.js';
 import {dtsTemplate as template} from './dts-template.js';
 
 const object=z.record(z.string(),z.unknown());
-export interface TicketResult {requestId:string;username:string;ticket:string;version?:string;product?:DtsProduct;status:'CREATING'|'DRAFT'|'READY'|'REVIEW';message:string;stage?:'CREATE'|'FLOW'|'CONFIRM';nodeStatus?:string;nodeName?:string;currentHandler?:string}
+export interface TicketResult {requestId:string;username:string;ticket:string;version?:string;product?:DtsProduct;status:'CREATING'|'DRAFT'|'READY'|'REVIEW'|'CANCELLED';message:string;stage?:'CREATE'|'FLOW'|'CONFIRM';nodeStatus?:string;nodeName?:string;currentHandler?:string}
 type Call=(method:string,params:Record<string,unknown>)=>Promise<unknown>;
 export function ticketFields(full:boolean,username:string,version:string,product:DtsProduct){
  const names=dtsProductNames(version);
@@ -60,9 +60,9 @@ export class DtsTickets{
   const summary='当前节点：'+(value.nodeName||value.nodeStatus||'未知')+'；处理人：'+(value.currentHandler||'未返回');
   const tokens=value.currentHandler.toLowerCase().match(/[a-z0-9._-]+/g)??[];
   const handlerMatches=tokens.some(t=>t===value.username.toLowerCase()||t===value.username.match(/^[a-z](\d+)$/i)?.[1]);
-  value.status=value.nodeStatus==='DTS009'&&handlerMatches?'READY':'REVIEW';
-  value.message=value.status==='READY'?'问题单已流转到开发人员实施修改。'+summary:'问题单尚未确认流转到指定开发人员。'+summary;
-  this.save(value);return {nodeStatus:value.nodeStatus,ready:value.status==='READY'};
+  value.status=['撤销','已撤销'].includes(value.nodeName.trim())?'CANCELLED':value.nodeStatus==='DTS009'&&handlerMatches?'READY':'REVIEW';
+  value.message=value.status==='CANCELLED'?'问题单 '+value.ticket+' 已撤销，不再复用；请重新点击自动建单。'+summary:value.status==='READY'?'问题单已流转到开发人员实施修改。'+summary:'问题单尚未确认流转到指定开发人员。'+summary;
+  this.save(value);return {nodeStatus:value.nodeStatus,ready:value.status==='READY',cancelled:value.status==='CANCELLED'};
  }
  private product(call:Call,version:string):Promise<DtsProduct>{
   return resolveDtsProduct(version,name=>tool(call,'queryPbiLikeName',{arg0:name,arg1:'valid',arg2:'PBI'}));
@@ -81,7 +81,7 @@ export class DtsTickets{
     await this.wait(2000);
     try{
      const confirmed=await this.query(call,value);
-     if(confirmed.ready)return;
+     if(confirmed.ready||confirmed.cancelled)return;
      if(confirmed.nodeStatus!=='DTS001'&&confirmed.nodeStatus!=='DTS009')break;
     }catch(error){if(error instanceof DtsAuthError||attempt===2)throw error;}
    }

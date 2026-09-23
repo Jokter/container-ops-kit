@@ -210,3 +210,16 @@ test('两个版本自动建单携带独立版本和请求 ID，回填保存互�
  assert.equal(d.querySelector('#auto-ut-ticket').value,'DTS00');
  }finally{dom.window.close();}
 });
+
+test('撤销旧单后清空本版本单号与请求标识，下次点击使用新请求建单',async()=>{
+ let creates=0;const requests=[];
+ const dom=page((path,options)=>{
+  if(path==='/api/auto-ut/tickets'){const b=JSON.parse(options.body);requests.push(b);creates++;return {...b,ticket:creates===1?'DTSOLD':'DTSNEW',status:creates===1?'CANCELLED':'READY',message:creates===1?'问题单已撤销，请重新点击自动建单':'已建单'};}
+ });
+ try{const d=open(dom,'auto-ut');await pause();d.querySelector('[data-qw-drawer="execution"]').click();
+ const input=d.querySelector('#auto-ut-ticket');input.value='';input.dispatchEvent(new dom.window.Event('input'));
+ d.querySelector('#auto-ut-create-ticket').click();await pause();assert.equal(d.querySelector('#auto-ut-ticket').value,'');assert.match(d.querySelector('[role="dialog"]').textContent,/已撤销/);assert.equal(creates,1);
+ d.querySelector('#auto-ut-create-ticket').click();await pause();assert.equal(d.querySelector('#auto-ut-ticket').value,'DTSNEW');assert.notEqual(requests[0].requestId,requests[1].requestId);
+ const select=d.querySelector('#dts-ticket-version');select.value='R27C00';select.dispatchEvent(new dom.window.Event('change'));assert.equal(d.querySelector('#auto-ut-ticket').value,'DTS2');
+ }finally{dom.window.close();}
+});
