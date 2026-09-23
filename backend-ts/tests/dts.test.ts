@@ -70,3 +70,36 @@ test('并发继续不会重复流转，未知写入结果只允许状态读取',
  },async()=>{});
  try{const first=service.control('DTS123','tester','continue');await assert.rejects(service.control('DTS123','tester','continue'),/正在建单或流转/);release();assert.equal((await first).status,'REVIEW');assert.equal(executes,1);await service.create('one','tester');assert.equal(executes,1);}finally{store.close();}
 });
+
+test('流转响应丢失后只查询原单，已到指定开发人员则恢复成功',async()=>{
+ const store=new TaskStore(':memory:');const names:string[]=[];
+ const service=new DtsTickets(store,async()=>async(method,params)=>{
+  if(method==='initialize')return{};names.push(String(params.name));
+  if(params.name==='createTicket')return reply('DTS123');
+  if(params.name==='executeTicket')throw Error('response timeout');
+  return reply({datas:[{dtsBizNo:'DTS123',dtsStatus:'DTS009',currentHandler:'tester'}]});
+ },async()=>{});
+ try{assert.equal((await service.create('one','tester')).status,'READY');assert.deepEqual(names,['createTicket','executeTicket','batchQueryTicket']);}finally{store.close();}
+});
+test('确认查询暂时失败仍继续只读核对，不重复建单流转',async()=>{
+ const store=new TaskStore(':memory:');let reads=0,creates=0,executes=0;
+ const service=new DtsTickets(store,async()=>async(method,params)=>{
+  if(method==='initialize')return{};
+  if(params.name==='createTicket'){creates++;return reply('DTS123');}
+  if(params.name==='executeTicket'){executes++;return reply({});}
+  if(++reads===1)throw Error('temporary read failure');
+  if(reads===2)return reply({datas:[]});
+  return reply({datas:[{dtsBizNo:'DTS123',dtsStatus:'DTS009',currentHandler:'tester'}]});
+ },async()=>{});
+ try{assert.equal((await service.create('one','tester')).status,'READY');assert.equal(reads,3);assert.equal(creates,1);assert.equal(executes,1);}finally{store.close();}
+});
+test('流转与确认均失败保留两个原因和原单号，达到次数上限即停止',async()=>{
+ const store=new TaskStore(':memory:');let reads=0,executes=0;
+ const service=new DtsTickets(store,async()=>async(method,params)=>{
+  if(method==='initialize')return{};
+  if(params.name==='createTicket')return reply('DTS123');
+  if(params.name==='executeTicket'){executes++;throw Error('transition response timeout');}
+  reads++;throw Error('query unavailable');
+ },async()=>{});
+ try{const result=await service.create('one','tester');assert.equal(result.status,'REVIEW');assert.equal(result.ticket,'DTS123');assert.match(result.message,/transition response timeout.*query unavailable/);assert.equal(reads,3);assert.equal(executes,1);}finally{store.close();}
+});

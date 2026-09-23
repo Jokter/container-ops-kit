@@ -1,5 +1,7 @@
 import {z} from 'zod';
+import {stripVTControlCharacters} from 'node:util';
 export function jsonValues(output:string):unknown[]{
+ output=stripVTControlCharacters(output);
  const values:unknown[]=[];let start=-1,depth=0,quoted=false,escape=false;
  for(let i=0;i<output.length;i++){const c=output[i];if(start<0){if(c==='{'||c==='['){start=i;depth=1;}continue;}if(quoted){if(escape)escape=false;else if(c==='\\')escape=true;else if(c==='"')quoted=false;continue;}if(c==='"'){quoted=true;continue;}if(c==='{'||c==='[')depth++;else if((c==='}'||c===']')&&--depth===0){try{values.push(JSON.parse(output.slice(start,i+1)));}catch{/* log fragment */}start=-1;}}
  return values;

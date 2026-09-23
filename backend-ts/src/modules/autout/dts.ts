@@ -62,13 +62,26 @@ export class DtsTickets{
  }
  private async execute(call:Call,value:TicketResult){
   value.status='DRAFT';value.stage='FLOW';value.message='正在流转到开发人员实施修改';this.save(value);
-  await tool(call,'executeTicket',{arg0:value.ticket,arg1:template.FLOW_CONFIG_ID,arg2:false,arg3:ticketFields(true,value.username)});
+  let flowError:unknown;
+  try{await tool(call,'executeTicket',{arg0:value.ticket,arg1:template.FLOW_CONFIG_ID,arg2:false,arg3:ticketFields(true,value.username)});}
+  catch(error){if(error instanceof DtsAuthError)throw error;flowError=error;}
   value.stage='CONFIRM';this.save(value);
-  // Only status reads are repeated. The transition itself is submitted once.
-  for(let attempt=0;attempt<3;attempt++){
-   await this.wait(2000);const confirmed=await this.query(call,value);
-   if(confirmed.ready||confirmed.nodeStatus!=='DTS001'&&confirmed.nodeStatus!=='DTS009')break;
+  // A lost transition response does not mean the transition failed. Read the
+  // original ticket to confirm; never repeat creation or transition here.
+  try{
+   for(let attempt=0;attempt<3;attempt++){
+    await this.wait(2000);
+    try{
+     const confirmed=await this.query(call,value);
+     if(confirmed.ready)return;
+     if(confirmed.nodeStatus!=='DTS001'&&confirmed.nodeStatus!=='DTS009')break;
+    }catch(error){if(error instanceof DtsAuthError||attempt===2)throw error;}
+   }
+  }catch(error){
+   if(flowError){value.stage='FLOW';throw Error(safeDtsMessage(flowError instanceof Error?flowError.message:flowError)+'；状态确认也未完成：'+safeDtsMessage(error instanceof Error?error.message:error));}
+   throw error;
   }
+  if(flowError){value.stage='FLOW';throw flowError;}
  }
  private failure(value:TicketResult,error:unknown){
   value.status='REVIEW';const phase=value.stage==='CREATE'?'建单':value.stage==='FLOW'?'流转':'状态确认';
