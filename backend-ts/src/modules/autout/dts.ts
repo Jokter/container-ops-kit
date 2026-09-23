@@ -1,3 +1,4 @@
+import {dtsVersion,dtsProduct,dtsProductNames,type DtsProduct} from './dts-product.js';
 import {DtsSettings} from './dts-settings.js';
 import {z} from 'zod';
 import type {FastifyInstance} from 'fastify';
@@ -5,10 +6,13 @@ import type {TaskStore} from '../../platform/store.js';
 import {dtsTemplate as template} from './dts-template.js';
 
 const object=z.record(z.string(),z.unknown());
-export interface TicketResult {requestId:string;username:string;ticket:string;status:'CREATING'|'DRAFT'|'READY'|'REVIEW';message:string;stage?:'CREATE'|'FLOW'|'CONFIRM';nodeStatus?:string;nodeName?:string;currentHandler?:string}
+export interface TicketResult {requestId:string;username:string;ticket:string;version?:string;product?:DtsProduct;status:'CREATING'|'DRAFT'|'READY'|'REVIEW';message:string;stage?:'CREATE'|'FLOW'|'CONFIRM';nodeStatus?:string;nodeName?:string;currentHandler?:string}
 type Call=(method:string,params:Record<string,unknown>)=>Promise<unknown>;
-export function ticketFields(full:boolean,username:string){
- const fields:Record<string,unknown>={...template.TEMPLATE_DEFAULTS,sBriefDescription:'【代码检视】UT治理',sDetailDescription:'<p>UT治理：修复实际失败用例，按质量报告补充测试，回归通过后提交 MR。</p>',sConfigFlowType:template.FLOW_CONFIG_TYPE,prodInfo:full?template.PROD_INFO_FULL:template.PROD_INFO_DRAFT,dDefectOccurTime:full?Date.now():null,sHandlers:full?username:''};
+export function ticketFields(full:boolean,username:string,version:string,product:DtsProduct){
+ const names=dtsProductNames(version);
+ const replacements:Record<string,{value:string;valueName:string}>={sProdRNo:{value:product.rNo,valueName:names.r},sProdCNo:{value:product.cNo,valueName:names.c},sProdBNo:{value:product.bNo,valueName:names.b}};
+ const prodInfo=(full?template.PROD_INFO_FULL:template.PROD_INFO_DRAFT).map(field=>({...field,...replacements[field.key]}));
+ const fields:Record<string,unknown>={...template.TEMPLATE_DEFAULTS,sBriefDescription:'【代码检视】UT治理',sDetailDescription:'<p>UT治理：修复实际失败用例，按质量报告补充测试，回归通过后提交 MR。</p>',sConfigFlowType:template.FLOW_CONFIG_TYPE,prodInfo,dDefectOccurTime:full?Date.now():null,sHandlers:full?username:''};
  return Object.entries(fields).map(([fieldId,value])=>({fieldId,value}));
 }
 class DtsAuthError extends Error {}
@@ -60,10 +64,17 @@ export class DtsTickets{
   value.message=value.status==='READY'?'问题单已流转到开发人员实施修改。'+summary:'问题单尚未确认流转到指定开发人员。'+summary;
   this.save(value);return {nodeStatus:value.nodeStatus,ready:value.status==='READY'};
  }
+ private product(version:string):DtsProduct{
+  const saved=this.store.getRecord<{config:{versions:{version:string;dtsProduct?:unknown}[]}}>('auto-ut-report-config','main');
+  const parsed=dtsProduct.safeParse(saved?.config.versions.find(v=>v.version===version)?.dtsProduct);
+  if(!parsed.success)throw Object.assign(Error('请在版本与分支配置 '+dtsProductNames(version).b+' 的 DTS R/C/B 版本 ID；不能沿用旧 B012 的 ID。'),{statusCode:400});
+  return parsed.data;
+ }
  private async execute(call:Call,value:TicketResult){
+  value.product??=this.product(value.version??'R27C10');
   value.status='DRAFT';value.stage='FLOW';value.message='正在流转到开发人员实施修改';this.save(value);
   let flowError:unknown;
-  try{await tool(call,'executeTicket',{arg0:value.ticket,arg1:template.FLOW_CONFIG_ID,arg2:false,arg3:ticketFields(true,value.username)});}
+  try{await tool(call,'executeTicket',{arg0:value.ticket,arg1:template.FLOW_CONFIG_ID,arg2:false,arg3:ticketFields(true,value.username,value.version??'R27C10',value.product)});}
   catch(error){if(error instanceof DtsAuthError)throw error;flowError=error;}
   value.stage='CONFIRM';this.save(value);
   // A lost transition response does not mean the transition failed. Read the
@@ -88,29 +99,33 @@ export class DtsTickets{
   value.message=phase+'未完成：'+safeDtsMessage(error instanceof Error?error.message:'未知错误')+(value.ticket?'；已保留单号 '+value.ticket+'，请刷新状态或继续流转，勿重复建单。':'；请在 DTS 确认是否已建单，勿重复创建。');
   this.save(value);
  }
- async create(requestId:string,username:string){
+ async create(requestId:string,username:string,version:string){
+  version=dtsVersion.parse(version);
   const previous=this.store.getRecord<TicketResult>('dts-ticket',requestId);
-  if(previous){if(previous.username!==username)throw Object.assign(Error('建单请求与用户名不匹配'),{statusCode:409});return previous.ticket&&previous.status==='REVIEW'?this.control(previous.ticket,username,'check'):previous;}
-  const unfinished=this.store.records<TicketResult>('dts-ticket').find(t=>t.username===username&&['CREATING','DRAFT','REVIEW'].includes(t.status));
-  if(unfinished)return unfinished.ticket&&unfinished.status==='REVIEW'?this.control(unfinished.ticket,username,'check'):unfinished;
+  if(previous){if(previous.username!==username||(previous.version??'R27C10')!==version)throw Object.assign(Error('建单请求与用户名或版本不匹配'),{statusCode:409});return previous.ticket&&previous.status==='REVIEW'?this.control(previous.ticket,username,'check',version):previous;}
+  const unfinished=this.store.records<TicketResult>('dts-ticket').find(t=>t.username===username&&(t.version??'R27C10')===version&&['CREATING','DRAFT','REVIEW'].includes(t.status));
+  if(unfinished)return unfinished.ticket&&unfinished.status==='REVIEW'?this.control(unfinished.ticket,username,'check',version):unfinished;
   if(this.active.has(username))throw Object.assign(Error('该用户正在建单或流转，请稍后刷新'),{statusCode:409});
+  const product=this.product(version);
   this.active.add(username);
-  const value:TicketResult={requestId,username,ticket:'',status:'CREATING',stage:'CREATE',message:'正在建单'};
+  const value:TicketResult={requestId,username,version,product,ticket:'',status:'CREATING',stage:'CREATE',message:'正在建单'};
   this.save(value);let creating=false;
   try{
    const call=await this.connection();creating=true;
-   const number=await tool(call,'createTicket',{arg0:template.FLOW_CONFIG_ID,arg1:template.NODE_MODEL_ID,arg2:false,arg3:ticketFields(false,username),arg4:'SYSTEM',arg5:username,arg6:true,arg7:true});
+   const number=await tool(call,'createTicket',{arg0:template.FLOW_CONFIG_ID,arg1:template.NODE_MODEL_ID,arg2:false,arg3:ticketFields(false,username,version,product),arg4:'SYSTEM',arg5:username,arg6:true,arg7:true});
    value.ticket=z.string().regex(/^DTS\d+$/i).parse(number);value.status='DRAFT';this.save(value);
    await this.execute(call,value);
   }catch(error){this.failure(value,error);if(!creating)this.store.deleteRecord('dts-ticket',requestId);}
   finally{this.active.delete(username);}
   return value;
  }
- async control(ticket:string,username:string,action:'check'|'continue'){
-  const value=this.store.records<TicketResult>('dts-ticket').find(t=>t.ticket===ticket&&t.username===username);
+ async control(ticket:string,username:string,action:'check'|'continue',version:string){
+  version=dtsVersion.parse(version);
+  const value=this.store.records<TicketResult>('dts-ticket').find(t=>t.ticket===ticket&&t.username===username&&(t.version??'R27C10')===version);
   if(!value)throw Object.assign(Error('未找到该用户的自动建单记录，请在 DTS 核对该单号。'),{statusCode:404});
   if(this.active.has(username))throw Object.assign(Error('该用户正在建单或流转，请稍后刷新'),{statusCode:409});
   this.active.add(username);
+  value.version=version;
   try{
    value.stage='CONFIRM';const call=await this.connection();const {nodeStatus:status}=await this.query(call,value);
    if(action==='continue'&&status==='DTS001')await this.execute(call,value);
@@ -120,4 +135,4 @@ export class DtsTickets{
   return value;
  }
 }
-export function dtsRoutes(app:FastifyInstance,store:TaskStore){const settings=new DtsSettings(store),service=new DtsTickets(store);app.get('/api/auto-ut/dts-settings',async()=>settings.status());app.put('/api/auto-ut/dts-settings',async request=>{const {token}=z.object({token:z.string().trim().min(1).max(16384).regex(/^[^\r\n]+$/)}).parse(request.body);return settings.save(token);});app.delete('/api/auto-ut/dts-settings',async()=>settings.clear());app.post('/api/auto-ut/tickets/control',async request=>{const input=z.object({ticket:z.string().regex(/^DTS\d+$/i),username:z.string().regex(/^[A-Za-z0-9._-]+$/),action:z.enum(['check','continue'])}).parse(request.body);return service.control(input.ticket,input.username,input.action);});app.post('/api/auto-ut/tickets',async request=>{const input=z.object({requestId:z.uuid(),username:z.string().regex(/^[A-Za-z0-9._-]+$/)}).parse(request.body);return service.create(input.requestId,input.username);});}
+export function dtsRoutes(app:FastifyInstance,store:TaskStore){const settings=new DtsSettings(store),service=new DtsTickets(store);app.get('/api/auto-ut/dts-settings',async()=>settings.status());app.put('/api/auto-ut/dts-settings',async request=>{const {token}=z.object({token:z.string().trim().min(1).max(16384).regex(/^[^\r\n]+$/)}).parse(request.body);return settings.save(token);});app.delete('/api/auto-ut/dts-settings',async()=>settings.clear());app.post('/api/auto-ut/tickets/control',async request=>{const input=z.object({ticket:z.string().regex(/^DTS\d+$/i),username:z.string().regex(/^[A-Za-z0-9._-]+$/),version:dtsVersion,action:z.enum(['check','continue'])}).parse(request.body);return service.control(input.ticket,input.username,input.action,input.version);});app.post('/api/auto-ut/tickets',async request=>{const input=z.object({requestId:z.uuid(),version:dtsVersion,username:z.string().regex(/^[A-Za-z0-9._-]+$/)}).parse(request.body);return service.create(input.requestId,input.username,input.version);});}

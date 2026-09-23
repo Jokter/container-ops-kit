@@ -4,7 +4,7 @@ import type {FastifyInstance} from 'fastify';
 import type {TaskStore} from '../../platform/store.js';
 import {noFileLogs,type LogSink} from '../../infrastructure/file-logs.js';
 import {QualityService,qualityInput} from '../quality/quality.js';
-import {AutoUtReports,nextRun,reportDate,reportConfig,type ReportConfig} from '../autout/reports.js';
+import {AutoUtReports,nextRun,reportDate,reportConfig,executionReady,type ReportConfig} from '../autout/reports.js';
 import {AutoUtService,type Schedule as CsvSchedule} from '../autout/autout.js';
 const timing=reportConfig.shape.schedule.omit({enabled:true,action:true});
 const csvTask=z.object({kind:z.literal('csv'),reportFileName:z.string().max(500),report:z.string().max(30*1024*1024),username:z.string().regex(/^[A-Za-z0-9._-]+$/),ticket:z.string().regex(/^[A-Za-z0-9._-]+$/),baseBranch:z.string().min(1),workspaceRoot:z.string().min(1)});
@@ -12,7 +12,7 @@ const cleanupTask=z.object({kind:z.literal('auto-ut-cleanup'),retentionDays:z.nu
 export const scheduleInput=z.object({name:z.string().trim().min(1).max(100),enabled:z.boolean(),timing,task:z.discriminatedUnion('kind',[
  z.object({kind:z.literal('quality'),query:qualityInput.omit({date:true}),dateMode:z.enum(['today','yesterday'])}),
  z.object({kind:z.literal('auto-ut'),config:reportConfig}),csvTask,cleanupTask
-])}).superRefine((value,ctx)=>{if(value.task.kind==='auto-ut'&&value.task.config.schedule.action==='REPAIR'){const c=value.task.config;if(!c.username||!c.ticket||!c.workspaceRoot||c.versions.some(v=>!v.baseBranch))ctx.addIssue({code:'custom',path:['task','config'],message:'自动修复需要完整执行输入与版本分支'});}});
+])}).superRefine((value,ctx)=>{if(value.task.kind==='auto-ut'&&value.task.config.schedule.action==='REPAIR'){const c=value.task.config;if(!executionReady(c))ctx.addIssue({code:'custom',path:['task','config'],message:'自动修复需要完整执行输入与版本分支'});}});
 export type ScheduleInput=z.infer<typeof scheduleInput>;
 export interface ManagedSchedule extends ScheduleInput{id:string;createdAt:string;updatedAt:string;nextRunAt:string|null;revision:number;legacy?:'online'|'csv';}
 export interface ScheduleRun{id:string;scheduleId:string;name:string;kind:ScheduleInput['task']['kind'];trigger:'MANUAL'|'SCHEDULE';status:'RUNNING'|'SUCCEEDED'|'PARTIAL'|'FAILED'|'SKIPPED'|'INTERRUPTED';createdAt:string;finishedAt:string|null;message:string;jobId?:string;reportId?:string;taskIds:string[];queryPartial?:boolean;snapshot:unknown;}

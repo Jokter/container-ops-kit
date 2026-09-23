@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {JSDOM} from 'jsdom';
 const html=await readFile(new URL('../../index.html',import.meta.url),'utf8');
-const config={versions:[{version:'R27C10',baseBranch:'release/27'},{version:'R27C00',baseBranch:'release/26'}],dateMode:'yesterday',username:'tester',ticket:'DTS1',workspaceRoot:'/tmp',schedule:{enabled:false,frequency:'weekdays',weekday:1,time:'09:00',timezone:'Asia/Shanghai',action:'FETCH'}};
+const config={versions:[{version:'R27C10',baseBranch:'release/27',ticket:'DTS1'},{version:'R27C00',baseBranch:'release/26',ticket:'DTS2'}],dateMode:'yesterday',username:'tester',ticket:'DTS1',workspaceRoot:'/tmp',schedule:{enabled:false,frequency:'weekdays',weekday:1,time:'09:00',timezone:'Asia/Shanghai',action:'FETCH'}};
 const settings={url:'http://grafana/api/tsdb/query',datasourceId:4,timeoutSeconds:60,parallel:2,auth:'none'};
 const pause=()=>new Promise(r=>setTimeout(r,10));
-function page(extra,url='http://localhost'){return new JSDOM(html,{runScripts:'dangerously',url,beforeParse(w){w.scrollTo=()=>{};w.fetch=async(path,options)=>({ok:true,status:200,json:async()=>{const result=extra?.(path,options);if(result!==undefined)return result;if(path==='/api/auto-ut/report-settings')return{config:structuredClone(config),nextRunAt:null};if(path==='/api/quality/settings')return settings;if(path==='/api/auto-ut/schedule')return null;return[];}});}});}
+function page(extra,url='http://localhost'){return new JSDOM(html,{runScripts:'dangerously',url,beforeParse(w){w.scrollTo=()=>{};w.fetch=async(path,options)=>({ok:true,status:200,json:async()=>{const result=extra?.(path,options);if(result!==undefined)return result;if(path==='/api/auto-ut/report-settings')return{config:options?.method==='PUT'?JSON.parse(options.body):structuredClone(config),nextRunAt:null};if(path==='/api/quality/settings')return settings;if(path==='/api/auto-ut/schedule')return null;return[];}});}});}
 function open(dom,name){const d=dom.window.document;d.querySelector('[data-platform-domain="automation"]').click();d.querySelector('[data-automation-nav="tools"]').click();d.querySelector(`[data-automation-capability="${name}"]`).click();return d;}
 test('Auto-UT 获取按钮保存多版本分支并按版本选择修复，无转入按钮',async()=>{
  const calls=[];let captured;const run={id:'r1',jobId:'q1',status:'READY',createdAt:'2026-09-20',config,trigger:'MANUAL',messages:[],claimed:[],taskIds:[],plan:config.versions.map(v=>({version:v.version,repository:'Demo',baseBranch:v.baseBranch,repairBranch:v.baseBranch+'_tester_DTS1_'+v.version,failedTests:1,lineCoverage:.5,lineGoal:.8,configured:true,repositoryUrl:'ssh://git@example/Demo.git'}))};
@@ -146,7 +146,7 @@ test('已有自动单可刷新并继续草稿流转，成功后隐藏继续按�
   if(path==='/api/auto-ut/tickets'){creates++;return {};}
   if(path==='/api/auto-ut/tickets/control'){
    const body=JSON.parse(options.body);actions.push(body);
-   return {ticket:'DTS1',username:'tester',status:body.action==='check'?'REVIEW':'READY',nodeStatus:body.action==='check'?'DTS001':'DTS009',currentHandler:'tester',message:body.action==='check'?'当前节点：草稿':'已到开发人员实施修改；处理人：tester'};
+   return {ticket:'DTS1',username:'tester',version:'R27C10',status:body.action==='check'?'REVIEW':'READY',nodeStatus:body.action==='check'?'DTS001':'DTS009',currentHandler:'tester',message:body.action==='check'?'当前节点：草稿':'已到开发人员实施修改；处理人：tester'};
   }
  });
  try{const d=open(dom,'auto-ut');await pause();d.querySelector('[data-qw-drawer="execution"]').click();
@@ -155,7 +155,7 @@ test('已有自动单可刷新并继续草稿流转，成功后隐藏继续按�
  assert.match(d.querySelector('[role="dialog"]').textContent,/当前节点：草稿/);
  d.querySelector('[data-dts-action="continue"]').click();assert.equal(d.querySelector('[data-dts-action="continue"]').disabled,true);await pause();
  assert.equal(d.querySelector('[data-dts-action="continue"]'),null);assert.match(d.querySelector('[role="dialog"]').textContent,/开发人员实施修改/);
- assert.deepEqual(actions,[{ticket:'DTS1',username:'tester',action:'check'},{ticket:'DTS1',username:'tester',action:'continue'}]);assert.equal(creates,0);
+ assert.deepEqual(actions,[{ticket:'DTS1',username:'tester',version:'R27C10',action:'check'},{ticket:'DTS1',username:'tester',version:'R27C10',action:'continue'}]);assert.equal(creates,0);
  }finally{await pause();dom.window.close();}
 });
 
@@ -176,4 +176,37 @@ test('WeLink MCP token can be saved and cleared without returning it to the page
  let configured=false,token='';
  const dom=page((path,o)=>{if(path==='/api/auto-ut/welink-settings'){if(o?.method==='PUT'){token=JSON.parse(o.body).token;configured=true;}if(o?.method==='DELETE')configured=false;return{configured};}});
  try{const d=open(dom,'auto-ut');await pause();dom.window.qwOpen({type:'connection'});await pause();const input=d.querySelector('#welink-token');assert.equal(input.type,'password');input.value='test-token';d.querySelector('#welink-save').click();await pause();assert.equal(token,'test-token');assert.equal(d.querySelector('#welink-token').value,'');assert.match(d.querySelector('#welink-status').textContent,/已配置/);d.querySelector('#welink-clear').click();await pause();assert.equal(configured,false);}finally{await pause();dom.window.close();}
+});
+
+test('切换版本显示独立单号，修改用户名不继承旧用户单号',async()=>{
+ const dom=page();
+ try{const d=open(dom,'auto-ut');await pause();d.querySelector('[data-qw-drawer="execution"]').click();
+ assert.equal(d.querySelector('#auto-ut-ticket').value,'DTS1');
+ const select=d.querySelector('#dts-ticket-version');select.value='R27C00';select.dispatchEvent(new dom.window.Event('change'));
+ assert.equal(d.querySelector('#auto-ut-ticket').value,'DTS2');
+ const user=d.querySelector('#auto-ut-username');user.value='another';user.dispatchEvent(new dom.window.Event('input'));
+ assert.equal(d.querySelector('#auto-ut-ticket').value,'');
+ const again=d.querySelector('#dts-ticket-version');again.value='R27C10';again.dispatchEvent(new dom.window.Event('change'));
+ assert.equal(d.querySelector('#auto-ut-ticket').value,'');
+ }finally{dom.window.close();}
+});
+
+test('两个版本自动建单携带独立版本和请求 ID，回填保存互不覆盖',async()=>{
+ const creates=[],saved=[];
+ const dom=page((path,options)=>{
+  if(path==='/api/auto-ut/report-settings'&&options?.method==='PUT'){const c=JSON.parse(options.body);saved.push(c);return{config:c,nextRunAt:null};}
+  if(path==='/api/auto-ut/tickets'){const b=JSON.parse(options.body);creates.push(b);return{...b,ticket:b.version==='R27C10'?'DTS10':'DTS00',status:'READY',message:'已流转'};}
+ });
+ try{const d=open(dom,'auto-ut');await pause();d.querySelector('[data-qw-drawer="execution"]').click();
+ for(const version of ['R27C10','R27C00']){
+  const select=d.querySelector('#dts-ticket-version');select.value=version;select.dispatchEvent(new dom.window.Event('change'));
+  const input=d.querySelector('#auto-ut-ticket');input.value='';input.dispatchEvent(new dom.window.Event('input'));
+  d.querySelector('#auto-ut-create-ticket').click();await pause();
+  assert.equal(d.querySelector('#auto-ut-ticket').value,version==='R27C10'?'DTS10':'DTS00');
+ }
+ assert.deepEqual(creates.map(c=>c.version),['R27C10','R27C00']);assert.notEqual(creates[0].requestId,creates[1].requestId);
+ assert.deepEqual(saved.at(-1).versions.map(v=>v.ticket),['DTS10','DTS00']);
+ d.querySelector('[data-qw-close]').click();d.querySelector('[data-qw-drawer="execution"]').click();
+ assert.equal(d.querySelector('#auto-ut-ticket').value,'DTS00');
+ }finally{dom.window.close();}
 });

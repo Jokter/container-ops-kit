@@ -6,7 +6,7 @@ import {AutoUtService,autoUtWorkspace,type AutoUtTask} from '../src/modules/auto
 import {AutoUtReports,nextRun,reportConfig,reportDate} from '../src/modules/autout/reports.js';
 const row=['Demo','Java','Access_智能驾舱组',1,.5,.9,.5,.9,100,20];
 const payload=(rows:unknown[][])=>({results:{A:{tables:[{columns:utColumns.map(text=>({text})),rows}]}}});
-const config=()=>reportConfig.parse({versions:[{version:'R27C10',baseBranch:'release/27'},{version:'R27C00',baseBranch:'release/26'}],dateMode:'yesterday',username:'tester',ticket:'DTS1',workspaceRoot:'/tmp',schedule:{enabled:false,frequency:'weekdays',weekday:1,time:'09:00',timezone:'Asia/Shanghai',action:'FETCH'}});
+const config=()=>reportConfig.parse({versions:[{version:'R27C10',baseBranch:'release/27',ticket:'DTS1'},{version:'R27C00',baseBranch:'release/26',ticket:'DTS2'}],dateMode:'yesterday',username:'tester',ticket:'DTS1',workspaceRoot:'/tmp',schedule:{enabled:false,frequency:'weekdays',weekday:1,time:'09:00',timezone:'Asia/Shanghai',action:'FETCH'}});
 const input=qualityInput.parse({versions:['R27C10','R27C00'],date:'2026-09-20',domain:'Access',teams:['Access_智能驾舱组'],kinds:['ut']});
 test('UT 门禁与脚本一致；缺失指标不能误判通过；CSV 转义公式',()=>{
  const result=normalizeQuality(payload([row,['Passed','Java','Access_智能驾舱组',0,.8,.95,.7,.99,100,20],['NoData','Java','Access_智能驾舱组',0,0,0,0,0,0,0],['Cpp','Cpp','Access_智能驾舱组',0,.5,.8,null,null,100,null]]),'ut');
@@ -42,7 +42,7 @@ class FakeAutoUt extends AutoUtService{
 async function ready(reports:AutoUtReports,id:string){for(let i=0;i<100;i++){const r=reports.get(id);if(r.status!=='FETCHING')return r;await new Promise(r=>setTimeout(r,2));}throw new Error('报告未就绪');}
 test('Auto-UT 获取每个版本的最新报告；按分支创建并防止重复启动',async()=>{
  const store=new TaskStore(':memory:');let fetches=0;const quality=new QualityService(store,undefined,async(_url,init)=>{fetches++;const body=JSON.parse(String(init?.body)) as {queries:Array<{rawSql:string}>};assert.match(body.queries[0]!.rawSql,/max\(report_date\)/);return Response.json(payload([row]));}),auto=new FakeAutoUt(store),reports=new AutoUtReports(store,quality,auto);
- try{reports.configure(config());const run=await ready(reports,reports.fetchReport().id);assert.equal(run.plan.length,2);assert.deepEqual(run.plan.map(p=>p.baseBranch),['release/27','release/26']);assert.equal(run.plan[0]!.lineGoal,.8);assert.equal(run.plan[0]!.branchGoal,.7);await reports.start(run.id,'MANUAL');assert.deepEqual(auto.calls.map(c=>c.version),['R27C10','R27C00']);await reports.start(run.id,'MANUAL');assert.equal(auto.calls.length,2);
+ try{reports.configure(config());const run=await ready(reports,reports.fetchReport().id);assert.equal(run.plan.length,2);assert.deepEqual(run.plan.map(p=>p.baseBranch),['release/27','release/26']);assert.equal(run.plan[0]!.lineGoal,.8);assert.equal(run.plan[0]!.branchGoal,.7);await reports.start(run.id,'MANUAL');assert.deepEqual(auto.calls.map(c=>c.version),['R27C10','R27C00']);assert.deepEqual(auto.records.map(t=>t.ticket),['DTS1','DTS2']);await reports.start(run.id,'MANUAL');assert.equal(auto.calls.length,2);
  const fresh=await ready(reports,reports.fetchReport().id);assert.equal(fetches,4);await reports.start(fresh.id,'AUTOMATIC');assert.equal(auto.calls.length,2);assert.match(reports.get(fresh.id).messages.join(),/已有执行记录/);
  }finally{await quality.close();await reports.close();auto.close();store.close();}
 });

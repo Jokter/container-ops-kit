@@ -1,3 +1,4 @@
+import {dtsProduct} from './dts-product.js';
 import type {UnifiedSchedules} from '../automation/schedules.js';
 import {randomUUID} from 'node:crypto';
 import {z} from 'zod';
@@ -8,7 +9,7 @@ import {metric,QualityService,qualityCsv,releaseVersion,type QualityJob,type Qua
 import {AutoUtService} from './autout.js';
 const branch=z.string().trim().max(200).refine(v=>!v||/^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(v)&&!v.includes('..')&&!v.includes('//')&&!v.endsWith('/')&&!v.endsWith('.'));
 const ident=z.string().trim().max(120).regex(/^[A-Za-z0-9._-]*$/);
-export const reportConfig=z.object({maxClasses:z.coerce.number().int().min(1).max(20).optional(),versions:z.array(z.object({version:releaseVersion,baseBranch:branch})).min(1).max(10).refine(v=>new Set(v.map(x=>x.version)).size===v.length),dateMode:z.enum(['today','yesterday']),username:ident,ticket:ident,workspaceRoot:z.string().trim().max(4096),schedule:z.object({enabled:z.boolean(),frequency:z.enum(['daily','weekdays','weekly']),weekday:z.number().int().min(0).max(6),time:z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),timezone:z.enum(['Asia/Shanghai','UTC']),action:z.enum(['FETCH','REPAIR'])})});
+export const reportConfig=z.object({maxClasses:z.coerce.number().int().min(1).max(20).optional(),versions:z.array(z.object({version:releaseVersion,baseBranch:branch,ticket:ident.optional(),dtsProduct:dtsProduct.optional()})).min(1).max(10).refine(v=>new Set(v.map(x=>x.version)).size===v.length),dateMode:z.enum(['today','yesterday']),username:ident,ticket:ident,workspaceRoot:z.string().trim().max(4096),schedule:z.object({enabled:z.boolean(),frequency:z.enum(['daily','weekdays','weekly']),weekday:z.number().int().min(0).max(6),time:z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),timezone:z.enum(['Asia/Shanghai','UTC']),action:z.enum(['FETCH','REPAIR'])})});
 export type ReportConfig=z.infer<typeof reportConfig>;
 interface SavedConfig{config:ReportConfig;nextRunAt:string|null;}
 interface PlanItem{version:string;repository:string;failedTests:number;lineCoverage:number;lineGoal:number;branchCoverage:number;branchGoal:number;baseBranch:string;repositoryUrl:string;repositoryCustomized:boolean;configured:boolean;repairBranch:string;}
@@ -19,7 +20,8 @@ export function nextRun(config:{schedule:Omit<ReportConfig['schedule'],'enabled'
 }
 export function reportDate(config:{dateMode:ReportConfig['dateMode'];schedule:{timezone:ReportConfig['schedule']['timezone']}},now=new Date()){const offset=config.schedule.timezone==='Asia/Shanghai'?8:0;return new Date(now.getTime()+offset*3600000-(config.dateMode==='yesterday'?86400000:0)).toISOString().slice(0,10);}
 const defaults:ReportConfig={versions:[{version:'R27C10',baseBranch:''},{version:'R27C00',baseBranch:''}],dateMode:'yesterday',username:'',ticket:'',workspaceRoot:'',schedule:{enabled:false,frequency:'weekdays',weekday:1,time:'09:30',timezone:'Asia/Shanghai',action:'FETCH'}};
-function executionReady(config:ReportConfig){return !!(config.username&&config.ticket&&config.workspaceRoot&&config.versions.every(v=>v.baseBranch));}
+export function versionTicket(config:ReportConfig,version:string){const row=config.versions.find(v=>v.version===version);return row?(row.ticket??(config.versions.length===1?config.ticket:'')):'';}
+export function executionReady(config:ReportConfig){const tickets=config.versions.map(v=>versionTicket(config,v.version));return !!(config.username&&config.workspaceRoot&&config.versions.every(v=>v.baseBranch)&&tickets.every(Boolean)&&new Set(tickets).size===tickets.length);}
 export class AutoUtReports{
  private deleting=new Set<string>();private starts=new Map<string,Promise<ReportRun>>();private timer:NodeJS.Timeout;private readonly completions=new Map<string,Promise<void>>();private fetching=false;private starting=false;private pending=new Set<Promise<unknown>>();private closed=false;
  constructor(private readonly store:TaskStore,private readonly quality:QualityService,private readonly autoUt:AutoUtService,private readonly logs:LogSink=noFileLogs,private readonly ownScheduler=true){
@@ -30,7 +32,7 @@ export class AutoUtReports{
  private track<T>(promise:Promise<T>){this.pending.add(promise);void promise.catch(()=>this.logs.task('auto-ut','report-scheduler',{time:new Date().toISOString(),message:'报告调度异常，请检查任务记录'})).finally(()=>this.pending.delete(promise));return promise;}
  async close(){this.closed=true;clearInterval(this.timer);await Promise.allSettled(this.pending);}
  configuration():SavedConfig{return this.store.getRecord<SavedConfig>('auto-ut-report-config','main')??{config:structuredClone(defaults),nextRunAt:null};}
- configure(value:unknown){const config=reportConfig.parse(value);if(config.schedule.enabled&&config.schedule.action==='REPAIR'&&!executionReady(config))throw Object.assign(new Error('自动修复必须填写各版本分支、用户名、单号和工作目录'),{statusCode:400});const saved={config,nextRunAt:config.schedule.enabled?nextRun(config):null};this.store.putRecord('auto-ut-report-config','main',saved);return saved;}
+ configure(value:unknown){const config=reportConfig.parse(value);if(config.schedule.enabled&&config.schedule.action==='REPAIR'&&!executionReady(config))throw Object.assign(new Error('自动修复必须填写各版本分支、用户名、各版本独立单号和工作目录'),{statusCode:400});const saved={config,nextRunAt:config.schedule.enabled?nextRun(config):null};this.store.putRecord('auto-ut-report-config','main',saved);return saved;}
  list(){return this.store.records<ReportRun>('auto-ut-report-run');}get(id:string){const run=this.store.getRecord<ReportRun>('auto-ut-report-run',id);if(!run)throw Object.assign(new Error('报告获取记录不存在'),{statusCode:404});return run;}
  private save(run:ReportRun){this.store.putRecord('auto-ut-report-run',run.id,run,run.createdAt);this.logs.task('auto-ut',run.id,{time:new Date().toISOString(),status:run.status,message:run.messages.at(-1)??'开始获取报告',taskIds:run.taskIds});}
  fetchReport(trigger:'MANUAL'|'SCHEDULE'='MANUAL',snapshot?:ReportConfig){
@@ -56,7 +58,7 @@ export class AutoUtReports{
  }catch{if(this.deleting.has(run.id))return;run=this.get(run.id);run.messages.push('报告处理或自动修复启动失败，请检查配置和工作目录');if(run.status==='FETCHING')run.status='FAILED';this.save(run);}finally{this.logs.task('auto-ut',run.id,{time:new Date().toISOString(),status:run.status,messages:run.messages});}}
  private plan(job:QualityJob,config:ReportConfig):PlanItem[]{const plan:PlanItem[]=[];for(const part of job.parts){if(part.status!=='SUCCEEDED')continue;const baseBranch=config.versions.find(v=>v.version===part.version)!.baseBranch;
   for(const row of part.rows){if(String(row['语言']).toLowerCase()!=='java'||row['PL组']!=='Access_智能驾舱组')continue;const repository=String(row['代码仓']);if(!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(repository))throw new Error('代码仓名称无效');const mapping=this.store.getRecord<{url:string}>('auto-ut-repository',repository.toLowerCase());
-   plan.push({version:part.version,repository,failedTests:metric(row['失败用例']),lineCoverage:metric(row['行覆盖率'],true),lineGoal:Math.min(metric(row['行覆盖率目标'],true),.8),branchCoverage:metric(row['分支覆盖率'],true),branchGoal:Math.min(metric(row['分支覆盖率目标'],true),.7),baseBranch,repositoryUrl:mapping?.url??`ssh://git@szv-y.codehub.huawei.com:2222/MAE-M/Access/${repository}.git`,repositoryCustomized:!!mapping,configured:!!baseBranch,repairBranch:baseBranch&&config.username&&config.ticket?`${baseBranch}_${config.username}_${config.ticket}`:''});
+   plan.push({version:part.version,repository,failedTests:metric(row['失败用例']),lineCoverage:metric(row['行覆盖率'],true),lineGoal:Math.min(metric(row['行覆盖率目标'],true),.8),branchCoverage:metric(row['分支覆盖率'],true),branchGoal:Math.min(metric(row['分支覆盖率目标'],true),.7),baseBranch,repositoryUrl:mapping?.url??`ssh://git@szv-y.codehub.huawei.com:2222/MAE-M/Access/${repository}.git`,repositoryCustomized:!!mapping,configured:!!baseBranch,repairBranch:baseBranch&&config.username&&versionTicket(config,part.version)?`${baseBranch}_${config.username}_${versionTicket(config,part.version)}`:''});
   }}return plan;
  }
  start(id:string,mode:'MANUAL'|'AUTOMATIC',selected?:string[]){
@@ -72,7 +74,7 @@ export class AutoUtReports{
     if(this.autoUt.blocksRepository(item.repository,item.version,item.baseBranch)){run.messages.push(`${key}：已有执行记录，跳过；请在原任务中继续或处理 MR${this.autoUt.archivedMrBlockers().some(r=>r.repository.toLowerCase()===item.repository.toLowerCase()&&(r.reportVersion===item.version||!r.reportVersion&&r.baseBranch===item.baseBranch))?'；历史 MR 待核验，请查看“历史 MR 阻塞”':''}`);this.save(run);continue;}
     run.claimed.push(key);this.save(run);
     const row:QualityRow={'代码仓':item.repository,'语言':'Java','PL组':'Access_智能驾舱组','失败用例':item.failedTests,'行覆盖率':item.lineCoverage,'行覆盖率目标':item.lineGoal,'分支覆盖率':item.branchCoverage,'分支覆盖率目标':item.branchGoal};
-    try{const tasks=await this.autoUt.start(Buffer.from(qualityCsv({columns:Object.keys(row),rows:[row]})),run.config.username,run.config.ticket,item.baseBranch,run.config.workspaceRoot,mode,{version:item.version,reportId:run.id,maxClasses:run.config.maxClasses??5,reportAt:run.createdAt});run.taskIds.push(...tasks.map(t=>t.id));run.messages.push(`${key}：已创建修复任务`);}catch{run.messages.push(`${key}：启动失败，请检查工作目录；本次不会自动重试`);}this.save(run);
+    try{const tasks=await this.autoUt.start(Buffer.from(qualityCsv({columns:Object.keys(row),rows:[row]})),run.config.username,versionTicket(run.config,item.version),item.baseBranch,run.config.workspaceRoot,mode,{version:item.version,reportId:run.id,maxClasses:run.config.maxClasses??5,reportAt:run.createdAt});run.taskIds.push(...tasks.map(t=>t.id));run.messages.push(`${key}：已创建修复任务`);}catch{run.messages.push(`${key}：启动失败，请检查工作目录；本次不会自动重试`);}this.save(run);
    }
    if(!items.length){run.messages.push('没有符合条件的 Java 异常仓库，未启动修复');this.save(run);}return run;
   }finally{this.starting=false;}
