@@ -13,8 +13,8 @@ function fixture(){
  task.mr!.iid='7';task.mr!.sha='sha1';task.mr!.phase='PIPELINE';
  const view={iid:7,id:900,state:'opened',sha:'sha1',source_branch:'repair',target_branch:'main',web_url:task.pullRequestUrl,title:'工单标题',e2e_issues:[{id:'DTS123',title:'工单标题'}],approval_merge_request_reviewers:[{username:'r123',approved:false}],approval_merge_request_approvers:[{username:'a123',approved:false}],merge_request_assignee_list:[{username:'m123',approved:false}]};
  const gate={ci_state_passed:true,quality_gate:{passed:true},approval_reviewers_required_passed:false,approval_approvers_required_passed:false,conflict_passed:true};
- const pipeline={id:10,status:'success',sha:'sha1'};const calls:string[][]=[];let repairCount=0,failSend=false,failUpdate=false;
- const hooks:MrHooks={loginWelink:async()=>true,notifySelf:async(t,message)=>{calls.push(['welink-mcp','--receiver',t.username,'--text',message]);},save:()=>{},event:()=>{},state:(t,s,m)=>{t.status=s;t.message=m;},repair:async()=>{repairCount++;return 'sha2';},run:async(_t,args)=>{
+ const pipeline={id:10,status:'success',sha:'sha1'};const calls:string[][]=[],progress:string[]=[];let repairCount=0,failSend=false,failUpdate=false;
+ const hooks:MrHooks={loginWelink:async()=>true,notifySelf:async(t,message)=>{if(message.startsWith('UT 治理进展：')&&!message.includes('需要人工介入')){progress.push(message);return;}calls.push(['welink-mcp','--receiver',t.username,'--text',message]);},save:()=>{},event:()=>{},state:(t,s,m)=>{t.status=s;t.message=m;},repair:async()=>{repairCount++;return 'sha2';},run:async(_t,args)=>{
   calls.push(args);
   if(args[0]==='welink-cli')return {exitCode:failSend?1:0,output:failSend?'timeout':'{"resultCode":"0"}'};
   if(args[1]==='mr'&&args[2]==='view')return {exitCode:0,output:'log before\n'+JSON.stringify(view,null,2)};
@@ -26,7 +26,7 @@ function fixture(){
   if(args[1]==='mr'&&args[2]==='update'){if(failUpdate)throw Error('role permission denied');if(args.includes('--approval-reviewers'))view.approval_merge_request_reviewers=[{username:args[args.indexOf('--approval-reviewers')+1]!,approved:false}];return {exitCode:0,output:JSON.stringify(view)};}
   throw Error('Unexpected command '+args.join(' '));
  }};
- return {task,view,gate,pipeline,calls,hooks,workflow:new MrWorkflow(hooks),repairs:()=>repairCount,setFailSend:()=>{failSend=true;},setFailUpdate:()=>{failUpdate=true;}};
+ return {task,view,gate,pipeline,calls,progress,hooks,workflow:new MrWorkflow(hooks),repairs:()=>repairCount,setFailSend:()=>{failSend=true;},setFailUpdate:()=>{failUpdate=true;}};
 }
 test('mixed multiline MR output distinguishes upload IID from view ID',()=>{
  assert.equal(mrIid(parseMr('info\n{\n"id":7,"mr_url":"https://codehub.example/demo/merge_requests/7"\n}')), '7');
@@ -233,12 +233,12 @@ test('owner role notifications use MCP while others and a separate contact use C
  await f.workflow.tick(f.task,now);
  assert.ok(f.calls.some(c=>c[0]==='welink-mcp'&&c.includes('owner1')));assert.ok(f.calls.some(c=>c[0]==='welink-cli'&&c.includes('r123')));assert.ok(!f.calls.some(c=>c[0]==='welink-cli'&&c.includes('owner1')));
  f.task.mr!.config.contact='contact1';await f.workflow.tick(f.task,now+120*60000);await f.workflow.tick(f.task,now+240*60000);
- assert.equal(f.calls.filter(c=>c[0]==='welink-mcp').length,2);assert.equal(f.calls.filter(c=>c[0]==='welink-cli'&&c.includes('contact1')).length,1);
+ assert.equal(f.calls.filter(c=>c[0]==='welink-mcp').length,3);assert.equal(f.calls.filter(c=>c[0]==='welink-cli'&&c.includes('contact1')).length,1);
 });
 test('failed owner MCP escalation remains uncertain and never falls back to self CLI',async()=>{
  const f=fixture();let sends=0;f.hooks.notifySelf=async()=>{sends++;throw Error('MCP 结果待确认');};
  for(const minutes of [0,120,240,360])await f.workflow.tick(f.task,now+minutes*60000);
- assert.equal(sends,1);assert.ok(Object.values(f.task.mr!.notifications).some(n=>n.pending));assert.ok(!f.calls.some(c=>c[0]==='welink-cli'&&c.includes('owner1')));
+ assert.equal(sends,2);assert.ok(Object.values(f.task.mr!.notifications).some(n=>n.pending));assert.ok(!f.calls.some(c=>c[0]==='welink-cli'&&c.includes('owner1')));
 });
 
 test('CLI notification text remains one complete single-line argument',async()=>{
@@ -326,4 +326,28 @@ test('WeLink CLI 正文为一个参数且 Markdown 链接转为纯 URL',async()=
  const sent=f.calls.find(c=>c[0]==='welink-cli');assert.ok(sent);
  assert.equal(sent.length,7);const text=sent[6]!;
  assert.ok(text.includes(url));assert.ok(!text.includes(']('));assert.ok(!/[\r\n]/.test(text));assert.ok(!text.startsWith('"'));
+});
+
+test('待检视进展通过 MCP 发给用户且轮询重启不重复，终态另发一次',async()=>{
+ const f=fixture();await f.workflow.tick(f.task,now);assert.equal(f.progress.length,1);assert.match(f.progress[0]!,/已通知检视人：r123/);
+ const restored=structuredClone(f.task),workflow=new MrWorkflow(f.hooks);await workflow.tick(restored,now+1000);assert.equal(f.progress.length,1);
+ f.view.state='merged';await workflow.tick(restored,now+2000);await workflow.checkTerminal(restored);
+ assert.equal(f.progress.length,2);assert.match(f.progress[1]!,/已合入/);
+});
+test('用户 MCP 失败独立记录且不阻断修复、终态与去重',async()=>{
+ const f=fixture();let sends=0;f.hooks.notifySelf=async()=>{sends++;throw Error('MCP timeout');};
+ await f.workflow.tick(f.task,now);assert.equal(f.task.mr!.paused,false);assert.equal(f.task.status,'MR_PENDING');
+ await f.workflow.tick(f.task,now+1000);assert.equal(sends,1);
+ assert.ok(Object.values(f.task.mr!.notifications).some(n=>n.pending&&n.error==='MCP timeout'));
+ f.view.state='closed';await f.workflow.tick(f.task,now+2000);assert.equal(f.task.status,'MR_CLOSED');assert.equal(sends,2);
+});
+test('检视通知失败时用户进展不能报告已通知',async()=>{
+ const f=fixture();f.setFailSend();await f.workflow.tick(f.task,now);
+ assert.equal(f.progress.length,1);assert.match(f.progress[0]!,/检视通知失败或结果未确认/);assert.doesNotMatch(f.progress[0]!,/已通知检视人/);
+});
+test('无 MR 的任务失败也用 MCP，重复事件不重复发送',async()=>{
+ const f=fixture();f.task.mr!.iid='';f.task.pullRequestUrl='';
+ await f.workflow.notifyProgress(f.task,'task:BASELINE:0','基线执行失败，需要人工介入。');
+ await f.workflow.notifyProgress(f.task,'task:BASELINE:0','基线执行失败，需要人工介入。');
+ const sent=f.calls.filter(c=>c[0]==='welink-mcp');assert.equal(sent.length,1);assert.ok(sent[0]!.includes('owner1'));
 });

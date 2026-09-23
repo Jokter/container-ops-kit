@@ -10,7 +10,7 @@ export interface MrTracking {
  rejectedRoles?:Partial<Record<MrRole,string[]>>;
  setup:{linked?:boolean;title?:boolean;reviewers?:boolean;approvers?:boolean;assignees?:boolean};
  awaitingSha?:string;awaitingSince?:number;repairBaseSha?:string;repairCommitSha?:string;uploadAttempted?:boolean;writePending?:string;rounds:number;handled:string[];fingerprint?:string;stalled:number;
- notifications:Record<string,{count:number;at:number;pending?:boolean;escalated?:boolean}>;
+ notifications:Record<string,{count:number;at:number;pending?:boolean;escalated?:boolean;error?:string}>;
  rebuild?:PipelineRebuild;
  queryFailures:number;pipelineId?:string;generation:number;
 }
@@ -83,7 +83,7 @@ export class MrWorkflow {
   }
  }
  async setup(task:AutoUtTask){
-  const tracking=task.mr!;let view=await this.view(task);if(this.terminal(task,view))return;
+  const tracking=task.mr!;let view=await this.view(task);if(await this.terminal(task,view))return;
   // Every write is preceded by a read. An interrupted/failed write is never blindly replayed.
   for(const step of ['linked','title','reviewers','approvers','assignees'] as const){
    if(tracking.setup[step])continue;
@@ -103,17 +103,17 @@ export class MrWorkflow {
   }
   tracking.phase='PIPELINE';tracking.error='';tracking.paused=false;tracking.nextAt=0;task.nextStage='TRACK';task.progress=92;this.hooks.state(task,'MR_PENDING','MR 已就绪，等待当前提交的流水线。');this.save(task);
  }
- private terminal(task:AutoUtTask,view:MrView){
+ private async terminal(task:AutoUtTask,view:MrView){
   if(view.state!=='merged'&&view.state!=='closed')return false;
   const merged=view.state==='merged';task.governance!.mrState=merged?'MERGED':'CLOSED';task.nextStage='DONE';task.progress=merged?100:task.progress;task.mr!.paused=true;task.mr!.error='';
   if(merged)task.governance!.completedAt=new Date().toISOString();
-  this.hooks.state(task,merged?'RESOLVED':'MR_CLOSED',merged?'MR 已合入，治理任务完成。':'MR 已关闭，治理任务未合入。');this.save(task);return true;
+  this.hooks.state(task,merged?'RESOLVED':'MR_CLOSED',merged?'MR 已合入，治理任务完成。':'MR 已关闭，治理任务未合入。');this.save(task);await this.notifyProgress(task,'terminal:'+view.state,merged?'MR 已合入，治理完成。':'MR 已关闭，本次治理未合入。');return true;
  }
  async checkTerminal(task:AutoUtTask){return this.terminal(task,await this.view(task));}
  async tick(task:AutoUtTask,now=Date.now()){
   const m=task.mr!;if(!m.iid)return;
   try{
-   const view=await this.view(task);if(this.terminal(task,view))return;
+   const view=await this.view(task);if(await this.terminal(task,view))return;
    if(m.paused&&m.error==='已手动暂停自动处理')return;
    if(m.writePending==='pipeline-rebuild'){await this.checkRebuild(task,now);return;}
    if(m.paused){if(m.error!=='已手动暂停自动处理')await this.notifyIntervention(task,now);return;}
@@ -136,9 +136,17 @@ export class MrWorkflow {
    const phase=gate.approval_reviewers_required_passed!==true?'REVIEW':gate.approval_approvers_required_passed!==true?'APPROVE':'MERGE';
    if((phase==='REVIEW'&&gate.approval_reviewers_required_passed===undefined)||(phase==='APPROVE'&&gate.approval_approvers_required_passed===undefined))throw Error('CodeHub 未返回检视或审核门禁状态，不能推断已通过。');
    m.phase=phase;this.hooks.state(task,'MR_PENDING',phase==='REVIEW'?'流水线通过，等待检视。':phase==='APPROVE'?'检视通过，等待审核。':'审核通过，等待合并。');
-   await this.notifyPhase(task,view,now);
+   try{await this.notifyPhase(task,view,now);}finally{
+    if(phase==='REVIEW'){
+     const people=[...new Set(pendingMembers(view,'reviewers'))];
+     const sent=people.filter(receiver=>m.notifications[m.sha+':'+m.generation+':REVIEW:'+receiver]?.count);
+     const unsent=people.filter(receiver=>!sent.includes(receiver));
+     const result=!m.config.notifications?'人员通知已关闭':!people.length?'未获取到检视人，需要配置。':unsent.length?'检视通知失败或结果未确认：'+unsent.join('、')+'。需要核对通知。':'已通知检视人：'+sent.join('、')+'。';
+     await this.notifyProgress(task,m.sha+':REVIEW','流水线及相关门禁已通过，进入待检视阶段。\n'+result);
+    }
+   }
   }catch(error){m.queryFailures++;m.error=error instanceof Error?error.message:'MR 跟踪异常';if(m.writePending)this.pause(task,m.error);else if(m.queryFailures>=3)await this.notifyIntervention(task,now);}
-  finally{m.nextAt=now+(m.queryFailures?Math.min(900,60*2**Math.min(m.queryFailures,4)):m.phase==='PIPELINE'?m.config.pipelineSeconds:m.config.reviewSeconds)*1000;this.save(task);}
+  finally{if(m.paused&&m.error&&m.error!=='已手动暂停自动处理')await this.notifyIntervention(task,now);m.nextAt=now+(m.queryFailures?Math.min(900,60*2**Math.min(m.queryFailures,4)):m.phase==='PIPELINE'?m.config.pipelineSeconds:m.config.reviewSeconds)*1000;this.save(task);}
  }
  pause(task:AutoUtTask,reason:string){task.mr!.paused=true;task.mr!.error=reason;this.hooks.state(task,'WAITING_EXTERNAL',reason);this.save(task);}
  private async failure(task:AutoUtTask,id:string,sha:string,now:number){
@@ -154,13 +162,13 @@ export class MrWorkflow {
   m.stalled=m.fingerprint===fingerprint?m.stalled+1:0;m.fingerprint=fingerprint;
   if(m.stalled>=1){this.pause(task,'连续两轮出现相同失败，自动修复已暂停。');return;}
   m.handled.push(key);m.rounds++;this.pending(task,'pipeline-repair');this.hooks.state(task,'MR_REPAIRING','正在修复第 '+m.rounds+' 轮流水线失败。');this.save(task);
-  try{m.sha=await this.hooks.repair(task,details,sha);m.awaitingSha=m.sha;m.awaitingSince=now;m.generation++;m.phase='PIPELINE';this.done(task);this.hooks.state(task,'MR_PENDING','测试修复已推送，等待新提交流水线。');}
+  try{await this.notifyProgress(task,sha+':repair:'+m.rounds,'流水线测试失败，正在第 '+m.rounds+' 轮自动修复，暂不需要介入。');m.sha=await this.hooks.repair(task,details,sha);m.awaitingSha=m.sha;m.awaitingSince=now;m.generation++;m.phase='PIPELINE';this.done(task);this.hooks.state(task,'MR_PENDING','测试修复已推送，等待新提交流水线。');}
   catch(error){this.pause(task,error instanceof Error?error.message:'流水线修复失败');await this.notifyIntervention(task,now);}
  }
  async rerunPipeline(task:AutoUtTask){
   const m=task.mr!;
   if(m.writePending)throw Error('存在未确认的写操作，请先刷新核对，不能重复触发流水线。');
-  const view=await this.view(task);if(this.terminal(task,view))return;
+  const view=await this.view(task);if(await this.terminal(task,view))return;
   const sha=view.diff_refs?.head_sha||view.sha;
   if(!sha||sha!==m.sha||m.awaitingSha)throw Error('MR 提交已变化或尚未确认，请先恢复跟踪。');
   if(!m.pipelineId)throw Error('未记录流水线 ID。');
@@ -184,13 +192,13 @@ export class MrWorkflow {
   try{
    // This write has a dedicated argument list: MR display columns are not applicable.
    await this.hooks.run(task,['codehub-cli','pipeline','rebuild-failed',id,'--mr',m.iid],'重跑失败流水线');
-   this.hooks.state(task,'MR_PENDING','已请求重跑，等待确认新的执行状态。');this.save(task);
+   this.hooks.state(task,'MR_PENDING','已请求重跑，等待确认新的执行状态。');this.save(task);await this.notifyProgress(task,sha+':rebuild:'+id+':'+now,manual?'已请求手动重跑流水线。':'构建异常，已请求第 '+r.attempts+'/3 次自动重跑，暂不需要介入。');
   }catch(error){this.pause(task,'重跑请求结果待确认，先核对远端，勿重复触发：'+(error instanceof Error?error.message:'未知错误'));await this.notifyIntervention(task,now);}
  }
  async checkRebuild(task:AutoUtTask,now=Date.now()){
   const m=task.mr!,r=m.rebuild,pending=r?.pending;
   if(!r||!pending){this.pause(task,'缺少重跑确认记录，请人工核对流水线。');return;}
-  const view=await this.view(task);if(this.terminal(task,view))return;
+  const view=await this.view(task);if(await this.terminal(task,view))return;
   const sha=view.diff_refs?.head_sha||view.sha;
   if(!sha){this.pause(task,'MR 未返回提交 SHA，无法确认重跑状态。');return;}
   if(sha!==r.sha){m.sha=sha;m.rebuild={sha,attempts:0};this.done(task);m.paused=false;m.error='';m.phase='PIPELINE';m.nextAt=0;this.hooks.state(task,'MR_PENDING','MR 已有新提交，停止重跑旧流水线并跟踪新提交。');this.save(task);return;}
@@ -207,6 +215,19 @@ export class MrWorkflow {
   this.hooks.state(task,'MR_PENDING','等待重跑执行确认，旧失败状态不会再次触发重跑。');
   if(now-pending.requestedAt>=600000){this.pause(task,'尚未确认重跑是否执行，请到 CodeHub 核对；不会重复提交重跑。');await this.notifyIntervention(task,now);}
   this.save(task);
+ }
+ async notifyProgress(task:AutoUtTask,event:string,message:string){
+  const m=task.mr;if(!m?.config.notifications)return;
+  const key='progress:'+event;
+  if(m.notifications[key]?.count||m.notifications[key]?.pending)return;
+  const entry:MrTracking['notifications'][string]={count:0,at:Date.now(),pending:true,error:''};m.notifications[key]=entry;this.save(task);
+  try{
+   await this.hooks.notifySelf(task,`UT 治理进展：${task.repository} / ${task.reportVersion||task.baseBranch}\n${message}\n${task.pullRequestUrl?'MR：'+task.pullRequestUrl:'问题单：'+task.ticket}`);
+   entry.pending=false;entry.count=1;this.save(task);
+  }catch(error){
+   entry.error=error instanceof Error?error.message:'进展通知结果未确认';
+   this.save(task);this.hooks.event(task,'用户进展通知未确认，任务继续执行：'+entry.error);
+  }
  }
  private async send(task:AutoUtTask,receiver:string,message:string,key:string,now:number){
   const m=task.mr!,entry=m.notifications[key]??={count:0,at:0};
@@ -244,10 +265,13 @@ export class MrWorkflow {
   }
  }
  private async notifyIntervention(task:AutoUtTask,now:number,reason=task.mr!.error){
-  const m=task.mr!;if(!m.config.notifications||!reason)return;
-  const receiver=m.config.contact||task.username,key='intervention:'+m.sha+':'+m.generation+':'+m.phase;
-  if(m.notifications[key]?.count||m.notifications[key]?.pending)return;
-  try{await this.send(task,receiver,`UT 治理 MR 需要介入。\n仓库：${task.repository}\nMR：${task.pullRequestUrl}\n原因：${reason.slice(0,600)}`,key,now);}catch(error){this.hooks.event(task,error instanceof Error?error.message:'异常通知失败');}
+  const m=task.mr!;if(!reason)return;
+  const digest=createHash('sha256').update(reason).digest('hex').slice(0,16);
+  await this.notifyProgress(task,'intervention:'+m.sha+':'+m.phase+':'+digest,'需要人工介入：'+reason.slice(0,600)+'\n请打开任务查看失败详情，处理后重试当前步骤。');
+  const contact=m.config.contact,key='contact:'+m.sha+':'+m.phase+':'+digest;
+  if(m.config.notifications&&contact&&contact.toLowerCase()!==task.username.toLowerCase()&&!m.notifications[key]?.count&&!m.notifications[key]?.pending){
+   try{await this.send(task,contact,`UT 治理需要介入。\n仓库：${task.repository}\nMR：${task.pullRequestUrl}\n原因：${reason.slice(0,600)}`,key,now);}catch(error){this.hooks.event(task,error instanceof Error?error.message:'联系人通知未确认');}
+  }
  }
 }
 
