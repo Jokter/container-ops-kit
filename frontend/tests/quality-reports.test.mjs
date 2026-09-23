@@ -189,3 +189,16 @@ test('编译失败可编辑本次命令重试，取消不提交',async()=>{
  d.querySelector('[data-auto-ut-compile]').click();const input=d.querySelector('#ut-compile-command');input.value=command+' -pl model,website-service';input.dispatchEvent(new dom.window.Event('input'));assert.equal(d.querySelector('[data-qw-save]').textContent,'保存并重试');d.querySelector('[data-qw-save]').click();d.querySelector('[data-qw-save]').click();await pause();assert.deepEqual(calls,[{command:command+' -pl model,website-service'}]);assert.equal(d.querySelector('#ut-compile-command'),null);
  }finally{await pause();dom.window.close();}
 });
+
+test('Pi轮次仅附在进度文案后，并采用当前修复阶段的上限',async()=>{
+ const dom=page();try{
+  const task={id:'round-ui',repository:'Demo',status:'REPAIRING',nextStage:'REPAIR',attempts:2,maxRepairAttempts:3,message:'正在修复。',history:[]};
+  const render=t=>{dom.window.document.body.innerHTML=dom.window.autoUtTaskDetail(t);return dom.window.document};
+  let d=render(task);assert.equal(d.querySelector('.ut-task-current strong .ut-pi-round').textContent,'第 2/3 轮');assert.equal(d.querySelectorAll('.ut-pi-round').length,1);
+  d=render({...task,status:'RETRY_PENDING',attempts:3});assert.equal(d.querySelector('.ut-pi-round').textContent,'第 3/3 轮');
+  d=render({...task,nextStage:'BASELINE',attempts:0});assert.equal(d.querySelector('.ut-pi-round'),null);
+  d=render({...task,maxRepairAttempts:undefined});assert.equal(d.querySelector('.ut-pi-round'),null);
+  d=render({...task,status:'MR_REPAIRING',mr:{iid:'1',rounds:1,config:{maxRepairRounds:5}}});assert.equal(d.querySelector('.ut-pi-round').textContent,'第 1/5 轮');
+  d=render({...task,status:'MR_PENDING',nextStage:'TRACK',mr:{iid:'1',rounds:1,config:{maxRepairRounds:5}}});assert.equal(d.querySelector('.ut-pi-round'),null);
+ }finally{await pause();dom.window.close()}
+});
