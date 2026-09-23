@@ -1,4 +1,4 @@
-import {dtsVersion,dtsProduct,dtsProductNames,type DtsProduct} from './dts-product.js';
+import {dtsVersion,resolveDtsProduct,dtsProductNames,type DtsProduct} from './dts-product.js';
 import {DtsSettings} from './dts-settings.js';
 import {z} from 'zod';
 import type {FastifyInstance} from 'fastify';
@@ -64,14 +64,11 @@ export class DtsTickets{
   value.message=value.status==='READY'?'问题单已流转到开发人员实施修改。'+summary:'问题单尚未确认流转到指定开发人员。'+summary;
   this.save(value);return {nodeStatus:value.nodeStatus,ready:value.status==='READY'};
  }
- private product(version:string):DtsProduct{
-  const saved=this.store.getRecord<{config:{versions:{version:string;dtsProduct?:unknown}[]}}>('auto-ut-report-config','main');
-  const parsed=dtsProduct.safeParse(saved?.config.versions.find(v=>v.version===version)?.dtsProduct);
-  if(!parsed.success)throw Object.assign(Error('请在版本与分支配置 '+dtsProductNames(version).b+' 的 DTS R/C/B 版本 ID；不能沿用旧 B012 的 ID。'),{statusCode:400});
-  return parsed.data;
+ private product(call:Call,version:string):Promise<DtsProduct>{
+  return resolveDtsProduct(version,name=>tool(call,'queryPbiLikeName',{arg0:name,arg1:'valid',arg2:'PBI'}));
  }
  private async execute(call:Call,value:TicketResult){
-  value.product??=this.product(value.version??'R27C10');
+  value.product??=await this.product(call,value.version??'R27C10');
   value.status='DRAFT';value.stage='FLOW';value.message='正在流转到开发人员实施修改';this.save(value);
   let flowError:unknown;
   try{await tool(call,'executeTicket',{arg0:value.ticket,arg1:template.FLOW_CONFIG_ID,arg2:false,arg3:ticketFields(true,value.username,value.version??'R27C10',value.product)});}
@@ -106,12 +103,11 @@ export class DtsTickets{
   const unfinished=this.store.records<TicketResult>('dts-ticket').find(t=>t.username===username&&(t.version??'R27C10')===version&&['CREATING','DRAFT','REVIEW'].includes(t.status));
   if(unfinished)return unfinished.ticket&&unfinished.status==='REVIEW'?this.control(unfinished.ticket,username,'check',version):unfinished;
   if(this.active.has(username))throw Object.assign(Error('该用户正在建单或流转，请稍后刷新'),{statusCode:409});
-  const product=this.product(version);
   this.active.add(username);
-  const value:TicketResult={requestId,username,version,product,ticket:'',status:'CREATING',stage:'CREATE',message:'正在建单'};
+  const value:TicketResult={requestId,username,version,ticket:'',status:'CREATING',stage:'CREATE',message:'正在建单'};
   this.save(value);let creating=false;
   try{
-   const call=await this.connection();creating=true;
+   const call=await this.connection();const product=await this.product(call,version);value.product=product;this.save(value);creating=true;
    const number=await tool(call,'createTicket',{arg0:template.FLOW_CONFIG_ID,arg1:template.NODE_MODEL_ID,arg2:false,arg3:ticketFields(false,username,version,product),arg4:'SYSTEM',arg5:username,arg6:true,arg7:true});
    value.ticket=z.string().regex(/^DTS\d+$/i).parse(number);value.status='DRAFT';this.save(value);
    await this.execute(call,value);
