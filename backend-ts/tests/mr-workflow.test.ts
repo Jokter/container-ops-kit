@@ -319,3 +319,11 @@ test('重跑请求响应丢失只确认远端，新提交使用独立额度',asy
  await f.workflow.tick(f.task,now+1000);assert.equal(f.rebuilds(),1);
  f.view.sha='sha2';await f.workflow.tick(f.task,now+2000);assert.equal(f.task.mr!.rebuild?.attempts,0);assert.equal(f.task.mr!.writePending,undefined);
 });
+
+test('WeLink CLI 正文为一个参数且 Markdown 链接转为纯 URL',async()=>{
+ const f=fixture();const url=f.task.pullRequestUrl;f.task.pullRequestUrl='['+url+']('+url+')';
+ await f.workflow.tick(f.task,now);
+ const sent=f.calls.find(c=>c[0]==='welink-cli');assert.ok(sent);
+ assert.equal(sent.length,7);const text=sent[6]!;
+ assert.ok(text.includes(url));assert.ok(!text.includes(']('));assert.ok(!/[\r\n]/.test(text));assert.ok(!text.startsWith('"'));
+});

@@ -10,11 +10,28 @@ async function executable(name:string):Promise<string>{
   return name;
 }
 export function isBatchFile(program:string,platform:NodeJS.Platform=process.platform):boolean{return platform==='win32'&&/\.(?:cmd|bat)$/i.test(program);}
+// Windows argv quoting followed by cmd metacharacter escaping.
+// Local npm .bin shims require a second escape pass (cross-spawn convention).
+const cmdMeta=/([()\[\]%!^"`<>&|;, *?])/g;
+export function batchArgument(value:string,doubleEscape=false):string {
+ if(/[\r\n\0]/.test(value))throw Error('Windows 批处理参数不能包含换行或空字符');
+ const quoted='"'+value.replace(/(\\*)"/g,'$1$1\\"').replace(/(\\+)$/,'$1$1')+'"';
+ const escaped=quoted.replace(cmdMeta,'^$1');
+ return doubleEscape?escaped.replace(cmdMeta,'^$1'):escaped;
+}
+export function batchCommand(program:string,args:readonly string[]):string {
+ if(/[\r\n\0]/.test(program))throw Error('无效的批处理路径');
+ return '"'+program.replace(cmdMeta,'^$1')+' '+args.map(arg=>batchArgument(arg,/node_modules[\\/].bin[\\/][^\\/]+\.cmd$/i.test(program))).join(' ')+'"';
+}
+export function displayCommand(command:readonly string[]):string {
+ return command.map((arg,index)=>command[index-1]==='--text'||/[\s"&|<>]/.test(arg)?JSON.stringify(arg):arg).join(' ');
+}
 export async function runProcess(command:readonly string[],directory:string,timeoutMs:number,logFile?:string,onLine:(line:string,stderr:boolean)=>boolean|void=()=>{},input?:string,signal?:AbortSignal):Promise<ProcessResult>{
   if(!command.length)throw new Error('命令不能为空');
   signal?.throwIfAborted();const program=await executable(command[0]!);signal?.throwIfAborted();let output='';let stopRequested=false;const captured=(line:string,stderr:boolean)=>{if(output.length<120000)output+=line+'\n';if(onLine(line,stderr))stopRequested=true;};
   return new Promise((resolve,reject)=>{
-    const child=spawn(program,command.slice(1),{cwd:directory,windowsHide:true,detached:process.platform!=='win32',shell:isBatchFile(program),stdio:['pipe','pipe','pipe'],env:{...process.env,GIT_TERMINAL_PROMPT:'0'}});
+    const batch=isBatchFile(program);
+    const child=spawn(batch?(process.env.ComSpec||'cmd.exe'):program,batch?['/d','/s','/v:off','/c',batchCommand(program,command.slice(1))]:command.slice(1),{cwd:directory,windowsHide:true,detached:process.platform!=='win32',shell:false,windowsVerbatimArguments:batch,stdio:['pipe','pipe','pipe'],env:{...process.env,GIT_TERMINAL_PROMPT:'0'}});
     let stopping:Promise<void>|undefined;let stopError:Error|undefined,stopCode:number|undefined;let settled=false;const terminate=()=>{if(stopping)return;if(process.platform==='win32'&&child.pid)stopping=new Promise(done=>{const killer=spawn('taskkill',['/pid',String(child.pid),'/T','/F'],{windowsHide:true,stdio:'ignore'});killer.once('close',()=>done());killer.once('error',()=>done());});else if(child.pid)try{process.kill(-child.pid,'SIGKILL');}catch{child.kill('SIGKILL');}};const record=(chunk:Buffer,stderr:boolean)=>{const key=stderr?1:0;buffers[key]+=chunk.toString('utf8');const split=buffers[key]!.split(/\r?\n/);buffers[key]=split.pop()??'';for(const line of split){captured(line,stderr);if(stopRequested){stopCode=0;terminate();break;}}};const buffers=['',''];
     const finish=async(error?:Error,code=255)=>{if(settled)return;settled=true;clearTimeout(timer);signal?.removeEventListener('abort',abort);for(let i=0;i<2;i++)if(buffers[i])captured(buffers[i]!,i===1);
       if(logFile){try{await mkdir(dirname(logFile),{recursive:true});await writeFile(logFile,output,'utf8');}catch{/* command result wins */}}

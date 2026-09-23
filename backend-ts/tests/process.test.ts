@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {mkdtemp,rm,writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
-import {isBatchFile,runProcess} from '../src/infrastructure/process.js';
+import {isBatchFile,runProcess,batchArgument,displayCommand} from '../src/infrastructure/process.js';
 
 test('Windows 批处理程序通过 shell 启动',()=>{
  assert.equal(isBatchFile('C:\\tools\\mvn.cmd','win32'),true);
@@ -22,4 +22,23 @@ test('带输入的 RPC 子进程保持 stdin 打开直到终止事件',async t=>
 test('已取消信号不会启动子进程',async t=>{
  const root=await mkdtemp(join(tmpdir(),'process-abort-'));t.after(()=>rm(root,{recursive:true,force:true}));const abort=new AbortController();abort.abort();
  await assert.rejects(runProcess([process.execPath,'-e','setInterval(()=>{},1000)'],root,5000,undefined,undefined,undefined,abort.signal),{name:'AbortError'});
+});
+
+
+test('通知日志正文带引号，直接进程收到完整正文而非引号字符',async()=>{
+ const text='UT 治理 MR 请检视。；仓库：SWMFrontendService；MR：https://example.invalid/merge_requests/1854';
+ assert.equal(displayCommand(['welink-cli','im','send-to-user','--receiver','s00880288','--text',text]),'welink-cli im send-to-user --receiver s00880288 --text "'+text+'"');
+ const result=await runProcess([process.execPath,'-e','console.log(JSON.stringify(process.argv.slice(1)))','--',text],process.cwd(),5000);
+ assert.deepEqual(JSON.parse(result.output),[text]);
+ assert.equal(batchArgument('UT 治理'),' ^"UT^ 治理^"'.trim());
+ assert.ok(batchArgument('a&b').includes('^&'));
+ assert.throws(()=>batchArgument('a\nb'),/换行/);
+});
+test('Windows 批处理转发保留空格、中文、URL 与特殊字符', {skip:process.platform!=='win32'},async t=>{
+ const root=await mkdtemp(join(tmpdir(),'welink quoting '));t.after(()=>rm(root,{recursive:true,force:true}));
+ const helper=join(root,'args.cjs'),batch=join(root,'welink-cli.cmd');
+ await writeFile(helper,'console.log(JSON.stringify(process.argv.slice(2)))');
+ await writeFile(batch,'@echo off\r\n"'+process.execPath+'" "'+helper+'" %*\r\n');
+ const args=['--text','UT 治理；MR：https://example.invalid/1854?a=1&b=2','a"b','C:\\test dir\\'];
+ const result=await runProcess([batch,...args],root,5000);assert.equal(result.exitCode,0);assert.deepEqual(JSON.parse(result.output),args);
 });

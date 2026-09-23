@@ -215,7 +215,7 @@ export class MrWorkflow {
   const mapped=m.config.welinkAccounts[receiver]||receiver,owner=m.config.welinkAccounts[task.username]||task.username;
   if(receiver.toLowerCase()===task.username.toLowerCase()||mapped.toLowerCase()===owner.toLowerCase()){await this.hooks.notifySelf(task,message);}
   else{
-   const text=message.replace(/[\r\n\u2028\u2029]+/g,'；');
+   const text=message.replace(/\[[^\]\r\n]*\]\((https?:\/\/[^\s)]+)\)/g,'$1').replace(/[\r\n\u2028\u2029]+/g,'；');
    const send=()=>this.hooks.run(task,['welink-cli','im','send-to-user','--receiver',mapped,'--text',text],'发送'+key+'通知',false);
    let result=await send();
    if(welinkAuthExpired(result)){
