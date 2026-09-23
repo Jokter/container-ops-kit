@@ -185,7 +185,7 @@ test('编译失败可编辑本次命令重试，取消不提交',async()=>{
  const task={id:'compile-task',repository:'Demo',reportVersion:'R27C10',status:'WAITING_EXTERNAL',nextStage:'BASELINE',progress:25,workspaceRoot:'/tmp',message:'预编译失败',compileFailure:{command}};const calls=[];
  const dom=page((path,o)=>{if(path==='/api/auto-ut/tasks')return [task];if(path==='/api/auto-ut/tasks/compile-task/compile-retry'){calls.push(JSON.parse(o.body));return task;}});
  try{const d=open(dom,'auto-ut');await pause();d.querySelector('[data-automation-nav="tasks"]').click();d.querySelector('[data-governance-detail="compile-task"]').click();
- dom.window.prompt=(_message,initial)=>{assert.equal(initial,command);return null;};d.querySelector('[data-auto-ut-compile]').click();assert.equal(calls.length,0);
- dom.window.prompt=()=>command+' -pl model,website-service';d.querySelector('[data-auto-ut-compile]').click();await pause();assert.deepEqual(calls,[{command:command+' -pl model,website-service'}]);
+ dom.window.prompt=()=>{throw Error('不能调用原生弹窗');};d.querySelector('[data-auto-ut-compile]').click();assert.equal(d.querySelector('#ut-compile-command').value,command);assert.equal(d.activeElement.id,'ut-compile-command');d.querySelector('[data-qw-close]').click();assert.equal(calls.length,0);
+ d.querySelector('[data-auto-ut-compile]').click();const input=d.querySelector('#ut-compile-command');input.value=command+' -pl model,website-service';input.dispatchEvent(new dom.window.Event('input'));assert.equal(d.querySelector('[data-qw-save]').textContent,'保存并重试');d.querySelector('[data-qw-save]').click();d.querySelector('[data-qw-save]').click();await pause();assert.deepEqual(calls,[{command:command+' -pl model,website-service'}]);assert.equal(d.querySelector('#ut-compile-command'),null);
  }finally{await pause();dom.window.close();}
 });
