@@ -13,6 +13,7 @@ export interface MrTracking {
  queryFailures:number;pipelineId?:string;generation:number;
 }
 export interface MrHooks {
+ notifySelf(task:AutoUtTask,message:string):Promise<void>;
  run(task:AutoUtTask,args:string[],label:string,required?:boolean):Promise<{exitCode:number;output:string}>;
  save(task:AutoUtTask):void;
  event(task:AutoUtTask,message:string):void;
@@ -152,9 +153,13 @@ export class MrWorkflow {
   const m=task.mr!,entry=m.notifications[key]??={count:0,at:0};
   if(entry.pending)throw Error('上次通知发送结果未确认，请人工核对：'+receiver);
   entry.pending=true;this.save(task);
+  const mapped=m.config.welinkAccounts[receiver]||receiver,owner=m.config.welinkAccounts[task.username]||task.username;
+  if(receiver.toLowerCase()===task.username.toLowerCase()||mapped.toLowerCase()===owner.toLowerCase()){await this.hooks.notifySelf(task,message);}
+  else{
   const result=await this.hooks.run(task,['welink-cli','im','send-to-user','--receiver',m.config.welinkAccounts[receiver]||receiver,'--text',message],'发送'+key+'通知',false);
   const success=result.exitCode===0&&jsonValues(result.output).some(v=>{if(!v||typeof v!=='object')return false;const r=v as Record<string,unknown>;return r.resultCode==='0'||r.resultCode===0;});
   if(!success)throw Error('WeLink 通知结果未确认，请检查账号或登录状态：'+receiver);
+  }
   entry.pending=false;entry.count++;entry.at=now;this.save(task);
  }
  private async notifyPhase(task:AutoUtTask,view:MrView,now:number){

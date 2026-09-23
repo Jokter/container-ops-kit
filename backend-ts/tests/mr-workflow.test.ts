@@ -14,7 +14,7 @@ function fixture(){
  const view={iid:7,id:900,state:'opened',sha:'sha1',source_branch:'repair',target_branch:'main',web_url:task.pullRequestUrl,title:'工单标题',e2e_issues:[{id:'DTS123',title:'工单标题'}],approval_merge_request_reviewers:[{username:'r123',approved:false}],approval_merge_request_approvers:[{username:'a123',approved:false}],merge_request_assignee_list:[{username:'m123',approved:false}]};
  const gate={ci_state_passed:true,quality_gate:{passed:true},approval_reviewers_required_passed:false,approval_approvers_required_passed:false,conflict_passed:true};
  const pipeline={id:10,status:'success',sha:'sha1'};const calls:string[][]=[];let repairCount=0,failSend=false,failUpdate=false;
- const hooks:MrHooks={save:()=>{},event:()=>{},state:(t,s,m)=>{t.status=s;t.message=m;},repair:async()=>{repairCount++;return 'sha2';},run:async(_t,args)=>{
+ const hooks:MrHooks={notifySelf:async(t,message)=>{calls.push(['welink-mcp','--receiver',t.username,'--text',message]);},save:()=>{},event:()=>{},state:(t,s,m)=>{t.status=s;t.message=m;},repair:async()=>{repairCount++;return 'sha2';},run:async(_t,args)=>{
   calls.push(args);
   if(args[0]==='welink-cli')return {exitCode:failSend?1:0,output:failSend?'timeout':'{"resultCode":"0"}'};
   if(args[1]==='mr'&&args[2]==='view')return {exitCode:0,output:'log before\n'+JSON.stringify(view,null,2)};
@@ -41,35 +41,35 @@ test('phase notifications run at night and weekends despite legacy work hours',a
   const at=Date.parse(time);await f.workflow.tick(f.task,at);
   f.gate.approval_reviewers_required_passed=true;await f.workflow.tick(f.task,at+60000);
   f.gate.approval_approvers_required_passed=true;await f.workflow.tick(f.task,at+120000);
-  assert.deepEqual(f.calls.filter(c=>c[0]==='welink-cli').map(c=>c[c.indexOf('--receiver')+1]),['r123','a123','m123']);
+  assert.deepEqual(f.calls.filter(c=>(c[0]==='welink-cli'||c[0]==='welink-mcp')).map(c=>c[c.indexOf('--receiver')+1]),['r123','a123','m123']);
  }
 });
 test('reminders and escalation use elapsed minutes across weekends',async()=>{
  const f=fixture();f.task.mr!.config.workHours={weekdaysOnly:true,start:9,end:18};
  const at=Date.parse('2026-09-25T15:00:00Z');
  for(const minutes of [0,119,120,239,240,241])await f.workflow.tick(f.task,at+minutes*60000);
- const sent=f.calls.filter(c=>c[0]==='welink-cli');
+ const sent=f.calls.filter(c=>(c[0]==='welink-cli'||c[0]==='welink-mcp'));
  assert.equal(sent.filter(c=>c.includes('r123')).length,2);assert.equal(sent.filter(c=>c.includes('owner1')).length,1);
 });
 test('night notifications still respect the global switch',async()=>{
  const f=fixture();f.task.mr!.config.notifications=false;await f.workflow.tick(f.task,Date.parse('2026-09-26T15:00:00Z'));
- assert.ok(!f.calls.some(c=>c[0]==='welink-cli'));
+ assert.ok(!f.calls.some(c=>(c[0]==='welink-cli'||c[0]==='welink-mcp')));
 });
 test('pipeline success is not task completion; stages notify actual pending members',async()=>{
- const f=fixture();await f.workflow.tick(f.task,now);assert.equal(f.task.status,'MR_PENDING');assert.equal(f.task.mr!.phase,'REVIEW');assert.equal(f.calls.filter(c=>c[0]==='welink-cli').length,1);
+ const f=fixture();await f.workflow.tick(f.task,now);assert.equal(f.task.status,'MR_PENDING');assert.equal(f.task.mr!.phase,'REVIEW');assert.equal(f.calls.filter(c=>(c[0]==='welink-cli'||c[0]==='welink-mcp')).length,1);
  f.gate.approval_reviewers_required_passed=true;await f.workflow.tick(f.task,now+300000);assert.equal(f.task.mr!.phase,'APPROVE');
  f.gate.approval_approvers_required_passed=true;await f.workflow.tick(f.task,now+600000);assert.equal(f.task.mr!.phase,'MERGE');assert.notEqual(f.task.status,'RESOLVED');
  f.view.state='merged';await f.workflow.tick(f.task,now+900000);assert.equal(f.task.status,'RESOLVED');assert.equal(f.task.progress,100);assert.equal(f.task.governance!.mrState,'MERGED');
 });
 test('MR closure terminates every phase without reporting completion',async()=>{
- const f=fixture();f.view.state='closed';await f.workflow.tick(f.task,now);assert.equal(f.task.status,'MR_CLOSED');assert.equal(f.task.governance!.mrState,'CLOSED');assert.equal(f.calls.filter(c=>c[0]==='welink-cli').length,0);
+ const f=fixture();f.view.state='closed';await f.workflow.tick(f.task,now);assert.equal(f.task.status,'MR_CLOSED');assert.equal(f.task.governance!.mrState,'CLOSED');assert.equal(f.calls.filter(c=>(c[0]==='welink-cli'||c[0]==='welink-mcp')).length,0);
 });
 test('reminders sent at most twice and creator escalation once, across repeated polls',async()=>{
  const f=fixture();for(const minutes of [0,1,120,121,240,241,300])await f.workflow.tick(f.task,now+minutes*60000);
- const sent=f.calls.filter(c=>c[0]==='welink-cli');assert.equal(sent.filter(c=>c.includes('r123')).length,2);assert.equal(sent.filter(c=>c.includes('owner1')).length,1);
+ const sent=f.calls.filter(c=>(c[0]==='welink-cli'||c[0]==='welink-mcp'));assert.equal(sent.filter(c=>c.includes('r123')).length,2);assert.equal(sent.filter(c=>c.includes('owner1')).length,1);
 });
 test('uncertain notification is persisted and not resent after reconstruction',async()=>{
- const f=fixture();f.setFailSend();await f.workflow.tick(f.task,now);const restored=structuredClone(f.task);const workflow=new MrWorkflow(f.hooks);await workflow.tick(restored,now+300000);assert.equal(f.calls.filter(c=>c[0]==='welink-cli'&&c.includes('r123')).length,1);
+ const f=fixture();f.setFailSend();await f.workflow.tick(f.task,now);const restored=structuredClone(f.task);const workflow=new MrWorkflow(f.hooks);await workflow.tick(restored,now+300000);assert.equal(f.calls.filter(c=>(c[0]==='welink-cli'||c[0]==='welink-mcp')&&c.includes('r123')).length,1);
 });
 test('running or stale pipeline never triggers a repair',async()=>{
  const f=fixture();f.pipeline.status='running';f.gate.ci_state_passed=false;await f.workflow.tick(f.task,now);assert.equal(f.repairs(),0);f.pipeline.status='failed';f.pipeline.sha='old';await f.workflow.tick(f.task,now+60000);assert.equal(f.repairs(),0);
@@ -226,4 +226,17 @@ test('all invalid assignees stop rather than clear the role or change protection
  f.hooks.run=async(t,args,label,required)=>{if(args.includes('--assignees')){writes++;throw Error(assigneeRejection);}return run(t,args,label,required);};
  await assert.rejects(f.workflow.setup(f.task),/均不在授权名单/);await assert.rejects(f.workflow.setup(f.task),/均不在授权名单/);
  assert.equal(writes,1);assert.deepEqual(f.task.mr!.config.roles.assignees,['x00660165']);
+});
+
+test('owner role notifications use MCP while others and a separate contact use CLI',async()=>{
+ const f=fixture();f.view.approval_merge_request_reviewers=[{username:'owner1',approved:false},{username:'r123',approved:false}];
+ await f.workflow.tick(f.task,now);
+ assert.ok(f.calls.some(c=>c[0]==='welink-mcp'&&c.includes('owner1')));assert.ok(f.calls.some(c=>c[0]==='welink-cli'&&c.includes('r123')));assert.ok(!f.calls.some(c=>c[0]==='welink-cli'&&c.includes('owner1')));
+ f.task.mr!.config.contact='contact1';await f.workflow.tick(f.task,now+120*60000);await f.workflow.tick(f.task,now+240*60000);
+ assert.equal(f.calls.filter(c=>c[0]==='welink-mcp').length,2);assert.equal(f.calls.filter(c=>c[0]==='welink-cli'&&c.includes('contact1')).length,1);
+});
+test('failed owner MCP escalation remains uncertain and never falls back to self CLI',async()=>{
+ const f=fixture();let sends=0;f.hooks.notifySelf=async()=>{sends++;throw Error('MCP 结果待确认');};
+ for(const minutes of [0,120,240,360])await f.workflow.tick(f.task,now+minutes*60000);
+ assert.equal(sends,1);assert.ok(Object.values(f.task.mr!.notifications).some(n=>n.pending));assert.ok(!f.calls.some(c=>c[0]==='welink-cli'&&c.includes('owner1')));
 });

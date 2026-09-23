@@ -171,3 +171,9 @@ test('历史 MR 阻塞展示原因，取消不写入，确认后只解除指定�
  assert.deepEqual(writes,[{path:'/api/auto-ut/governance/'+id+'/release-block',body:{reason:'已核对旧 MR 失效'}}]);assert.equal(d.querySelector('[data-release-mr-block]'),null);
  }finally{await pause();dom.window.close();}
 });
+
+test('WeLink MCP token can be saved and cleared without returning it to the page',async()=>{
+ let configured=false,token='';
+ const dom=page((path,o)=>{if(path==='/api/auto-ut/welink-settings'){if(o?.method==='PUT'){token=JSON.parse(o.body).token;configured=true;}if(o?.method==='DELETE')configured=false;return{configured};}});
+ try{const d=open(dom,'auto-ut');await pause();dom.window.qwOpen({type:'connection'});await pause();const input=d.querySelector('#welink-token');assert.equal(input.type,'password');input.value='test-token';d.querySelector('#welink-save').click();await pause();assert.equal(token,'test-token');assert.equal(d.querySelector('#welink-token').value,'');assert.match(d.querySelector('#welink-status').textContent,/已配置/);d.querySelector('#welink-clear').click();await pause();assert.equal(configured,false);}finally{await pause();dom.window.close();}
+});

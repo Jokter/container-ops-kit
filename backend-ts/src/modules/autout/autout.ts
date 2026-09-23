@@ -1,3 +1,5 @@
+import {WelinkMcp} from './welink-mcp.js';
+import {WelinkSettings} from './welink-settings.js';
 import {AutomationLanguageSettings} from '../automation/language-settings.js';
 import {targetedTestCommand,mergeTargetedEvidence,testClass} from './targeted-tests.js';
 import {MrConfiguration} from './mr-settings.js';
@@ -68,7 +70,7 @@ export function autoUtWorkspace(task:Pick<AutoUtTask,'workspaceRoot'|'repository
 export class AutoUtService{
  readonly languageSettings:AutomationLanguageSettings;readonly mrConfiguration:MrConfiguration;private readonly mrWorkflow:MrWorkflow;private closing=false;private monitoring=false;
  private readonly executions=new Map<string,Promise<void>>();private readonly controllers=new Map<string,AbortController>();private readonly running=new Set<string>();private readonly deleting=new Set<string>();private timer:NodeJS.Timeout;
- constructor(private readonly store:TaskStore,private readonly logs:LogSink=noFileLogs,private readonly ownScheduler=true){this.languageSettings=new AutomationLanguageSettings(store);this.mrConfiguration=new MrConfiguration(store);this.mrWorkflow=new MrWorkflow({run:(task,args,label,required=true)=>this.command(task,args,autoUtWorkspace(task),args[0]==='welink-cli'?30000:120000,label,required),save:task=>this.save(task),event:(task,message)=>this.emit(task,'status',message),state:(task,state,message)=>{if(task.status!==state||task.message!==message)this.change(task,state,message);},repair:(task,details,sha)=>this.repairPipeline(task,details,sha)});
+ constructor(private readonly store:TaskStore,private readonly logs:LogSink=noFileLogs,private readonly ownScheduler=true){this.languageSettings=new AutomationLanguageSettings(store);this.mrConfiguration=new MrConfiguration(store);this.mrWorkflow=new MrWorkflow({notifySelf:async(task,message)=>{this.emit(task,'status','通过 WeLink MCP 通知任务用户');await new WelinkMcp().send(task.username.toLowerCase(),message,new WelinkSettings(this.store).token(),this.controllers.get(task.id)?.signal);this.emit(task,'status','WeLink MCP 已确认发送成功');},run:(task,args,label,required=true)=>this.command(task,args,autoUtWorkspace(task),args[0]==='welink-cli'?30000:120000,label,required),save:task=>this.save(task),event:(task,message)=>this.emit(task,'status',message),state:(task,state,message)=>{if(task.status!==state||task.message!==message)this.change(task,state,message);},repair:(task,details,sha)=>this.repairPipeline(task,details,sha)});
   for(const task of this.tasks()){
    if(task.pullRequestUrl&&task.governance?.mrState!=='MERGED'&&task.governance?.mrState!=='CLOSED'){
     task.governance??={mode:'NONE',coverageLow:false,maxClasses:5};task.governance.mrState='PENDING';
