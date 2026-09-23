@@ -14,7 +14,7 @@ function fixture(){
  const view={iid:7,id:900,state:'opened',sha:'sha1',source_branch:'repair',target_branch:'main',web_url:task.pullRequestUrl,title:'工单标题',e2e_issues:[{id:'DTS123',title:'工单标题'}],approval_merge_request_reviewers:[{username:'r123',approved:false}],approval_merge_request_approvers:[{username:'a123',approved:false}],merge_request_assignee_list:[{username:'m123',approved:false}]};
  const gate={ci_state_passed:true,quality_gate:{passed:true},approval_reviewers_required_passed:false,approval_approvers_required_passed:false,conflict_passed:true};
  const pipeline={id:10,status:'success',sha:'sha1'};const calls:string[][]=[];let repairCount=0,failSend=false,failUpdate=false;
- const hooks:MrHooks={notifySelf:async(t,message)=>{calls.push(['welink-mcp','--receiver',t.username,'--text',message]);},save:()=>{},event:()=>{},state:(t,s,m)=>{t.status=s;t.message=m;},repair:async()=>{repairCount++;return 'sha2';},run:async(_t,args)=>{
+ const hooks:MrHooks={loginWelink:async()=>true,notifySelf:async(t,message)=>{calls.push(['welink-mcp','--receiver',t.username,'--text',message]);},save:()=>{},event:()=>{},state:(t,s,m)=>{t.status=s;t.message=m;},repair:async()=>{repairCount++;return 'sha2';},run:async(_t,args)=>{
   calls.push(args);
   if(args[0]==='welink-cli')return {exitCode:failSend?1:0,output:failSend?'timeout':'{"resultCode":"0"}'};
   if(args[1]==='mr'&&args[2]==='view')return {exitCode:0,output:'log before\n'+JSON.stringify(view,null,2)};
@@ -239,4 +239,39 @@ test('failed owner MCP escalation remains uncertain and never falls back to self
  const f=fixture();let sends=0;f.hooks.notifySelf=async()=>{sends++;throw Error('MCP 结果待确认');};
  for(const minutes of [0,120,240,360])await f.workflow.tick(f.task,now+minutes*60000);
  assert.equal(sends,1);assert.ok(Object.values(f.task.mr!.notifications).some(n=>n.pending));assert.ok(!f.calls.some(c=>c[0]==='welink-cli'&&c.includes('owner1')));
+});
+
+test('CLI notification text remains one complete single-line argument',async()=>{
+ const f=fixture();await f.workflow.tick(f.task,now);
+ const args=f.calls.find(c=>c[0]==='welink-cli')!;
+ assert.equal(args.length,7);assert.equal(args[5],'--text');
+ assert.equal(args[6],`UT 治理 MR 请检视。；仓库：Demo；MR：${f.task.pullRequestUrl}`);
+});
+test('explicit expired authentication logs in once and counts only the successful delivery',async()=>{
+ const f=fixture(),run=f.hooks.run;let sends=0,logins=0;
+ f.hooks.loginWelink=async()=>{logins++;return true;};
+ f.hooks.run=async(t,args,label,required)=>args[0]==='welink-cli'&&++sends===1?{exitCode:1,output:'HTTP 401: token expired'}:run(t,args,label,required);
+ await f.workflow.tick(f.task,now);await f.workflow.tick(f.task,now+60000);
+ assert.equal(logins,1);assert.equal(sends,2);
+ const entry=Object.values(f.task.mr!.notifications)[0]!;assert.equal(entry.count,1);assert.equal(entry.pending,false);
+});
+test('uncertain CLI failures never trigger login or automatic redelivery',async()=>{
+ for(const result of [{exitCode:124,output:'token expired'},{exitCode:1,output:'network timeout'},{exitCode:1,output:'HTTP 403: forbidden'},{exitCode:0,output:'unknown response'}]){
+  const f=fixture(),run=f.hooks.run;let sends=0,logins=0;
+  f.hooks.loginWelink=async()=>{logins++;return true;};
+  f.hooks.run=async(t,args,label,required)=>{if(args[0]==='welink-cli'){sends++;return result;}return run(t,args,label,required);};
+  await f.workflow.tick(f.task,now);await f.workflow.tick(f.task,now+60000);
+  assert.equal(logins,0);assert.equal(sends,1);assert.ok(Object.values(f.task.mr!.notifications).some(n=>n.pending));
+ }
+});
+test('failed login or continued rejection pauses without a login loop',async()=>{
+ for(const mode of ['false','throws','still-expired']){
+  const f=fixture(),run=f.hooks.run;let sends=0,logins=0;
+  f.hooks.loginWelink=async()=>{logins++;if(mode==='throws')throw Error('login failed');return mode==='still-expired';};
+  f.hooks.run=async(t,args,label,required)=>{if(args[0]==='welink-cli'){sends++;return {exitCode:1,output:'请先登录'};}return run(t,args,label,required);};
+  await f.workflow.tick(f.task,now);await f.workflow.tick(f.task,now+60000);
+  assert.equal(logins,1);assert.equal(sends,mode==='still-expired'?2:1);assert.equal(f.task.mr!.paused,true);
+  assert.match(f.task.mr!.error,/welink-cli auth login/);
+  const entry=Object.values(f.task.mr!.notifications)[0]!;assert.equal(entry.count,0);assert.equal(entry.pending,false);
+ }
 });

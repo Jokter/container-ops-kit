@@ -13,6 +13,7 @@ export interface MrTracking {
  queryFailures:number;pipelineId?:string;generation:number;
 }
 export interface MrHooks {
+ loginWelink(task:AutoUtTask):Promise<boolean>;
  notifySelf(task:AutoUtTask,message:string):Promise<void>;
  run(task:AutoUtTask,args:string[],label:string,required?:boolean):Promise<{exitCode:number;output:string}>;
  save(task:AutoUtTask):void;
@@ -22,6 +23,7 @@ export interface MrHooks {
 }
 export function newTracking(config:MrSettings):MrTracking {return {config,iid:'',sha:'',phase:'SETUP',nextAt:0,paused:false,error:'',setup:{},rounds:0,handled:[],stalled:0,notifications:{},queryFailures:0,generation:0};}
 export class MrWorkflow {
+ private welinkLogin:Promise<boolean>|undefined;
  constructor(private hooks:MrHooks,private readonly wait:(ms:number)=>Promise<void>=ms=>new Promise(resolve=>setTimeout(resolve,ms))){}
  private async command(task:AutoUtTask,args:string[],label:string){
   const operation=args.slice(0,2).join(' ');
@@ -156,9 +158,19 @@ export class MrWorkflow {
   const mapped=m.config.welinkAccounts[receiver]||receiver,owner=m.config.welinkAccounts[task.username]||task.username;
   if(receiver.toLowerCase()===task.username.toLowerCase()||mapped.toLowerCase()===owner.toLowerCase()){await this.hooks.notifySelf(task,message);}
   else{
-  const result=await this.hooks.run(task,['welink-cli','im','send-to-user','--receiver',m.config.welinkAccounts[receiver]||receiver,'--text',message],'发送'+key+'通知',false);
-  const success=result.exitCode===0&&jsonValues(result.output).some(v=>{if(!v||typeof v!=='object')return false;const r=v as Record<string,unknown>;return r.resultCode==='0'||r.resultCode===0;});
-  if(!success)throw Error('WeLink 通知结果未确认，请检查账号或登录状态：'+receiver);
+   const text=message.replace(/[\r\n\u2028\u2029]+/g,'；');
+   const send=()=>this.hooks.run(task,['welink-cli','im','send-to-user','--receiver',mapped,'--text',text],'发送'+key+'通知',false);
+   let result=await send();
+   if(welinkAuthExpired(result)){
+    this.hooks.event(task,'WeLink CLI 认证失效，正在执行 welink-cli auth login。');
+    this.welinkLogin??=this.hooks.loginWelink(task).catch(()=>false).finally(()=>{this.welinkLogin=undefined;});
+    if(!await this.welinkLogin){entry.pending=false;this.pause(task,'WeLink CLI 登录未完成，请在运行工具的机器执行 welink-cli auth login，完成后重试当前步骤。');throw Error(task.mr!.error);}
+    result=await send();
+    if(welinkAuthExpired(result)){entry.pending=false;this.pause(task,'WeLink CLI 登录后仍未通过认证，请手动执行 welink-cli auth login 后重试当前步骤。');throw Error(task.mr!.error);}
+   }
+   const success=result.exitCode===0&&jsonValues(result.output).some(v=>{if(!v||typeof v!=='object')return false;const r=v as Record<string,unknown>;return r.resultCode==='0'||r.resultCode===0;});
+   if(!success)throw Error('WeLink 通知结果未确认，请检查账号或登录状态：'+receiver);
+
   }
   entry.pending=false;entry.count++;entry.at=now;this.save(task);
  }
@@ -198,4 +210,10 @@ export function rejectedAuthorizedPeople(message:string,role:MrRole,people:strin
   const number=person.match(/^[a-z](\d+)$/i)?.[1];
   return !!number&&tokens.includes(number)&&people.filter(p=>p.match(/^[a-z](\d+)$/i)?.[1]===number).length===1;
  });
+}
+
+export function welinkAuthExpired(result:{exitCode:number;output:string}):boolean{
+ if(result.exitCode===124)return false;
+ if(jsonValues(result.output).some(v=>v&&typeof v==='object'&&!Array.isArray(v)&&['0',0].includes((v as Record<string,unknown>).resultCode as string|number)))return false;
+ return /(?:HTTP\s+401\b|(?:token|authentication|session|access token)\s+(?:has\s+)?expired\b|not (?:logged|signed) in\b|(?:认证|登录|令牌|token).{0,8}(?:已过期|已失效)|请先(?:登录|登陆)|please (?:run|execute)\s+[`"']?welink-cli auth login)/i.test(result.output);
 }
