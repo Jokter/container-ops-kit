@@ -10,7 +10,7 @@ type Configuration=z.infer<typeof configSchema>;
 const defaults:Configuration={enabled:false,groupId:'',authorizedSender:'',repositoryPrefix:'MAE-M/Access/',intervalSeconds:10};
 const phase=z.enum(['PIPELINE','PI','COMMENTS','REVIEW','APPROVE','MERGE','DONE','ISSUES','FAILED','NO_PERMISSION','INTERRUPTED']);
 type Phase=z.infer<typeof phase>;
-interface Entry{id:string;repo:string;iid:string;url:string;sha:string;previousSha:string;messageId:string;sender:string;shortcut:boolean;phase:Phase;status:string;detail:string;createdAt:string;updatedAt:string;writePending:string;events:Array<{time:string;phase:Phase;message:string}>}
+interface Entry{id:string;repo:string;iid:string;url:string;sha:string;previousSha:string;messageId:string;sender:string;shortcut:boolean;phase:Phase;stage?:Phase;status:string;detail:string;createdAt:string;updatedAt:string;writePending:string;events:Array<{time:string;phase:Phase;message:string}>;reviewComments?:Array<{id:string;body:string;resolved:boolean}>;reply?:{text:string;mode:'quote'|'reference';status:'sending'|'sent'|'unconfirmed'}}
 interface GroupMessage{id:string;content:string;sender:string;quoteId:string}
 interface Discussion{id:string;body:string;author:string;resolved:boolean}
 const urlPattern=/https:\/\/codehub-y\.huawei\.com\/([A-Za-z0-9._/-]+)\/merge_requests\/(\d+)(?![\w/])/g;
@@ -34,6 +34,7 @@ function piConclusion(raw:string):{ok:boolean;summary:string;findings:Array<{pat
 export class GroupMrService {
  private timer:NodeJS.Timeout;private busy=false;private closing=false;private active=new Set<string>();private initialised=false;private lastPoll=0;private controller=new AbortController();private pollPromise:Promise<void>|undefined;
  constructor(private store:TaskStore,private readonly execute:typeof runProcess=runProcess){
+  for(const entry of this.list()){if(entry.reply?.status==='sending'){entry.reply.status='unconfirmed';this.save(entry);}}
   for(const entry of this.list().filter(e=>!['DONE','ISSUES','FAILED','NO_PERMISSION','INTERRUPTED'].includes(e.phase))){entry.phase='INTERRUPTED';entry.status='服务重启，原执行中断，请重新发送 MR 链接';entry.writePending=entry.writePending||'需核对远端';this.save(entry);}
   this.timer=setInterval(()=>{if(!this.busy)this.pollPromise=this.poll().catch(()=>{});},5000);this.timer.unref();
  }
@@ -43,7 +44,7 @@ export class GroupMrService {
  list(){return this.store.records<Entry>('group-mr-entry').sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt));}
  summary(){const entries=this.list(),today=new Date().toISOString().slice(0,10),latest=[...new Map([...entries].reverse().map(e=>[e.repo+':'+e.iid,e])).values()].reverse(),pending=latest.filter(e=>!['DONE','FAILED','NO_PERMISSION','INTERRUPTED'].includes(e.phase));return {config:this.configuration(),pending,history:entries.filter(e=>['DONE','FAILED','NO_PERMISSION','INTERRUPTED'].includes(e.phase)),monitor:this.store.getRecord<{error:string;at:string}>('group-mr-monitor','main')??{error:'',at:''},metrics:{pending:pending.length,issues:pending.filter(e=>e.phase==='ISSUES').length,mergedToday:entries.filter(e=>e.phase==='DONE'&&e.updatedAt.startsWith(today)).length}};}
  private save(e:Entry){e.updatedAt=new Date().toISOString();this.store.putRecord('group-mr-entry',e.id,e,e.createdAt);}
- private mark(e:Entry,p:Phase,message:string){e.phase=p;e.status=message;e.events.push({time:new Date().toISOString(),phase:p,message});this.save(e);}
+ private mark(e:Entry,p:Phase,message:string){e.phase=p;if(['PIPELINE','PI','COMMENTS','REVIEW','APPROVE','MERGE'].includes(p))e.stage=p;e.status=message;e.events.push({time:new Date().toISOString(),phase:p,message});this.save(e);}
  private async command(args:string[],timeout=120000){const r=await this.execute(args,process.cwd(),timeout,undefined,undefined,undefined,this.controller.signal);if(r.exitCode!==0)throw Error(`${args[0]} ${args[1]} ${args[2]} 失败（退出码 ${r.exitCode}${/\b403\b|无权限|permission denied/i.test(r.output)?'，HTTP 403 / 无权限':''}）`);return r.output;}
  private async code(args:string[],columns?:string){return this.command(['codehub-cli',...args,'--format','json',...(columns?['--columns',columns]:[])]);}
  async poll(){const cfg=this.configuration();if(this.closing||this.busy||!cfg.enabled||!cfg.groupId||!cfg.authorizedSender||Date.now()-this.lastPoll<cfg.intervalSeconds*1000)return;this.busy=true;this.lastPoll=Date.now();
@@ -83,10 +84,12 @@ export class GroupMrService {
   const flag=['--quote-message-id','--reply-to-message-id','--quote-msg-id'].find(option=>help.includes(option));
   if(!flag)e.events.push({time:new Date().toISOString(),phase:e.phase,message:'当前 WeLink CLI 未提供原生引用回复参数，群消息将明确标识来源消息 ID'});
   const text=`${flag?'':`回复 MR 消息 ${e.messageId}：`}${e.repo} !${e.iid} ${message}`.replace(/[\r\n\u2028\u2029]+/g,'；').slice(0,1800);
-  e.writePending='群消息回复';this.save(e);
-  const result=await this.command(['welink-cli','im','send-to-group','--group-id',cfg.groupId,'--text',text,...(flag?[flag,e.messageId]:[])],30000);
-  if(!jsonValues(result).some(v=>{const o=object(v);return o?.resultCode===0||o?.resultCode==='0';}))throw Error('WeLink 群消息发送结果未确认，请核对后再手动处理');
-  e.writePending='';this.save(e);
+  e.reply={text,mode:flag?'quote':'reference',status:'sending'};e.writePending='群消息回复';this.save(e);
+  try{
+   const result=await this.command(['welink-cli','im','send-to-group','--group-id',cfg.groupId,'--text',text,...(flag?[flag,e.messageId]:[])],30000);
+   if(!jsonValues(result).some(v=>{const o=object(v);return o?.resultCode===0||o?.resultCode==='0';}))throw Error('WeLink 群消息发送结果未确认，请核对后再手动处理');
+   e.reply.status='sent';e.writePending='';this.save(e);
+  }catch(error){e.reply.status='unconfirmed';this.save(e);throw error;}
  }
  private async permission(e:Entry,cfg:Configuration,role:string){const message=`当前账号无${role}权限，本次处理结束。`;this.mark(e,'NO_PERMISSION',message);await this.reply(e,cfg,message);}
  private async write(e:Entry,name:string,args:readonly string[],verify:()=>Promise<boolean>){
@@ -114,15 +117,18 @@ export class GroupMrService {
    const username=string(object(jsonValues(await this.code(['user','view'],'id,name,username'))[0])?.username);
    if(!username)throw Error('无法确认当前 CodeHub 身份');
    const notes=parseDiscussions(await this.code(['mr','review','list',e.iid,'-p',e.repo]));const mine=notes.filter(n=>!n.resolved&&n.author.toLowerCase()===username.toLowerCase());
+   e.reviewComments=mine.map(n=>({id:n.id,body:n.body,resolved:false}));this.save(e);
    const result=await this.runPi(e,raw,mine);await this.current(e,e.sha);
    if(!result.ok||result.findings.length){this.mark(e,'ISSUES',result.summary||'Pi 检视发现问题，请修改后重新发送 MR 链接');await this.reply(e,cfg,`Pi 检视发现问题：${e.status}`);return;}
+   this.mark(e,'COMMENTS',mine.length?'正在确认本人提出的检视意见':'无本人待处理的检视意见');
    for(const note of mine){if(!result.resolvedDiscussionIds.includes(note.id)){this.mark(e,'ISSUES','仍有本人提出的检视意见未确认修复，请修改后重发');await this.reply(e,cfg,e.status);return;}}
-   for(const note of mine){await this.current(e,e.sha);await this.write(e,'标记意见 OK',['mr','review','resolve',e.iid,note.id,'-p',e.repo],async()=>!parseDiscussions(await this.code(['mr','review','list',e.iid,'-p',e.repo])).some(n=>n.id===note.id&&!n.resolved));}
+   for(const note of mine){await this.current(e,e.sha);await this.write(e,'标记意见 OK',['mr','review','resolve',e.iid,note.id,'-p',e.repo],async()=>!parseDiscussions(await this.code(['mr','review','list',e.iid,'-p',e.repo])).some(n=>n.id===note.id&&!n.resolved));const saved=e.reviewComments.find(n=>n.id===note.id);if(saved)saved.resolved=true;this.save(e);}
   }
   for(const [name,phase,role,command,passed] of [
    ['检视','REVIEW','approval_merge_request_reviewers',['mr','approve-review',e.iid,'-p',e.repo,'--action-type','complete'],(g:{approval_reviewers_required_passed?:boolean|undefined})=>g.approval_reviewers_required_passed===true],
    ['审核','APPROVE','approval_merge_request_approvers',['mr','approve',e.iid,'-p',e.repo],(g:{approval_approvers_required_passed?:boolean|undefined})=>g.approval_approvers_required_passed===true]
   ] as const){
+   e.stage=phase;this.save(e);
    const snapshot=await this.current(e,e.sha);if(passed(snapshot.gate))continue;
    // The shortcut skips AI review, but never bypasses required review gates.
    if(e.shortcut&&name==='检视'){this.mark(e,'ISSUES','检视门禁尚未通过，快捷合入已停止');await this.reply(e,cfg,e.status);return;}
