@@ -172,8 +172,8 @@ test('版本卡片直接建单与跳转，空报告禁止建单，建单成功�
 test('已有版本任务禁止刷新且批量获取只请求未锁定版本',async()=>{
  const f=utFixture({locked:true});try{const d=open(f.dom,'auto-ut');await pause();assert.equal(d.querySelector('[data-ut-fetch="R27C00"]').disabled,true);d.querySelector('[data-report-fetch]').click();await pause();assert.deepEqual(f.fetches[0].versions,['R27C10']);}finally{await pause();f.dom.window.close();}
 });
-test('撤销单退出当前版本，新请求重新建单且单号全部可直接看到',async()=>{
- const f=utFixture({cancelFirst:true});try{const d=open(f.dom,'auto-ut');await pause();d.querySelector('#ut-auto-start').click();d.querySelector('[data-ut-create="R27C10"]').click();await pause();assert.match(d.body.textContent,/已撤销/);assert.ok(d.querySelector('a[href$="DTS2609220015806"]'));d.querySelector('[data-ut-create="R27C10"]').click();await pause();assert.notEqual(f.creates[0].requestId,f.creates[1].requestId);assert.equal(f.starts.length,0);assert.equal(d.querySelector('[data-ut-start="R27C10"]').disabled,false);}finally{await pause();f.dom.window.close();}
+test('撤销单退出当前版本，新请求重新建单且只展示当前单号',async()=>{
+ const f=utFixture({cancelFirst:true});try{const d=open(f.dom,'auto-ut');await pause();d.querySelector('#ut-auto-start').click();d.querySelector('[data-ut-create="R27C10"]').click();await pause();assert.match(d.body.textContent,/已撤销/);assert.equal(d.querySelector('a[href$="DTS2609220015806"]'),null);d.querySelector('[data-ut-create="R27C10"]').click();await pause();assert.notEqual(f.creates[0].requestId,f.creates[1].requestId);assert.ok(d.querySelector('a[href$="DTS2609230012345"]'));assert.equal(d.querySelector('a[href$="DTS2609220015806"]'),null);assert.equal(f.starts.length,0);assert.equal(d.querySelector('[data-ut-start="R27C10"]').disabled,false);}finally{await pause();f.dom.window.close();}
 });
 test('流转未确认保留单号且不启动，长错误折叠详情，确认后可自动启动',async()=>{
  const f=utFixture({failFlow:true});try{const d=open(f.dom,'auto-ut');await pause();d.querySelector('[data-ut-create="R27C10"]').click();await pause();assert.equal(f.starts.length,0);assert.equal(d.querySelector('[data-ut-start="R27C10"]').disabled,true);assert.ok(d.querySelector('.ut-error-summary'));assert.equal(d.querySelector('long-error'),null);
