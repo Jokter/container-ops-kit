@@ -170,6 +170,7 @@ export const dtsTemplate = {
     "uRecurrence": "914e748f-e2b2-41d4-97da-42b1dfcbe968",
     "uDefectOriginDescribe": "20221017P100007CXFB",
     "uDefectOriginDescribeSmallClass": "20221021P0A000J44EH",
-    "testCaseDiscovery": "20221118P17010712K5"
+    "testCaseDiscovery": "20221118P17010712K5",
+    "bIsSuspectedVUL": false
   }
 };

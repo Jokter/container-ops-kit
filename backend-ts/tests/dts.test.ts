@@ -7,6 +7,26 @@ const product={rNo:'1',cNo:'2',bNo:'3'};
 function testStore(){const store=new TaskStore(':memory:');store.putRecord('auto-ut-report-config','main',{config:{versions:[{version:'R27C10',dtsProduct:product},{version:'R27C00',dtsProduct:{rNo:'1',cNo:'4',bNo:'5'}}]}});return store;}
 function pbiReply(params:Record<string,unknown>){const name=String((params.arguments as Record<string,unknown>).arg0);const c00=name.includes('C00');return reply([{pbiName:name,pbiId:name.endsWith('B001')?(c00?'5':'3'):name.includes('C')?(c00?'4':'2'):'1',parentId:name.endsWith('B001')?(c00?'4':'2'):name.includes('C')?'1':'0'}]);}
 const reply=(result:unknown)=>({content:[{type:'text',text:JSON.stringify({status:'success',result})}]});
+test('建单和流转均携带是否漏洞的布尔否值',()=>{
+ for(const full of [false,true]){
+  const fields=JSON.parse(JSON.stringify(ticketFields(full,'tester','R27C10',product))) as {fieldId:string;value:unknown}[];
+  assert.deepEqual(fields.filter(f=>f.fieldId==='bIsSuspectedVUL'),[{fieldId:'bIsSuspectedVUL',value:false}]);
+ }
+});
+test('旧单继续流转补齐是否漏洞字段且不重复建单',async()=>{
+ const store=testStore();let node='DTS001',executes=0;
+ store.putRecord('dts-ticket','old',{requestId:'old',username:'tester',version:'R27C10',product,ticket:'DTS2026092313873',status:'REVIEW',message:'字段：是否漏洞不能为空'});
+ const service=new DtsTickets(store,async()=>async(method,params)=>{
+  if(method==='initialize')return{};
+  const args=params.arguments as Record<string,unknown>;
+  if(params.name==='batchQueryTicket')return reply({datas:[{dtsBizNo:'DTS2026092313873',dtsStatus:node,currentHandler:'tester'}]});
+  assert.equal(params.name,'executeTicket');assert.equal(args.arg0,'DTS2026092313873');
+  const fields=args.arg3 as {fieldId:string;value:unknown}[];
+  assert.deepEqual(fields.filter(f=>f.fieldId==='bIsSuspectedVUL'),[{fieldId:'bIsSuspectedVUL',value:false}]);
+  executes++;node='DTS009';return reply({});
+ },async()=>{});
+ try{assert.equal((await service.control('DTS2026092313873','tester','continue','R27C10')).status,'READY');assert.equal(executes,1);assert.equal(store.records('dts-ticket').length,1);}finally{store.close();}
+});
 test('DTS 使用固定标题，建单流转确认后回填，重复请求不重复建单',async()=>{
  const store=testStore();const names:string[]=[];
  const service=new DtsTickets(store,async()=>async(method,params)=>{if(method==='initialize')return{};if(params.name==='queryPbiLikeName')return pbiReply(params);names.push(String(params.name));return reply(params.name==='createTicket'?'DTS2609220015806':params.name==='batchQueryTicket'?{datas:[{dtsBizNo:'DTS2609220015806',dtsStatus:'DTS009',currentHandler:'w00789509'}]}:{});},async()=>{});
