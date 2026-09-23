@@ -49,6 +49,7 @@ SQLite 默认写入 `data/platform/tasks.sqlite`。数据库使用进程独占�
 - `platform/{taskId}.jsonl`：通用平台任务事件
 - `build/{taskId}.jsonl`：构建步骤和远程命令输出
 - `deployment/{taskId}.jsonl`：分析、编辑、渲染和部署输出
+- `automation/group-mr-monitor.jsonl`：群组 MR 监听轮询、过滤数量、命令状态和错误（不记录群消息正文）；页面“群组 MR 检视 → 监听日志”展示最近 100 条
 - `auto-ut/{taskId}.jsonl`：Auto-UT 阶段与实时事件
 - `auto-ut/details/{taskId}/*.log`：Git、Maven、Pi 和 CodeHub 命令的完整输出
 

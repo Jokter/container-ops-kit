@@ -51,3 +51,11 @@ test('列表选择、搜索与详情只展示真实状态，转义不可信内�
  doc.querySelector('[data-group-mr-record-button="r2"]').click();assert.match(doc.querySelector('.group-mr-detail h3').textContent,/Second/);assert.match(doc.querySelector('.group-mr-reply').textContent,/暂无已记录的回复/)
  const search=doc.querySelector('#group-mr-search');search.value='missing';search.dispatchEvent(new dom.window.Event('input',{bubbles:true}));assert.match(doc.querySelector('.group-mr-empty').textContent,/没有匹配/);assert.equal(doc.querySelector('.group-mr-detail'),null)
 })
+
+test('无需 MR 记录也可查看监听时间、过滤数量和命令失败日志',async t=>{
+ const {dom,doc}=await fixture(t,{route:'group-mr'})
+ dom.window.eval(`groupMrUi.monitor={state:'error',error:'welink-cli 未找到',message:'welink-cli 未找到',lastSuccessAt:'2026-09-23T08:30:00Z',readCount:5,newCount:2,matchedCount:0,filteredCount:2,logs:[{time:'2026-09-23T08:30:00Z',level:'error',message:'<script>bad</script> CLI 未找到'}]};render(false)`)
+ assert.ok(doc.querySelector('[aria-label="监听运行状态"]'));assert.match(doc.querySelector('.group-mr-monitor-counts').textContent,/过滤 2 条/)
+ doc.querySelector('[data-group-mr-logs]').click();assert.match(doc.querySelector('[role="log"]').textContent,/CLI 未找到/);assert.equal(doc.querySelector('[role="log"] script'),null)
+ dom.window.eval('render(false)');assert.ok(doc.querySelector('[role="log"]'));assert.match(doc.querySelector('.group-mr-log-path').textContent,/automation\/group-mr-monitor.jsonl/)
+})

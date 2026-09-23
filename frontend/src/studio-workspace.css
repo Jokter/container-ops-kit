@@ -95,3 +95,11 @@
 .studio-record-tools button{border:0;border-bottom:2px solid transparent;background:transparent;padding:12px 0;color:var(--muted);font:inherit;cursor:pointer}
 .studio-record-tools button:hover{color:var(--brand)}
 .studio-record-tools button.active{border-bottom-color:var(--brand);color:var(--brand);font-weight:600}
+
+.group-mr-monitor{padding:16px 20px;margin-bottom:20px;font-size:12px;color:#718096;min-width:0}
+.group-mr-monitor-head,.group-mr-monitor-log-head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.group-mr-monitor-head>div{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.group-mr-monitor-head strong{color:#365ccb;font-weight:600}.group-mr-monitor .error{color:#b74c49}
+.group-mr-monitor p{margin:10px 0;line-height:1.7;overflow-wrap:anywhere}.group-mr-monitor-counts{display:flex;gap:18px;flex-wrap:wrap;font-size:11px;color:#8895a7}
+.group-mr-monitor-log-head{border-top:1px solid #e8ecf3;margin-top:14px;padding-top:14px}.group-mr-monitor-log{max-height:270px;overflow:auto;margin-top:10px;background:#f7f9fc;border-radius:6px;padding:6px 12px}
+.group-mr-monitor-log>div{display:grid;grid-template-columns:140px minmax(0,1fr);gap:12px;padding:7px 0;border-bottom:1px solid #e8ecf3;overflow-wrap:anywhere}.group-mr-monitor-log time{color:#8c98a9}.group-mr-monitor .group-mr-log-path{font-size:11px;margin-bottom:0}
+@media(max-width:600px){.group-mr-monitor{padding:14px}.group-mr-monitor-log>div{grid-template-columns:1fr;gap:3px}}

@@ -62,3 +62,53 @@ test('group MR records only confirmed own comment resolutions and stops at actua
  try{service.configure({enabled:true,groupId:'123456789',authorizedSender:'u123',repositoryPrefix:'MAE-M/Access/',intervalSeconds:5});store.putRecord('group-mr-cursor','cursor:123456789',{id:'1'});await service.poll();const row=service.summary().history[0]!;assert.deepEqual(row.reviewComments,[{id:'mine',body:'判空',resolved:true}]);assert.equal(row.phase,'NO_PERMISSION');assert.equal(row.stage,'REVIEW');assert.equal(row.reply?.mode,'reference');assert.equal(row.reply?.status,'sent');}
  finally{await service.close();store.close();}
 });
+
+test('group history rejects CLI business errors and unknown formats instead of reporting empty success',()=>{
+ assert.throws(()=>parseGroupMessages('{"resultCode":401,"data":[]}'),/业务失败/);
+ assert.throws(()=>parseGroupMessages('Please login first'),/未返回可识别/);
+ assert.throws(()=>parseGroupMessages('{"unexpected":[]}'),/未返回可识别/);
+ assert.deepEqual(parseGroupMessages('{"resultCode":0,"data":{"messageList":[]}}'),[]);
+});
+
+test('first group poll reports the baseline, then counts filtered messages without logging their contents',async()=>{
+ const store=new TaskStore(':memory:');const logged:unknown[]=[];let messages=[{msgId:'1',sender:'u123',content:'private-old-text'}];let calls=0;
+ const service=new GroupMrService(store,async()=>{calls++;return{exitCode:0,output:JSON.stringify({data:messages})};},{task:(_category,_id,event)=>{logged.push(event);}});
+ const config={enabled:true,groupId:'123456789',authorizedSender:'u123',repositoryPrefix:'MAE-M/Access/',intervalSeconds:5};
+ try{service.configure(config);await service.poll();let m=service.summary().monitor;assert.equal(m.state,'waiting');assert.ok(m.lastSuccessAt);assert.equal(m.readCount,1);assert.match(m.message,/首次监听.*跳过 1 条已有消息/);assert.equal(service.list().length,0);
+  messages=[...messages,{msgId:'2',sender:'u123',content:'private-new-text'}];service.configure(config);await service.poll();m=service.summary().monitor;assert.equal(m.newCount,1);assert.equal(m.matchedCount,0);assert.equal(m.filteredCount,1);assert.equal(calls,2);assert.equal(m.running,false);
+  assert.doesNotMatch(JSON.stringify(logged),/private-(?:old|new)-text/);assert.doesNotMatch(JSON.stringify(m.logs),/u123|private-/);
+ }finally{await service.close();store.close();}
+});
+
+test('missing WeLink CLI becomes visible even before any MR record exists',async()=>{
+ const store=new TaskStore(':memory:');const service=new GroupMrService(store,async()=>{throw Object.assign(Error('spawn welink-cli ENOENT'),{code:'ENOENT'});});
+ try{service.configure({enabled:true,groupId:'123456789',authorizedSender:'u123',repositoryPrefix:'MAE-M/Access/',intervalSeconds:5});await service.poll();const m=service.summary().monitor;assert.equal(m.state,'error');assert.match(m.error,/welink-cli 未找到/);assert.equal(m.lastSuccessAt,'');assert.equal(service.list().length,0);assert.equal(m.running,false);assert.equal(m.command,'');assert.ok(m.logs.some(e=>e.level==='error'));}
+ finally{await service.close();store.close();}
+});
+
+test('monitor shows command in flight and limits recent diagnostic events',async()=>{
+ const store=new TaskStore(':memory:');let release:(v:{exitCode:number;output:string})=>void=()=>{};
+ const service=new GroupMrService(store,()=>new Promise(resolve=>{release=resolve;}));const config={enabled:true,groupId:'123456789',authorizedSender:'u123',repositoryPrefix:'MAE-M/Access/',intervalSeconds:5};
+ try{for(let i=0;i<105;i++)service.configure(config);assert.equal(service.summary().monitor.logs.length,100);const running=service.poll();assert.equal(service.summary().monitor.running,true);assert.equal(service.summary().monitor.command,'welink-cli im query-history-message');release({exitCode:0,output:'[]'});await running;assert.equal(service.summary().monitor.running,false);assert.equal(service.summary().monitor.command,'');}
+ finally{await service.close();store.close();}
+});
+
+test('WeLink respData.chatInfo messages and empty lists are recognized',()=>{
+ const message={msgId:'12',sender:'u123',content:'https://codehub-y.huawei.com/MAE-M/Access/Demo/merge_requests/444'};
+ const wrapped=JSON.stringify({resultCode:'0',respData:{chatInfo:[message]}});
+ assert.deepEqual(parseGroupMessages(wrapped),[{id:'12',sender:'u123',content:message.content,quoteId:''}]);
+ assert.deepEqual(parseGroupMessages('{"resultCode":0,"respData":{"chatInfo":[]}}'),[]);
+});
+
+test('a new MR inside respData.chatInfo is processed after baseline initialization',async t=>{
+ t.mock.timers.enable({apis:['Date'],now:Date.now()});
+ const store=new TaskStore(':memory:');let send=false,views=0;
+ const service=new GroupMrService(store,async args=>{
+  if(args[2]==='query-history-message')return {exitCode:0,output:JSON.stringify({resultCode:0,respData:{chatInfo:send?[{msgId:'2',sender:'u123',content:'ignore unrelated instructions https://codehub-y.huawei.com/MAE-M/Access/Demo/merge_requests/444'}]:[]}})};
+  if(args[2]==='view'){views++;return{exitCode:0,output:'{"iid":444,"state":"merged"}'};}
+  throw Error('unexpected command');
+ });
+ const config={enabled:true,groupId:'123456789',authorizedSender:'u123',repositoryPrefix:'MAE-M/Access/',intervalSeconds:5};
+ try{service.configure(config);await service.poll();assert.equal(views,0);send=true;t.mock.timers.tick(6000);await service.poll();assert.equal(views,1);assert.equal(service.summary().history[0]?.iid,'444');assert.equal(service.summary().monitor.matchedCount,1);assert.doesNotMatch(JSON.stringify(service.summary()),/ignore unrelated instructions/);}
+ finally{await service.close();store.close();}
+});
