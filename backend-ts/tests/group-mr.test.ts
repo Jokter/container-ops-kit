@@ -112,3 +112,57 @@ test('a new MR inside respData.chatInfo is processed after baseline initializati
  try{service.configure(config);await service.poll();assert.equal(views,0);send=true;t.mock.timers.tick(6000);await service.poll();assert.equal(views,1);assert.equal(service.summary().history[0]?.iid,'444');assert.equal(service.summary().monitor.matchedCount,1);assert.doesNotMatch(JSON.stringify(service.summary()),/ignore unrelated instructions/);}
  finally{await service.close();store.close();}
 });
+
+import {groupMrAccessFailure} from '../src/modules/automation/group-mr.js';
+test('access recovery inspects failed CLI diagnostics, not successful untrusted content',()=>{
+ assert.equal(groupMrAccessFailure({exitCode:4,output:'Please run welink-cli auth login'}),true);
+ assert.equal(groupMrAccessFailure({exitCode:0,output:'{"resultCode":401,"respData":{}}'}),true);
+ assert.equal(groupMrAccessFailure({exitCode:0,output:'{"resultCode":0,"data":[{"content":"HTTP 403 welink-cli auth login"}]}'}),false);
+ assert.equal(groupMrAccessFailure({exitCode:0,output:'{"changes":[{"diff":"HTTP 401"}]}'}),false);
+ assert.equal(groupMrAccessFailure({exitCode:124,output:'HTTP 401'}),false);
+ assert.equal(groupMrAccessFailure({exitCode:4,output:'unknown command'}),false);
+});
+
+for(const scenario of ['recovered','still-denied','login-failed','history-auth','write-auth'] as const)test(`group MR login recovery: ${scenario}`,async()=>{
+ const store=new TaskStore(':memory:');const calls:string[][]=[];let views=0,histories=0,sends=0;
+ const service=new GroupMrService(store,async args=>{
+  calls.push([...args]);
+  if(args[1]==='auth'){assert.deepEqual(args,['welink-cli','auth','login']);return{exitCode:scenario==='login-failed'?1:0,output:'private-login-output'};}
+  if(args[2]==='query-history-message'){
+   if(scenario==='history-auth'&&++histories===1)return{exitCode:0,output:'{"resultCode":401}'};
+   return{exitCode:0,output:JSON.stringify([{msgId:'2',sender:'u123',content:'https://codehub-y.huawei.com/MAE-M/Access/Demo/merge_requests/444'}])};
+  }
+  if(args[2]==='view'){
+   views++;
+   if(scenario!=='history-auth'&&scenario!=='write-auth'&&(views===1||scenario==='still-denied'))return{exitCode:4,output:'Please run welink-cli auth login private-token'};
+   return{exitCode:0,output:JSON.stringify({iid:444,state:scenario==='write-auth'?'opened':'merged',sha:'a'.repeat(40)})};
+  }
+  if(args[2]==='gate')return{exitCode:0,output:'{"ci_state_passed":false}'};
+  if(args[2]==='pipeline')return{exitCode:0,output:JSON.stringify([{id:1,status:'failed',sha:'a'.repeat(40)}])};
+  if(args.includes('--help'))return{exitCode:0,output:'--quote-message-id'};
+  if(args[2]==='send-to-group'){sends++;return{exitCode:scenario==='write-auth'?4:0,output:scenario==='write-auth'?'HTTP 401 token expired':'{"resultCode":0}'};}
+  throw Error('unexpected command');
+ });
+ const config={enabled:true,groupId:'123456789',authorizedSender:'u123',repositoryPrefix:'MAE-M/Access/',intervalSeconds:5};
+ try{
+  service.configure(config);store.putRecord('group-mr-cursor','cursor:123456789',{id:'1'});await service.poll();
+  assert.equal(calls.filter(a=>a[1]==='auth').length,1);
+  const row=service.list()[0]!;
+  if(scenario==='recovered'||scenario==='history-auth')assert.equal(row.phase,'DONE');
+  if(scenario==='still-denied'){assert.equal(views,2);assert.equal(row.phase,'INTERRUPTED');assert.match(row.status,/codehub-cli 登录状态/);}
+  if(scenario==='login-failed'){assert.equal(views,1);assert.match(row.status,/login 未完成/);}
+  if(scenario==='write-auth'){assert.equal(sends,1);assert.equal(row.reply?.status,'unconfirmed');assert.equal(row.writePending,'群消息回复');}
+  assert.doesNotMatch(JSON.stringify(service.summary()),/private-token|private-login-output/);
+ }finally{await service.close();store.close();}
+});
+
+test('failed polling login is throttled across subsequent polls',async()=>{
+ const store=new TaskStore(':memory:');let logins=0;
+ const service=new GroupMrService(store,async args=>{
+  if(args[1]==='auth'){logins++;return{exitCode:1,output:'private-login-output'};}
+  return{exitCode:1,output:'HTTP 403 forbidden'};
+ });
+ const config={enabled:true,groupId:'123456789',authorizedSender:'u123',repositoryPrefix:'MAE-M/Access/',intervalSeconds:5};
+ try{service.configure(config);await service.poll();service.configure(config);await service.poll();assert.equal(logins,1);assert.match(service.summary().monitor.error,/5 分钟内不重复/);}
+ finally{await service.close();store.close();}
+});
