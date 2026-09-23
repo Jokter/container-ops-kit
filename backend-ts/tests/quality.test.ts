@@ -43,7 +43,7 @@ async function ready(reports:AutoUtReports,id:string){for(let i=0;i<100;i++){con
 test('Auto-UT 获取每个版本的最新报告；按分支创建并防止重复启动',async()=>{
  const store=new TaskStore(':memory:');let fetches=0;const quality=new QualityService(store,undefined,async(_url,init)=>{fetches++;const body=JSON.parse(String(init?.body)) as {queries:Array<{rawSql:string}>};assert.match(body.queries[0]!.rawSql,/max\(report_date\)/);return Response.json(payload([row]));}),auto=new FakeAutoUt(store),reports=new AutoUtReports(store,quality,auto);
  try{reports.configure(config());const run=await ready(reports,reports.fetchReport().id);assert.equal(run.plan.length,2);assert.deepEqual(run.plan.map(p=>p.baseBranch),['release/27','release/26']);assert.equal(run.plan[0]!.lineGoal,.8);assert.equal(run.plan[0]!.branchGoal,.7);await reports.start(run.id,'MANUAL');assert.deepEqual(auto.calls.map(c=>c.version),['R27C10','R27C00']);assert.deepEqual(auto.records.map(t=>t.ticket),['DTS1','DTS2']);await reports.start(run.id,'MANUAL');assert.equal(auto.calls.length,2);
- const fresh=await ready(reports,reports.fetchReport().id);assert.equal(fetches,4);await reports.start(fresh.id,'AUTOMATIC');assert.equal(auto.calls.length,2);assert.match(reports.get(fresh.id).messages.join(),/已有执行记录/);
+ assert.throws(()=>reports.fetchReport(),/已有 UT 修复任务/);assert.equal(fetches,2);assert.equal(auto.calls.length,2);
  }finally{await quality.close();await reports.close();auto.close();store.close();}
 });
 test('定时触发重新查询、同一时间点不重放；错过时间点不补跑',async()=>{
@@ -61,4 +61,32 @@ test('定时自动修复只消费成功版本，部分失败保留诊断信息',
 test('重启标记未完成查询，不重放外部任务；暂停清除下次执行时间',async()=>{
  const store=new TaskStore(':memory:');store.putRecord('auto-ut-report-run','unfinished',{id:'unfinished',status:'FETCHING',createdAt:'2026-01-01',messages:[],taskIds:[]});let queries=0;const quality=new QualityService(store,undefined,async()=>{queries++;return Response.json(payload([]));}),auto=new FakeAutoUt(store),reports=new AutoUtReports(store,quality,auto);
  try{assert.equal(reports.get('unfinished').status,'INTERRUPTED');assert.equal(queries,0);const c=config();c.schedule.enabled=true;assert.ok(reports.configure(c).nextRunAt);c.schedule.enabled=false;assert.equal(reports.configure(c).nextRunAt,null);}finally{await quality.close();await reports.close();auto.close();store.close();}
+});
+
+test('按版本报告拦截建单，绑定新单后使用原报告启动，不依赖其他版本单号',async()=>{
+ const store=new TaskStore(':memory:');let calls=0;
+ const quality=new QualityService(store,undefined,async(_url,init)=>{calls++;return Response.json(payload(String(init?.body).includes('R27C00')?[]:[row]));}),auto=new FakeAutoUt(store),reports=new AutoUtReports(store,quality,auto);
+ try{
+  const c=config();c.versions.forEach(v=>v.ticket='');c.ticket='';reports.configure(c);
+  const run=await ready(reports,reports.fetchReport().id);
+  assert.throws(()=>reports.assertCanCreate(run.id,'R27C00','tester'),/没有已确认/);
+  assert.throws(()=>reports.assertCanCreate(run.id,'R27C10','other'),/执行配置/);
+  assert.equal(reports.assertCanCreate(run.id,'R27C10','tester').id,run.id);
+  store.putRecord('dts-ticket','ticket',{username:'tester',version:'R27C10',ticket:'DTSNEW',status:'REVIEW'});
+  assert.throws(()=>reports.bindTicket(run.id,'R27C10','tester','DTSNEW'),/尚未确认/);
+  store.putRecord('dts-ticket','ticket',{username:'tester',version:'R27C10',ticket:'DTSNEW',status:'READY'});
+  reports.bindTicket(run.id,'R27C10','tester','DTSNEW');
+  await reports.start(run.id,'AUTOMATIC',['R27C10/Demo'],true);
+  assert.equal(auto.records[0]!.ticket,'DTSNEW');assert.equal(calls,2);
+  assert.throws(()=>reports.assertCanCreate(run.id,'R27C10','tester'),/已有 UT/);
+  const next=await ready(reports,reports.fetchReport().id);assert.deepEqual(next.config.versions.map(v=>v.version),['R27C00']);assert.equal(calls,3);
+  await reports.start(run.id,'AUTOMATIC',['R27C10/Demo'],true);assert.equal(auto.calls.length,1);
+ }finally{await reports.close();await quality.close();await auto.close();store.close();}
+});
+test('失败报告和正常指标不能建单或触发修复，分支变化要求重新获取',async()=>{
+ const store=new TaskStore(':memory:');let failed=true;
+ const quality=new QualityService(store,undefined,async()=>failed?new Response('',{status:503}):Response.json(payload([['Demo','Java','Access_智能驾舱组',0,1,.9,1,.9,100,20]]))),auto=new FakeAutoUt(store),reports=new AutoUtReports(store,quality,auto);
+ try{reports.configure(config());let run=await ready(reports,reports.fetchReport().id);assert.throws(()=>reports.assertCanCreate(run.id,'R27C10','tester'),/没有已确认/);
+ failed=false;run=await ready(reports,reports.fetchReport().id);assert.equal(run.plan.length,0);assert.throws(()=>reports.assertCanCreate(run.id,'R27C10','tester'),/没有已确认/);assert.equal(auto.calls.length,0);
+ }finally{await reports.close();await quality.close();await auto.close();store.close();}
 });

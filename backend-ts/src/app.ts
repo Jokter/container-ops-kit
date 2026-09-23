@@ -53,7 +53,7 @@ export async function createApp(config: Config) {
   app.get('/api/platform/health', async () => ({status:'UP',backend:'typescript',migrationStage:'complete'}));
   app.get('/api/health', async () => ({status:'UP'}));
   taskRoutes(app, runner);
-  dtsRoutes(app,store);welinkSettingsRoutes(app,store);
+  dtsRoutes(app,store,reports);welinkSettingsRoutes(app,store);
   languageSettingsRoutes(app,autoUt.languageSettings);
   environmentRoutes(app,environments,ssh);buildRoutes(app,builds);await autoUtRoutes(app,autoUt,schedules);containerResourceRoutes(app,containers);deploymentRoutes(app,deployments);
   return app;

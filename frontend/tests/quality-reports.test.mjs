@@ -36,13 +36,13 @@ test('质量检查独立查询多版本三种类型，结果区区分空数据',
 
 test('设置以抽屉呈现；取消恢复配置，保存持久化多版本映射',async()=>{
  let saved;const dom=page((path,o)=>{if(path==='/api/auto-ut/report-settings'&&o?.method==='PUT'){saved=JSON.parse(o.body);return{config:saved,nextRunAt:null};}});
- try{const d=open(dom,'auto-ut');await pause();assert.equal(d.querySelector('[data-q-connection]'),null);assert.equal(d.querySelector('[data-qw-open="ut-config"]').open,false);assert.equal(d.querySelector('[data-report-version]'),null);
+ try{const d=open(dom,'auto-ut');await pause();assert.equal(d.querySelector('[data-q-connection]'),null);assert.equal(d.querySelector('[data-qw-open="ut-config"]'),null);assert.equal(d.querySelector('[data-report-version]'),null);
  d.querySelector('[data-qw-drawer="versions"]').click();let input=d.querySelector('[data-report-branch]');input.value='changed';input.dispatchEvent(new dom.window.Event('input'));d.querySelector('[data-qw-close]').click();assert.match(d.querySelector('.qw-version-chip').textContent,/release\/27/);
  d.querySelector('[data-qw-drawer="versions"]').click();input=d.querySelector('[data-report-branch]');input.value='release/new';input.dispatchEvent(new dom.window.Event('input'));d.querySelector('[data-qw-save]').click();await pause();assert.equal(saved.versions[0].baseBranch,'release/new');assert.equal(d.querySelector('[role=dialog]'),null);assert.match(d.querySelector('.qw-version-chip').textContent,/release\/new/);
  }finally{await pause();dom.window.close();}
 });
 test('轮询刷新保持输入焦点、光标和抽屉滚动；Escape 取消编辑',async()=>{
- const dom=page();try{const d=open(dom,'auto-ut');await pause();d.querySelector('[data-qw-drawer="execution"]').click();let input=d.querySelector('#auto-ut-username');input.focus();input.value='tester-edit';input.dispatchEvent(new dom.window.Event('input'));input.setSelectionRange(3,3);d.querySelector('.qw-drawer-body').scrollTop=77;dom.window.render(false);input=d.querySelector('#auto-ut-username');assert.equal(d.activeElement,input);assert.equal(input.value,'tester-edit');assert.equal(input.selectionStart,3);assert.equal(d.querySelector('.qw-drawer-body').scrollTop,77);d.dispatchEvent(new dom.window.KeyboardEvent('keydown',{key:'Escape'}));assert.equal(d.querySelector('[role=dialog]'),null);d.querySelector('[data-qw-drawer="execution"]').click();assert.equal(d.querySelector('#auto-ut-username').value,'tester');}finally{await pause();dom.window.close();}
+ const dom=page();try{const d=open(dom,'auto-ut');await pause();d.querySelector('[data-automation-nav="settings"]').click();d.querySelector('[data-qw-drawer="execution"]').click();let input=d.querySelector('#auto-ut-username');input.focus();input.value='tester-edit';input.dispatchEvent(new dom.window.Event('input'));input.setSelectionRange(3,3);d.querySelector('.qw-drawer-body').scrollTop=77;dom.window.render(false);input=d.querySelector('#auto-ut-username');assert.equal(d.activeElement,input);assert.equal(input.value,'tester-edit');assert.equal(input.selectionStart,3);assert.equal(d.querySelector('.qw-drawer-body').scrollTop,77);d.dispatchEvent(new dom.window.KeyboardEvent('keydown',{key:'Escape'}));assert.equal(d.querySelector('[role=dialog]'),null);d.querySelector('[data-automation-nav="settings"]').click();d.querySelector('[data-qw-drawer="execution"]').click();assert.equal(d.querySelector('#auto-ut-username').value,'tester');}finally{await pause();dom.window.close();}
 });
 test('多选版本控件保持展开；检查类型可直接选择',async()=>{
  const dom=page();try{const d=open(dom,'quality');await pause();const picker=d.querySelector('[data-qw-open="picker-versions"]');picker.open=true;const selected=d.querySelector('[data-qw-pick="versions"][value="R26C10"]');selected.checked=true;selected.dispatchEvent(new dom.window.Event('change'));assert.equal(d.querySelector('[data-qw-open="picker-versions"]').open,true);assert.match(d.querySelector('[data-qw-open="picker-versions"] summary').textContent,/3/);d.querySelector('[data-q-kind="api"]').click();assert.equal(d.querySelector('[data-q-kind="api"]').checked,false);}finally{await pause();dom.window.close();}
@@ -97,21 +97,10 @@ test('选择框点击外部收起，内部多选保留展开，切换选择框�
  }finally{await pause();dom.window.close();}
 });
 
-test('执行设置自动建单回填单号，保留用户名目录并阻止重复点击',async()=>{
- let calls=0;
- const dom=page(path=>path==='/api/auto-ut/tickets'?(calls++,{ticket:'DTS2609220015806',status:'READY',message:'单号已填入'}):undefined);
- try{const d=open(dom,'auto-ut');await pause();d.querySelector('[data-qw-drawer="execution"]').click();
- const ticket=d.querySelector('#auto-ut-ticket');ticket.value='';ticket.dispatchEvent(new dom.window.Event('input'));
- d.querySelector('#auto-ut-create-ticket').click();assert.equal(d.querySelector('#auto-ut-create-ticket').disabled,true);await pause();
- assert.equal(d.querySelector('#auto-ut-ticket').value,'DTS2609220015806');assert.equal(d.querySelector('#auto-ut-username').value,'tester');assert.match(d.querySelector('.auto-ut-workspace').textContent,/\/tmp/);
- d.querySelector('#auto-ut-create-ticket').click();await pause();assert.equal(calls,1);
- }finally{await pause();dom.window.close();}
-});
-
 test('DTS Token 仅在密码框输入，保存后不回显并支持清除',async()=>{
  let configured=false,received='';
  const dom=page((path,options)=>{if(path!=='/api/auto-ut/dts-settings')return;if(options?.method==='PUT'){received=JSON.parse(options.body).token;configured=true;}if(options?.method==='DELETE')configured=false;return{configured};});
- try{const d=open(dom,'auto-ut');await pause();d.querySelector('[data-qw-drawer="execution"]').click();d.querySelector('#dts-configure').click();await pause();
+ try{const d=open(dom,'auto-ut');await pause();d.querySelector('[data-automation-nav="settings"]').click();d.querySelector('[data-qw-drawer="connection"]').click();await pause();
  assert.equal(d.querySelector('#dts-token').type,'password');assert.match(d.querySelector('#dts-status').textContent,/未配置/);
  d.querySelector('#dts-token').value='test-secret-token';d.querySelector('#dts-save').click();await pause();assert.equal(received,'test-secret-token');assert.equal(d.querySelector('#dts-token').value,'');assert.match(d.querySelector('#dts-status').textContent,/已配置/);assert.ok(!d.documentElement.outerHTML.includes('test-secret-token'));assert.ok(!JSON.stringify(dom.window.sessionStorage).includes('test-secret-token'));
  d.querySelector('#dts-clear').click();await pause();assert.match(d.querySelector('#dts-status').textContent,/未配置/);
@@ -140,25 +129,6 @@ test('批量清理逐项失败显示原因，失败记录保留',async()=>{
  try{dom.window.confirm=()=>true;const d=open(dom,'auto-ut');await pause();d.querySelector('[data-automation-nav="tasks"]').click();await pause();d.querySelector('[data-cleanup-records]').click();await pause();assert.match(d.querySelector('[role="alert"]').textContent,/进程停止失败/);assert.equal(d.querySelectorAll('[data-delete-record]').length,1);assert.equal(d.querySelector('[data-cleanup-records]').disabled,false);}finally{dom.window.close();}
 });
 
-test('已有自动单可刷新并继续草稿流转，成功后隐藏继续按钮',async()=>{
- const actions=[];let creates=0;
- const dom=page((path,options)=>{
-  if(path==='/api/auto-ut/tickets'){creates++;return {};}
-  if(path==='/api/auto-ut/tickets/control'){
-   const body=JSON.parse(options.body);actions.push(body);
-   return {ticket:'DTS1',username:'tester',version:'R27C10',status:body.action==='check'?'REVIEW':'READY',nodeStatus:body.action==='check'?'DTS001':'DTS009',currentHandler:'tester',message:body.action==='check'?'当前节点：草稿':'已到开发人员实施修改；处理人：tester'};
-  }
- });
- try{const d=open(dom,'auto-ut');await pause();d.querySelector('[data-qw-drawer="execution"]').click();
- assert.equal(d.querySelector('[data-dts-action="continue"]'),null);
- d.querySelector('[data-dts-action="check"]').click();await pause();
- assert.match(d.querySelector('[role="dialog"]').textContent,/当前节点：草稿/);
- d.querySelector('[data-dts-action="continue"]').click();assert.equal(d.querySelector('[data-dts-action="continue"]').disabled,true);await pause();
- assert.equal(d.querySelector('[data-dts-action="continue"]'),null);assert.match(d.querySelector('[role="dialog"]').textContent,/开发人员实施修改/);
- assert.deepEqual(actions,[{ticket:'DTS1',username:'tester',version:'R27C10',action:'check'},{ticket:'DTS1',username:'tester',version:'R27C10',action:'continue'}]);assert.equal(creates,0);
- }finally{await pause();dom.window.close();}
-});
-
 test('历史 MR 阻塞展示原因，取消不写入，确认后只解除指定记录',async()=>{
  const id='66666666-6666-4666-8666-666666666666';let released=false,writes=[];
  const dom=page((path,options)=>{
@@ -178,48 +148,35 @@ test('WeLink MCP token can be saved and cleared without returning it to the page
  try{const d=open(dom,'auto-ut');await pause();dom.window.qwOpen({type:'connection'});await pause();const input=d.querySelector('#welink-token');assert.equal(input.type,'password');input.value='test-token';d.querySelector('#welink-save').click();await pause();assert.equal(token,'test-token');assert.equal(d.querySelector('#welink-token').value,'');assert.match(d.querySelector('#welink-status').textContent,/已配置/);d.querySelector('#welink-clear').click();await pause();assert.equal(configured,false);}finally{await pause();dom.window.close();}
 });
 
-test('切换版本显示独立单号，修改用户名不继承旧用户单号',async()=>{
- const dom=page();
- try{const d=open(dom,'auto-ut');await pause();d.querySelector('[data-qw-drawer="execution"]').click();
- assert.equal(d.querySelector('#auto-ut-ticket').value,'DTS1');
- const select=d.querySelector('#dts-ticket-version');select.value='R27C00';select.dispatchEvent(new dom.window.Event('change'));
- assert.equal(d.querySelector('#auto-ut-ticket').value,'DTS2');
- const user=d.querySelector('#auto-ut-username');user.value='another';user.dispatchEvent(new dom.window.Event('input'));
- assert.equal(d.querySelector('#auto-ut-ticket').value,'');
- const again=d.querySelector('#dts-ticket-version');again.value='R27C10';again.dispatchEvent(new dom.window.Event('change'));
- assert.equal(d.querySelector('#auto-ut-ticket').value,'');
- }finally{dom.window.close();}
-});
 
-test('两个版本自动建单携带独立版本和请求 ID，回填保存互不覆盖',async()=>{
- const creates=[],saved=[];
- const dom=page((path,options)=>{
-  if(path==='/api/auto-ut/report-settings'&&options?.method==='PUT'){const c=JSON.parse(options.body);saved.push(c);return{config:c,nextRunAt:null};}
-  if(path==='/api/auto-ut/tickets'){const b=JSON.parse(options.body);creates.push(b);return{...b,ticket:b.version==='R27C10'?'DTS10':'DTS00',status:'READY',message:'已流转'};}
+function utFixture({cancelFirst=false,locked=false,failFlow=false}={}){
+ const c=structuredClone(config);c.versions.forEach(v=>v.ticket='');c.ticket='';let tickets=[],tasks=locked?[{id:'old',repository:'Demo',reportVersion:'R27C00',baseBranch:'release/26',status:'BASELINE_RUNNING',progress:20,nextStage:'BASELINE'}]:[];
+ const run={id:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',jobId:'q1',status:'READY',createdAt:'2026-09-23',config:structuredClone(c),trigger:'MANUAL',messages:[],claimed:[],taskIds:[],versionResults:{R27C10:'SUCCEEDED',R27C00:'EMPTY'},plan:[{version:'R27C10',repository:'Demo',baseBranch:'release/27',configured:true,failedTests:1,lineCoverage:.4,lineGoal:.8,branchCoverage:.4,branchGoal:.7}]};
+ const creates=[],starts=[],fetches=[];let count=0;
+ const dom=page((path,o)=>{
+  if(path==='/api/auto-ut/report-settings'){if(o?.method==='PUT')Object.assign(c,JSON.parse(o.body));return{config:structuredClone(c),nextRunAt:null};}
+  if(path==='/api/auto-ut/reports'){if(o?.method==='POST'){fetches.push(JSON.parse(o.body));return run;}return[run];}
+  if(path==='/api/auto-ut/tasks')return tasks;
+  if(path==='/api/auto-ut/tickets'){if(o?.method!=='POST')return tickets;const body=JSON.parse(o.body);creates.push(body);count++;const result={...body,ticket:count===1&&cancelFirst?'DTS2609220015806':'DTS2609230012345',status:count===1&&cancelFirst?'CANCELLED':failFlow?'REVIEW':'READY',nodeStatus:failFlow?'DTS001':'DTS009',message:count===1&&cancelFirst?'旧单已撤销，请重新建单':failFlow?'单号已保留，流转待确认 '+('<long-error>'.repeat(1000)):'已到开发人员实施修改'};tickets=[result];return result;}
+  if(path===`/api/auto-ut/reports/${run.id}/tasks`){const body=JSON.parse(o.body);starts.push(body);tasks.push({id:'new',repository:'Demo',reportVersion:'R27C10',baseBranch:'release/27',sourceReportId:run.id,status:'BASELINE_RUNNING',progress:25,nextStage:'BASELINE'});run.claimed.push('R27C10/Demo');run.taskIds.push('new');return run;}
+  if(path==='/api/auto-ut/tickets/control'){tickets[0]={...tickets[0],status:'READY',nodeStatus:'DTS009',message:'流转成功'};return tickets[0];}
  });
- try{const d=open(dom,'auto-ut');await pause();d.querySelector('[data-qw-drawer="execution"]').click();
- for(const version of ['R27C10','R27C00']){
-  const select=d.querySelector('#dts-ticket-version');select.value=version;select.dispatchEvent(new dom.window.Event('change'));
-  const input=d.querySelector('#auto-ut-ticket');input.value='';input.dispatchEvent(new dom.window.Event('input'));
-  d.querySelector('#auto-ut-create-ticket').click();await pause();
-  assert.equal(d.querySelector('#auto-ut-ticket').value,version==='R27C10'?'DTS10':'DTS00');
- }
- assert.deepEqual(creates.map(c=>c.version),['R27C10','R27C00']);assert.notEqual(creates[0].requestId,creates[1].requestId);
- assert.deepEqual(saved.at(-1).versions.map(v=>v.ticket),['DTS10','DTS00']);
- d.querySelector('[data-qw-close]').click();d.querySelector('[data-qw-drawer="execution"]').click();
- assert.equal(d.querySelector('#auto-ut-ticket').value,'DTS00');
- }finally{dom.window.close();}
+ return{dom,c,creates,starts,fetches,run};
+}
+test('版本卡片直接建单与跳转，空报告禁止建单，建单成功后从原报告自动启动',async()=>{
+ const f=utFixture();try{const d=open(f.dom,'auto-ut');await pause();assert.equal(d.querySelector('#auto-ut-username'),null);assert.equal(d.querySelector('#dts-ticket-version'),null);assert.equal(d.querySelector('[data-ut-create="R27C00"]').disabled,true);assert.ok(d.body.textContent.includes('选择治理仓库'));
+ d.querySelector('[data-ut-create="R27C10"]').click();await pause();await pause();assert.equal(f.creates.length,1);assert.equal(f.creates[0].version,'R27C10');assert.equal(f.creates[0].reportId,f.run.id);assert.deepEqual(f.starts[0].selected,['R27C10/Demo']);assert.equal(f.fetches.length,0);
+ const link=d.querySelector('a[href*="DTSPortal/ticket/DTS2609230012345"]');assert.ok(link);assert.equal(link.target,'_blank');assert.equal(d.querySelector('[data-ut-fetch="R27C10"]').disabled,true);assert.equal(d.querySelector('[data-report-select]').disabled,true);
+ }finally{await pause();f.dom.window.close();}
 });
-
-test('撤销旧单后清空本版本单号与请求标识，下次点击使用新请求建单',async()=>{
- let creates=0;const requests=[];
- const dom=page((path,options)=>{
-  if(path==='/api/auto-ut/tickets'){const b=JSON.parse(options.body);requests.push(b);creates++;return {...b,ticket:creates===1?'DTSOLD':'DTSNEW',status:creates===1?'CANCELLED':'READY',message:creates===1?'问题单已撤销，请重新点击自动建单':'已建单'};}
- });
- try{const d=open(dom,'auto-ut');await pause();d.querySelector('[data-qw-drawer="execution"]').click();
- const input=d.querySelector('#auto-ut-ticket');input.value='';input.dispatchEvent(new dom.window.Event('input'));
- d.querySelector('#auto-ut-create-ticket').click();await pause();assert.equal(d.querySelector('#auto-ut-ticket').value,'');assert.match(d.querySelector('[role="dialog"]').textContent,/已撤销/);assert.equal(creates,1);
- d.querySelector('#auto-ut-create-ticket').click();await pause();assert.equal(d.querySelector('#auto-ut-ticket').value,'DTSNEW');assert.notEqual(requests[0].requestId,requests[1].requestId);
- const select=d.querySelector('#dts-ticket-version');select.value='R27C00';select.dispatchEvent(new dom.window.Event('change'));assert.equal(d.querySelector('#auto-ut-ticket').value,'DTS2');
- }finally{dom.window.close();}
+test('已有版本任务禁止刷新且批量获取只请求未锁定版本',async()=>{
+ const f=utFixture({locked:true});try{const d=open(f.dom,'auto-ut');await pause();assert.equal(d.querySelector('[data-ut-fetch="R27C00"]').disabled,true);d.querySelector('[data-report-fetch]').click();await pause();assert.deepEqual(f.fetches[0].versions,['R27C10']);}finally{await pause();f.dom.window.close();}
+});
+test('撤销单退出当前版本，新请求重新建单且单号全部可直接看到',async()=>{
+ const f=utFixture({cancelFirst:true});try{const d=open(f.dom,'auto-ut');await pause();d.querySelector('#ut-auto-start').click();d.querySelector('[data-ut-create="R27C10"]').click();await pause();assert.match(d.body.textContent,/已撤销/);assert.ok(d.querySelector('a[href$="DTS2609220015806"]'));d.querySelector('[data-ut-create="R27C10"]').click();await pause();assert.notEqual(f.creates[0].requestId,f.creates[1].requestId);assert.equal(f.starts.length,0);assert.equal(d.querySelector('[data-ut-start="R27C10"]').disabled,false);}finally{await pause();f.dom.window.close();}
+});
+test('流转未确认保留单号且不启动，长错误折叠详情，确认后可自动启动',async()=>{
+ const f=utFixture({failFlow:true});try{const d=open(f.dom,'auto-ut');await pause();d.querySelector('[data-ut-create="R27C10"]').click();await pause();assert.equal(f.starts.length,0);assert.equal(d.querySelector('[data-ut-start="R27C10"]').disabled,true);assert.ok(d.querySelector('.ut-error-summary'));assert.equal(d.querySelector('long-error'),null);
+ d.querySelector('[data-qw-drawer="ut-errors"]').click();assert.match(d.querySelector('.ut-error-detail').textContent,/<long-error>/);d.querySelector('[data-qw-close]').click();d.querySelector('[data-ut-check="R27C10"]').click();await pause();await pause();assert.equal(f.starts.length,1);
+ }finally{await pause();f.dom.window.close();}
 });
