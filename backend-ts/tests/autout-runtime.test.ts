@@ -1,3 +1,4 @@
+import {compileCommand,defaultCompileCommand,taskMavenCommand} from '../src/modules/autout/compile-command.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,rm,writeFile} from 'node:fs/promises';
@@ -28,4 +29,26 @@ test('修改门禁忽略非测试产物且只收集 src/test 文件',async t=>{
  await writeFile(join(root,'src/test/java/DemoTest.java'),'class DemoTest { @Test void ok(){ assertTrue(value); } }\n// repaired');await mkdir(join(root,'.codecovcli/report'),{recursive:true});await writeFile(join(root,'.codecovcli/report/result.json'),'{}');await writeFile(join(root,'src/main/java/Demo.java'),'class Demo { int ignored; }');
  const now=new Date().toISOString(),task:AutoUtTask={id:'test-task',repository:'demo',username:'tester',ticket:'DTS1',baseBranch:'main',repairBranch:'repair',reportedFailedTests:1,lineGoal:.8,branchGoal:.7,workspaceRoot:root,executionMode:'AUTOMATIC',status:'REPAIRING',nextStage:'REPAIR',progress:45,attempts:1,message:'',pullRequestUrl:'',createdAt:now,updatedAt:now,history:[],liveEvents:[],liveSequence:0};
  const guard=await service['inspect'](task,root,'门禁测试');assert.equal(guard.accepted,true);assert.deepEqual(guard.changedFiles,['src/test/java/DemoTest.java']);
+});
+
+test('临时编译命令只接受固定模板和模块选择，拒绝额外命令与越界路径',()=>{
+ const base=defaultCompileCommand.join(' ');
+ assert.deepEqual(compileCommand(base+' -pl model,website-service -am'),[...defaultCompileCommand,'-pl','model,website-service','-am']);
+ for(const suffix of [' && echo bad',' -pl ../other',' -pl /tmp/demo',' -pl model;echo',' -Dtest=Skip',' deploy',' -pl model -s other.xml','\n'])assert.throws(()=>compileCommand(base+suffix));
+ assert.throws(()=>compileCommand(base.replace('test-compile','deploy')));
+});
+test('任务模块范围在编译和后续重试保留，旧失败记录可识别',async()=>{
+ const store=new TaskStore(':memory:'),service=new AutoUtService(store,undefined,false);
+ const task:AutoUtTask={id:'compile',repository:'demo',username:'tester',ticket:'DTS1',baseBranch:'main',repairBranch:'repair',reportedFailedTests:1,lineGoal:.8,branchGoal:.7,workspaceRoot:'/tmp',executionMode:'AUTOMATIC',status:'WAITING_EXTERNAL',nextStage:'BASELINE',progress:25,attempts:0,message:'刷新Maven依赖与预编译失败，退出码 1',pullRequestUrl:'',createdAt:'',updatedAt:'',history:[],liveEvents:[],liveSequence:0};
+ store.putRecord('auto-ut-task',task.id,task);assert.ok(service.get(task.id).compileFailure);
+ const commands:string[][]=[];service['command']=async(_task,args)=>{commands.push(args);return {exitCode:0,output:''};};
+ const evidence={tests:1,failures:0,errors:0,skipped:0,caseIds:['T#test'],failedIds:[],passedIds:['T#test'],details:''};
+ service['testEvidence']=async(_task,args)=>{commands.push(args);return {evidence,exitCode:0};};
+ const repository=service['repository']('demo')!;
+ task.mavenSelection=['-pl','model,website-service'];
+ try{await service['baseline'](task,repository,'/tmp');assert.deepEqual(task.mavenSelection,['-pl','model,website-service']);assert.equal(task.compileFailure,undefined);assert.ok(commands[0]!.includes('-pl'));assert.ok(!commands[1]!.includes('-pl'));
+ await service['baseline'](task,repository,'/tmp');assert.deepEqual(commands[2],[...defaultCompileCommand,'-pl','model,website-service']);
+ assert.deepEqual(taskMavenCommand(['mvn','test'],task.mavenSelection),['mvn','test','-pl','model,website-service']);assert.deepEqual(taskMavenCommand(['mvn','test']),['mvn','test']);
+ task.status='REPAIRING';store.putRecord('auto-ut-task',task.id,task);assert.throws(()=>service.retryCompile(task.id,defaultCompileCommand.join(' ')),/仅可/);
+ }finally{await service.close();store.close();}
 });

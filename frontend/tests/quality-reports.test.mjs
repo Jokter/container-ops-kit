@@ -180,3 +180,12 @@ test('流转未确认保留单号且不启动，长错误折叠详情，确认�
  d.querySelector('[data-qw-drawer="ut-errors"]').click();assert.match(d.querySelector('.ut-error-detail').textContent,/<long-error>/);d.querySelector('[data-qw-close]').click();d.querySelector('[data-ut-check="R27C10"]').click();await pause();await pause();assert.equal(f.starts.length,1);
  }finally{await pause();f.dom.window.close();}
 });
+test('编译失败可编辑本次命令重试，取消不提交',async()=>{
+ const command='mvn -B -ntp -U -s .ci/settings.xml test-compile -DskipTests -Djacoco.skip=true';
+ const task={id:'compile-task',repository:'Demo',reportVersion:'R27C10',status:'WAITING_EXTERNAL',nextStage:'BASELINE',progress:25,workspaceRoot:'/tmp',message:'预编译失败',compileFailure:{command}};const calls=[];
+ const dom=page((path,o)=>{if(path==='/api/auto-ut/tasks')return [task];if(path==='/api/auto-ut/tasks/compile-task/compile-retry'){calls.push(JSON.parse(o.body));return task;}});
+ try{const d=open(dom,'auto-ut');await pause();d.querySelector('[data-automation-nav="tasks"]').click();d.querySelector('[data-governance-detail="compile-task"]').click();
+ dom.window.prompt=(_message,initial)=>{assert.equal(initial,command);return null;};d.querySelector('[data-auto-ut-compile]').click();assert.equal(calls.length,0);
+ dom.window.prompt=()=>command+' -pl model,website-service';d.querySelector('[data-auto-ut-compile]').click();await pause();assert.deepEqual(calls,[{command:command+' -pl model,website-service'}]);
+ }finally{await pause();dom.window.close();}
+});
