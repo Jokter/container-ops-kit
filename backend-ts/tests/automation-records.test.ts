@@ -51,3 +51,25 @@ test('重新治理前核对已删除任务的待合入 MR，避免隐藏记录�
  autoUt.resolveMr=async target=>{assert.equal(target,id);checked++;const saved=autoUt.governanceRecords()[0]!;saved.governance.mrState='MERGED';saved.status='RESOLVED';store.putRecord('auto-ut-governance',id,saved);return saved;};
  try{assert.equal(autoUt.blocksRepository('Demo','R27C10','master'),true);await autoUt.refreshDeletedMrs('Other','R27C10','master');assert.equal(checked,0);await autoUt.refreshDeletedMrs('Demo','R27C10','master');assert.equal(checked,1);assert.equal(autoUt.blocksRepository('Demo','R27C10','master'),false);assert.equal(autoUt.governanceSummary().records.length,0);}finally{await autoUt.close();store.close();}
 });
+
+test('隐藏 MR 核验失败隔离到对应仓库，手动解除保留远端状态和审计',async()=>{
+ const store=new TaskStore(':memory:'),autoUt=new AutoUtService(store,undefined,false),quality=new QualityService(store),reports=new AutoUtReports(store,quality,autoUt,undefined,false);
+ const archived='66666666-6666-4666-8666-666666666666',report='77777777-7777-4777-8777-777777777777';
+ store.putRecord('auto-ut-governance',archived,{id:archived,repository:'Broken',reportVersion:'R27C10',baseBranch:'master',status:'MR_PENDING',message:'',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),pullRequestUrl:'https://example.com/merge_requests/1',governance:{mode:'REPAIR',coverageLow:false,maxClasses:5,mrState:'PENDING'}});
+ store.putRecord('automation-record-hidden',archived,{id:archived});
+ const plan=['Broken','Healthy'].map(repository=>({repository,version:'R27C10',baseBranch:'master',failedTests:1,lineCoverage:.5,lineGoal:.8,branchCoverage:.5,branchGoal:.7,configured:true,repositoryUrl:'ssh://example/demo',repositoryCustomized:false,repairBranch:'fix'}));
+ store.putRecord('auto-ut-report-run',report,{id:report,trigger:'MANUAL',status:'READY',createdAt:new Date().toISOString(),config,plan,taskIds:[],messages:[],claimed:[]});
+ let checks=0;const started:string[]=[];autoUt.resolveMr=async()=>{checks++;throw Error('CodeHub 返回缺少必要字段');};autoUt.start=async buffer=>{started.push(buffer.toString());return[];};
+ try{const result=await reports.start(report,'AUTOMATIC');assert.equal(started.length,1);assert.match(started[0]!,/Healthy/);assert.match(result.messages.join('\n'),/历史 MR 待核验/);
+ assert.equal(autoUt.blocksRepository('Broken','R27C10','master'),true);assert.equal(autoUt.blocksRepository('Broken','R27C00','master'),false);
+ const summary=autoUt.governanceSummary();assert.equal(summary.records.length,0);assert.equal(summary.blockedRecords.length,1);assert.match(summary.blockedRecords[0]!.mrCheck!.error,/缺少必要字段/);
+ const released=autoUt.releaseArchivedMr(archived,'旧 MR 已失效，确认重新治理');assert.equal(released.governance.mrState,'PENDING');assert.equal(released.mrBlockRelease!.source,'USER');assert.ok(released.mrBlockRelease!.at);
+ assert.equal(autoUt.blocksRepository('Broken','R27C10','master'),false);assert.equal(autoUt.governanceSummary().blockedRecords.length,0);
+ await autoUt.refreshDeletedMrs('Broken','R27C10','master');assert.equal(checks,1);
+ await reports.start(report,'AUTOMATIC');assert.equal(started.length,2);assert.match(started[1]!,/Broken/);
+ }finally{await reports.close();await quality.close();await autoUt.close();store.close();}
+});
+test('手动解除不能绕过仍存在的任务或未隐藏的记录',async()=>{
+ const store=new TaskStore(':memory:'),autoUt=new AutoUtService(store,undefined,false);const id='88888888-8888-4888-8888-888888888888';
+ try{store.putRecord('auto-ut-governance',id,{id,governance:{mrState:'PENDING'}});assert.throws(()=>autoUt.releaseArchivedMr(id,'test'),/只能解除/);store.putRecord('automation-record-hidden',id,{id});store.putRecord('auto-ut-task',id,{id});assert.throws(()=>autoUt.releaseArchivedMr(id,'test'),/只能解除/);}finally{store.deleteRecord('auto-ut-task',id);await autoUt.close();store.close();}
+});

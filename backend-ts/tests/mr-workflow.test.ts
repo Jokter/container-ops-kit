@@ -154,3 +154,10 @@ test('authorization rejection matching requires an exact unambiguous account and
  assert.deepEqual(rejectedAuthorizedPeople(message,'reviewers',['z30003938']),[]);
  assert.deepEqual(rejectedAuthorizedPeople(message.replace('CH.00201400','CH.OTHER'),'approvers',['z30003938']),[]);
 });
+
+test('only explicit MR absence permits automatic unblocking, never generic 404 or permission errors',async()=>{
+ const {explicitlyMissingMr}=await import('../src/modules/autout/mr-codehub.js');
+ assert.equal(explicitlyMissingMr(1,'error: HTTP 404: Merge request not found'),true);
+ for(const output of ['error: HTTP 404: Not found','error: HTTP 403: Merge request not found','error: HTTP 404: Project not found','error: HTTP 404: Merge request not found or access denied','{}'])assert.equal(explicitlyMissingMr(1,output),false,output);
+ assert.equal(explicitlyMissingMr(0,'error: HTTP 404: Merge request not found'),false);
+});

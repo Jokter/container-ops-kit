@@ -2,7 +2,7 @@ import {AutomationLanguageSettings} from '../automation/language-settings.js';
 import {targetedTestCommand,mergeTargetedEvidence,testClass} from './targeted-tests.js';
 import {MrConfiguration} from './mr-settings.js';
 import {MrWorkflow,newTracking,type MrTracking} from './mr-workflow.js';
-import {parseMr,safeMrUrl} from './mr-codehub.js';
+import {explicitlyMissingMr,parseMr,safeMrUrl} from './mr-codehub.js';
 import {readUtXml,decideGovernance,verifiedChanges,utRegressionPassed,governanceMetrics,type Governance,type GovernanceRecord,type UtEvidence} from './governance.js';
 import type {UnifiedSchedules} from '../automation/schedules.js';
 import {randomUUID,createHash} from 'node:crypto';
@@ -83,13 +83,17 @@ export class AutoUtService{
  async close(){this.closing=true;clearInterval(this.timer);for(const c of this.controllers.values())c.abort();await Promise.allSettled(this.executions.values());}
  private save(task:AutoUtTask){task.updatedAt=new Date().toISOString();this.store.putRecord('auto-ut-task',task.id,task,task.createdAt);if(task.governance){const {id,repository,reportVersion,baseBranch,status,message,createdAt,updatedAt,pullRequestUrl}=task;const governance={...task.governance,baseline:undefined,verified:undefined};this.store.putRecord('auto-ut-governance',id,{id,repository,reportVersion,baseBranch,status,message,createdAt,updatedAt,pullRequestUrl,governance},createdAt);}}
  governanceRecords(){return this.store.records<GovernanceRecord>('auto-ut-governance');}
- governanceSummary(version='',days=0){const cutoff=days?Date.now()-days*86400000:0;const records=this.governanceRecords().filter(r=>(!version||r.reportVersion===version)&&Date.parse(r.createdAt)>=cutoff);return{metrics:governanceMetrics(records),records:records.filter(r=>!this.store.getRecord('automation-record-hidden',r.id))};}
+ governanceSummary(version='',days=0){const cutoff=days?Date.now()-days*86400000:0;const records=this.governanceRecords().filter(r=>(!version||r.reportVersion===version)&&Date.parse(r.createdAt)>=cutoff);return{blockedRecords:this.archivedMrBlockers(),metrics:governanceMetrics(records),records:records.filter(r=>!this.store.getRecord('automation-record-hidden',r.id))};}
  async resolveMr(id:string,_state:'MERGED'|'CLOSED'){
   const archived=this.store.getRecord<GovernanceRecord>('auto-ut-governance',id);
   if(!this.store.getRecord<AutoUtTask>('auto-ut-task',id)){
    if(!archived?.pullRequestUrl)throw Object.assign(new Error('MR 记录不存在'),{statusCode:404});
-   const result=await runProcess(['codehub-cli','mr','view',safeMrUrl(archived.pullRequestUrl),'--format','json'],process.cwd(),120000);
-   if(result.exitCode!==0)throw Object.assign(new Error('无法读取远端 MR 状态'),{statusCode:409});const view=parseMr(result.output);
+   const result=await runProcess(['codehub-cli','mr','view',safeMrUrl(archived.pullRequestUrl),'--format','json','--columns','iid,id,mr_url,web_url,state'],process.cwd(),120000);
+   const latest=this.store.getRecord<GovernanceRecord>('auto-ut-governance',id);if(latest?.mrBlockRelease)return latest;
+   if(explicitlyMissingMr(result.exitCode,result.output)){archived.mrCheck={state:'MISSING',checkedAt:new Date().toISOString(),error:'CodeHub 明确返回 MR 不存在'};archived.mrBlockRelease={at:new Date().toISOString(),reason:archived.mrCheck.error,source:'REMOTE_MISSING'};this.store.putRecord('auto-ut-governance',id,archived,archived.createdAt);return archived;}
+   if(result.exitCode!==0)throw Object.assign(new Error('无法读取远端 MR 状态（CLI 退出码 '+result.exitCode+'），请核对权限、网络及 MR 地址。'),{statusCode:409});const view=parseMr(result.output);
+   if(view.state!=='opened'&&view.state!=='merged'&&view.state!=='closed'&&view.state!=='locked')throw Error('CodeHub 未返回明确的 MR 状态');
+   archived.mrCheck={state:view.state==='opened'||view.state==='locked'?'OPENED':'UNKNOWN',checkedAt:new Date().toISOString(),error:view.state==='opened'||view.state==='locked'?'远端 MR 尚未结束':''};this.store.putRecord('auto-ut-governance',id,archived,archived.createdAt);
    if(view.state==='merged'||view.state==='closed'){archived.governance.mrState=view.state==='merged'?'MERGED':'CLOSED';archived.status=view.state==='merged'?'RESOLVED':'MR_CLOSED';archived.updatedAt=new Date().toISOString();if(view.state==='merged')archived.governance.completedAt=archived.updatedAt;this.store.putRecord('auto-ut-governance',id,archived,archived.createdAt);}return archived;
   }
   const task=this.get(id);if(!task.mr?.iid)throw Object.assign(new Error('缺少 MR 跟踪记录'),{statusCode:409});await this.trackOne(task,true);return this.governanceRecords().find(r=>r.id===id);}
@@ -122,10 +126,24 @@ export class AutoUtService{
   m.nextAt=0;this.save(task);if(action==='check')await this.mrWorkflow.checkTerminal(task);else await this.mrWorkflow.tick(task);return this.get(id);
  }
 
- async refreshDeletedMrs(repository:string,version:string,baseBranch:string){
-  for(const r of this.governanceRecords().filter(r=>r.governance.mrState==='PENDING'&&r.repository.toLowerCase()===repository.toLowerCase()&&(r.reportVersion===version||!r.reportVersion&&r.baseBranch===baseBranch)&&this.store.getRecord('automation-record-hidden',r.id)))await this.resolveMr(r.id,'MERGED');
+ archivedMrBlockers(){return this.governanceRecords().filter(r=>r.governance.mrState==='PENDING'&&!r.mrBlockRelease&&this.store.getRecord('automation-record-hidden',r.id)&&!this.store.getRecord('auto-ut-task',r.id));}
+ releaseArchivedMr(id:string,reason:string){
+  const record=this.store.getRecord<GovernanceRecord>('auto-ut-governance',id);
+  if(!record||record.governance.mrState!=='PENDING'||!this.store.getRecord('automation-record-hidden',id)||this.store.getRecord('auto-ut-task',id))throw Object.assign(Error('只能解除已删除任务的历史待确认 MR 阻塞'),{statusCode:409});
+  if(record.mrBlockRelease)return record;
+  record.mrBlockRelease={at:new Date().toISOString(),reason,source:'USER'};record.updatedAt=new Date().toISOString();this.store.putRecord('auto-ut-governance',id,record,record.createdAt);return record;
  }
- blocksRepository(repository:string,version:string,baseBranch:string){return this.tasks().some(t=>t.repository.toLowerCase()===repository.toLowerCase()&&(t.reportVersion===version||!t.reportVersion&&t.baseBranch===baseBranch)&&!['RESOLVED','MR_CLOSED','NO_CHANGE'].includes(t.status))||this.governanceRecords().some(r=>r.repository.toLowerCase()===repository.toLowerCase()&&(r.reportVersion===version||!r.reportVersion&&r.baseBranch===baseBranch)&&r.governance.mrState==='PENDING')||this.tasks().some(t=>!t.governance&&t.pullRequestUrl&&t.repository.toLowerCase()===repository.toLowerCase()&&t.reportVersion===version);}
+ async refreshDeletedMrs(repository:string,version:string,baseBranch:string){
+  for(const r of this.archivedMrBlockers().filter(r=>r.repository.toLowerCase()===repository.toLowerCase()&&(r.reportVersion===version||!r.reportVersion&&r.baseBranch===baseBranch))){
+   try{await this.resolveMr(r.id,'MERGED');}
+   catch(error){
+    const latest=this.store.getRecord<GovernanceRecord>('auto-ut-governance',r.id);if(!latest||latest.mrBlockRelease)continue;
+    latest.mrCheck={state:'UNKNOWN',checkedAt:new Date().toISOString(),error:error instanceof Error?error.message.slice(0,600):'历史 MR 状态核验失败'};
+    this.store.putRecord('auto-ut-governance',latest.id,latest,latest.createdAt);
+   }
+  }
+ }
+ blocksRepository(repository:string,version:string,baseBranch:string){return this.tasks().some(t=>t.repository.toLowerCase()===repository.toLowerCase()&&(t.reportVersion===version||!t.reportVersion&&t.baseBranch===baseBranch)&&!['RESOLVED','MR_CLOSED','NO_CHANGE'].includes(t.status))||this.governanceRecords().some(r=>r.repository.toLowerCase()===repository.toLowerCase()&&(r.reportVersion===version||!r.reportVersion&&r.baseBranch===baseBranch)&&r.governance.mrState==='PENDING'&&!r.mrBlockRelease)||this.tasks().some(t=>!t.governance&&t.pullRequestUrl&&t.repository.toLowerCase()===repository.toLowerCase()&&t.reportVersion===version);}
  private change(task:AutoUtTask,status:Status,message:string){task.status=status;task.message=message;task.updatedAt=new Date().toISOString();const event={time:task.updatedAt,status,message};task.history.push(event);this.logs.task('auto-ut',task.id,{kind:'history',...event});}
  private emit(task:AutoUtTask,type:string,content='',toolCallId='',toolName='',error=false,replace=false){const event={sequence:++task.liveSequence,time:new Date().toISOString(),type,content,toolCallId,toolName,error,replace};
   if(replace&&toolCallId)task.liveEvents=task.liveEvents.filter(e=>!(e.replace&&e.type===type&&e.toolCallId===toolCallId));task.liveEvents.push(event);this.logs.task('auto-ut',task.id,{kind:'live',...event});if(task.liveEvents.length>10000)task.liveEvents.shift();this.save(task);return event;}
@@ -365,6 +383,7 @@ await app.register(multipart);const id=(p:unknown)=>z.object({id:z.uuid()}).pars
  app.post('/api/auto-ut/scan',async request=>{const{fields,file}=await multipartFields(request);return service.scan(file,fields.get('username')??'',fields.get('ticket')??'',fields.get('baseBranch')??'');});
  app.post('/api/auto-ut/tasks',async(request,reply)=>{const{fields,file}=await multipartFields(request);const mode=z.enum(['MANUAL','AUTOMATIC']).default('AUTOMATIC').parse(fields.get('executionMode'));return reply.code(202).send(await service.start(file,fields.get('username')??'',fields.get('ticket')??'',fields.get('baseBranch')??'',fields.get('workspaceRoot')??'',mode));});
  app.get('/api/auto-ut/governance',async req=>{const q=z.object({version:z.string().optional(),days:z.coerce.number().int().min(0).max(365).default(0)}).parse(req.query);return service.governanceSummary(q.version,q.days);});
+ app.post('/api/auto-ut/governance/:id/release-block',async req=>service.releaseArchivedMr(id(req.params),z.object({reason:z.string().trim().min(1).max(500)}).parse(req.body).reason));
  app.post('/api/auto-ut/governance/:id/mr-state',async req=>service.resolveMr(id(req.params),z.object({state:z.enum(['MERGED','CLOSED'])}).parse(req.body).state));
  app.get('/api/auto-ut/tasks',async()=>service.tasks());app.get('/api/auto-ut/tasks/:id',async req=>service.get(id(req.params)));app.post('/api/auto-ut/tasks/:id/continuation',async(req,reply)=>reply.code(202).send(await service.continue(id(req.params))));app.delete('/api/auto-ut/tasks/:id',async(req,reply)=>reply.code(200).send(await service.deleteTask(id(req.params))));
  app.put('/api/auto-ut/repositories/:repository',async req=>{const{name}=z.object({name:z.string()}).parse({name:(req.params as{repository?:unknown}).repository});const{url}=z.object({url:z.string().max(2000)}).parse(req.body);return service.saveRepository(name,url);});

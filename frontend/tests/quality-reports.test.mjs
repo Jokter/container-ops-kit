@@ -158,3 +158,16 @@ test('已有自动单可刷新并继续草稿流转，成功后隐藏继续按�
  assert.deepEqual(actions,[{ticket:'DTS1',username:'tester',action:'check'},{ticket:'DTS1',username:'tester',action:'continue'}]);assert.equal(creates,0);
  }finally{await pause();dom.window.close();}
 });
+
+test('历史 MR 阻塞展示原因，取消不写入，确认后只解除指定记录',async()=>{
+ const id='66666666-6666-4666-8666-666666666666';let released=false,writes=[];
+ const dom=page((path,options)=>{
+  if(path.startsWith('/api/auto-ut/governance?'))return {metrics:{},records:[],blockedRecords:released?[]:[{id,repository:'SWMFrontendService',reportVersion:'R27C10',pullRequestUrl:'https://example.com/merge_requests/1',mrCheck:{error:'CodeHub 返回缺少必要字段'}}]};
+  if(path.endsWith('/release-block')){writes.push({path,body:JSON.parse(options.body)});released=true;return {};}
+ });
+ try{const d=open(dom,'auto-ut');await pause();assert.match(d.body.textContent,/历史 MR 阻塞/);assert.match(d.body.textContent,/CodeHub 返回缺少必要字段/);
+ dom.window.prompt=()=>null;d.querySelector('[data-release-mr-block]').click();await pause();assert.equal(writes.length,0);
+ dom.window.prompt=()=> '已核对旧 MR 失效';d.querySelector('[data-release-mr-block]').click();await pause();
+ assert.deepEqual(writes,[{path:'/api/auto-ut/governance/'+id+'/release-block',body:{reason:'已核对旧 MR 失效'}}]);assert.equal(d.querySelector('[data-release-mr-block]'),null);
+ }finally{await pause();dom.window.close();}
+});

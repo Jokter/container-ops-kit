@@ -8,7 +8,7 @@ export interface Governance {
  mrState?:'PENDING'|'MERGED'|'CLOSED';reportAt?:string;
  classResults?:Array<{target:string;status:'PASSED'|'FAILED';message:string}>;
 }
-export interface GovernanceRecord {id:string;repository:string;reportVersion?:string;baseBranch:string;status:string;message:string;createdAt:string;updatedAt:string;pullRequestUrl:string;governance:Governance;}
+export interface GovernanceRecord {mrCheck?:{state:'UNKNOWN'|'OPENED'|'MISSING';checkedAt:string;error:string};mrBlockRelease?:{at:string;reason:string;source:'USER'|'REMOTE_MISSING'};id:string;repository:string;reportVersion?:string;baseBranch:string;status:string;message:string;createdAt:string;updatedAt:string;pullRequestUrl:string;governance:Governance;}
 const array=(value:unknown):Record<string,unknown>[]=>value===undefined?[]:(Array.isArray(value)?value:[value]).filter((x):x is Record<string,unknown>=>!!x&&typeof x==='object');
 export function readUtXml(documents:Array<{path:string;content:string}>):UtEvidence {
  const result:UtEvidence={tests:0,failures:0,errors:0,skipped:0,passedIds:[],failedIds:[],caseIds:[],details:''};

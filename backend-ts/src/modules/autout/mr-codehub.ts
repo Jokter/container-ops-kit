@@ -18,3 +18,6 @@ export function roleMembers(m:MrView,role:'reviewers'|'approvers'|'assignees'){r
 export function pendingMembers(m:MrView,role:'reviewers'|'approvers'|'assignees'){return roleMembers(m,role).filter(p=>p.username&&p.approved!==true&&p.has_approved!==true&&p.reviewed!==true&&!['approved','passed','reviewed'].includes(String(p.state||p.status))).map(p=>p.username!);}
 export function issueTitle(m:MrView,ticket:string){return m.e2e_issues?.find(i=>[i.id,i.issue_num,i.issue_id,i.number].some(n=>String(n)===ticket))?.title;}
 export function safeMrUrl(value:string){const url=new URL(value);if(!['https:','http:'].includes(url.protocol)||url.username||url.password||!url.pathname.match(/\/merge_requests\/\d+/))throw Error('MR 地址无效');return value;}
+
+// A generic 404 can hide a permissions problem; require an explicit MR-specific absence.
+export function explicitlyMissingMr(exitCode:number,output:string):boolean{return exitCode!==0&&/error:\s*HTTP 404:\s*(?:merge request(?: \d+)? (?:not found|does not exist)|the merge request does not exist)\.?\s*$/i.test(output.trim());}

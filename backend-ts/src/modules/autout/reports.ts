@@ -69,7 +69,7 @@ export class AutoUtReports{
    for(const item of items){if(this.deleting.has(id))break;const key=`${item.version}/${item.repository}`;if(run.claimed.includes(key))continue;
     // Reusing any unfinished/MR-bearing workspace would replay external side effects.
     await this.autoUt.refreshDeletedMrs(item.repository,item.version,item.baseBranch);if(this.deleting.has(id))break;
-    if(this.autoUt.blocksRepository(item.repository,item.version,item.baseBranch)){run.messages.push(`${key}：已有执行记录，跳过；请在原任务中继续或处理 MR`);this.save(run);continue;}
+    if(this.autoUt.blocksRepository(item.repository,item.version,item.baseBranch)){run.messages.push(`${key}：已有执行记录，跳过；请在原任务中继续或处理 MR${this.autoUt.archivedMrBlockers().some(r=>r.repository.toLowerCase()===item.repository.toLowerCase()&&(r.reportVersion===item.version||!r.reportVersion&&r.baseBranch===item.baseBranch))?'；历史 MR 待核验，请查看“历史 MR 阻塞”':''}`);this.save(run);continue;}
     run.claimed.push(key);this.save(run);
     const row:QualityRow={'代码仓':item.repository,'语言':'Java','PL组':'Access_智能驾舱组','失败用例':item.failedTests,'行覆盖率':item.lineCoverage,'行覆盖率目标':item.lineGoal,'分支覆盖率':item.branchCoverage,'分支覆盖率目标':item.branchGoal};
     try{const tasks=await this.autoUt.start(Buffer.from(qualityCsv({columns:Object.keys(row),rows:[row]})),run.config.username,run.config.ticket,item.baseBranch,run.config.workspaceRoot,mode,{version:item.version,reportId:run.id,maxClasses:run.config.maxClasses??5,reportAt:run.createdAt});run.taskIds.push(...tasks.map(t=>t.id));run.messages.push(`${key}：已创建修复任务`);}catch{run.messages.push(`${key}：启动失败，请检查工作目录；本次不会自动重试`);}this.save(run);
