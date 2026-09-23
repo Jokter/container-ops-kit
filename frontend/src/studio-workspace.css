@@ -103,3 +103,5 @@
 .group-mr-monitor-log-head{border-top:1px solid #e8ecf3;margin-top:14px;padding-top:14px}.group-mr-monitor-log{max-height:270px;overflow:auto;margin-top:10px;background:#f7f9fc;border-radius:6px;padding:6px 12px}
 .group-mr-monitor-log>div{display:grid;grid-template-columns:140px minmax(0,1fr);gap:12px;padding:7px 0;border-bottom:1px solid #e8ecf3;overflow-wrap:anywhere}.group-mr-monitor-log time{color:#8c98a9}.group-mr-monitor .group-mr-log-path{font-size:11px;margin-bottom:0}
 @media(max-width:600px){.group-mr-monitor{padding:14px}.group-mr-monitor-log>div{grid-template-columns:1fr;gap:3px}}
+
+.environment-row-name .environment-architecture{display:inline-block;width:fit-content;margin-top:6px;padding:2px 8px;font-size:11px}

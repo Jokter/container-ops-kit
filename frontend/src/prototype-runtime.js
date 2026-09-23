@@ -112,10 +112,12 @@ import {canConvertFailedQuickDeploymentToReview, canDeployReviewedTask, deployme
       + (value ? '<button type="button" data-copy-credential="' + property + '" data-environment-id="' + environment.id + '">复制</button>' : '') + '</div>'
   }
 
+  function architectureLabel(value) { return value === 'aarch64' ? 'ARM' : value === 'x86_64' ? 'x86' : '待检测' }
+
   function containerDetails(environment) {
     return '<div class="container-detail-row"><div class="container-detail-grid">'
       + credentialDetail(environment, '工作目录', environment.workdir, 'workdir')
-      + '<div class="container-detail-item"><span>系统架构</span><strong>' + (environment.architecture === 'aarch64' ? 'ARM' : 'x86') + '</strong></div>'
+      + '<div class="container-detail-item"><span>系统架构</span><strong>' + architectureLabel(environment.architecture) + '</strong></div>'
       + credentialDetail(environment, 'sopuser 密码', environment.password, 'password')
       + credentialDetail(environment, 'root 密码', environment.rootPassword, 'rootPassword')
       + credentialDetail(environment, '业务面账号', environment.businessPlaneUser, 'businessPlaneUser')
@@ -143,8 +145,8 @@ import {canConvertFailedQuickDeploymentToReview, canDeployReviewedTask, deployme
       : '<div class="environment-row head"><span>环境</span><span>SSH 地址</span><span>系统架构</span><span>连接状态</span><span>最近测试</span><span style="text-align:right">操作</span></div>'
     const rows = items.map(item => {
       const unavailable = locked || Boolean(state.batch) || Boolean(testTokens.size)
-      const name = '<div class="environment-row-name"><span class="environment-kind-icon">' + (item.type === 'build' ? '构' : '容') + '</span><div><strong>' + escapeHtml(item.name) + '</strong>' + (item.type === 'build' ? '<span class="mono">' + escapeHtml(item.workdir) + '</span>' : '') + '</div></div>'
-      const architecture = '<div data-label="系统架构"><span class="badge ' + (item.architecture === 'aarch64' ? 'violet' : 'brand') + '">' + (item.architecture === 'aarch64' ? 'ARM' : 'x86') + '</span></div>'
+      const name = '<div class="environment-row-name"><span class="environment-kind-icon">' + (item.type === 'build' ? '构' : '容') + '</span><div><strong>' + escapeHtml(item.name) + '</strong>' + (item.type === 'build' ? '<span class="mono">' + escapeHtml(item.workdir) + '</span>' : '<span class="badge environment-architecture ' + (item.architecture === 'aarch64' ? 'violet' : item.architecture === 'x86_64' ? 'brand' : '') + '" data-label="系统架构">' + architectureLabel(item.architecture) + '</span>') + '</div></div>'
+      const architecture = '<div data-label="系统架构"><span class="badge ' + (item.architecture === 'aarch64' ? 'violet' : 'brand') + '">' + architectureLabel(item.architecture) + '</span></div>'
       const connectionStatus = '<div data-label="连接状态">' + environmentStatus(item) + '</div>'
       const lastTest = '<div data-label="最近测试"><strong>' + escapeHtml(item.lastTest) + '</strong><span class="environment-cell-copy">' + escapeHtml(item.latency) + '</span></div>'
       const userSelector = item.type === 'container'
@@ -192,6 +194,8 @@ import {canConvertFailedQuickDeploymentToReview, canDeployReviewedTask, deployme
     render(false)
     try {
       const result = await request('/api/environments/' + environment._apiId + '/connection-test', {method: 'POST', body: JSON.stringify({user})})
+      environment.architecture = result.architecture || ''
+      environment._version = result.version ?? environment._version
       environment.status = statusMap[result.status]
       environment.lastTest = '刚刚'
       environment.latency = result.latencyMs != null ? result.latencyMs + ' ms' : result.error || '—'
@@ -216,6 +220,8 @@ import {canConvertFailedQuickDeploymentToReview, canDeployReviewedTask, deployme
       try {
         const user = environment.type === 'build' ? 'HUAWEI' : 'SOPUSER'
         const result = await request('/api/environments/' + environment._apiId + '/connection-test', {method: 'POST', body: JSON.stringify({user})})
+        environment.architecture = result.architecture || ''
+        environment._version = result.version ?? environment._version
         environment.status = statusMap[result.status]
         environment.lastTest = '刚刚'
         environment.latency = result.latencyMs != null ? result.latencyMs + ' ms' : result.error || '—'
@@ -267,7 +273,7 @@ import {canConvertFailedQuickDeploymentToReview, canDeployReviewedTask, deployme
       password: values.password || existing?.password || '',
       rootPassword: type === 'container' ? values.rootPassword || existing?.rootPassword || '' : null,
       workDirectory: values.workdir || '',
-      architecture: (values.architecture || '').toUpperCase(),
+      architecture: form.dataset.detectedConnection === JSON.stringify([values.ip, Number(values.port)]) ? form.dataset.detectedArchitecture || null : null,
       businessPlaneUrl: values.businessPlaneUrl || '',
       businessPlaneUser: values.businessPlaneUser || '',
       businessPlanePassword: values.businessPlanePassword || existing?.businessPlanePassword || '',
@@ -324,7 +330,10 @@ import {canConvertFailedQuickDeploymentToReview, canDeployReviewedTask, deployme
     try {
       const response = await request('/api/connection-tests/preview', {method: 'POST', body: JSON.stringify(body)})
       result.className = 'drawer-test-result visible ' + (response.status === 'REACHABLE' ? 'success' : 'error')
-      result.textContent = response.status === 'REACHABLE' ? 'SSH 连接成功，可以保存当前配置。' : response.error || 'SSH 连接失败'
+      form.dataset.detectedArchitecture = response.architecture || ''
+      form.dataset.detectedConnection = JSON.stringify([values.ip, Number(values.port)])
+      form.querySelector('[data-detected-architecture]').textContent = architectureLabel(response.architecture)
+      result.textContent = response.status === 'REACHABLE' ? 'SSH 连接成功 · ' + (response.architectureError || architectureLabel(response.architecture)) : response.error || 'SSH 连接失败'
     } catch (error) {
       result.className = 'drawer-test-result visible error'
       result.textContent = error.message || 'SSH 连接失败'
@@ -337,6 +346,8 @@ import {canConvertFailedQuickDeploymentToReview, canDeployReviewedTask, deployme
     const form = document.querySelector('#environment-form')
     if (!form || form.dataset.runtimePatched) return
     form.dataset.runtimePatched = 'true'
+    const architectureField = form.elements.architecture?.closest('.field')
+    if (architectureField) architectureField.innerHTML = '<label>系统架构</label><div class="readonly-value" data-detected-architecture>测试连接时自动识别</div>'
     const existing = environments.find(item => item.id === form.dataset.environmentId)
     const containerFields = [
       ['mae', 'businessPlaneUrl', '业务面地址', 'https://141.71.43.65:31943'],
@@ -509,7 +520,7 @@ import {canConvertFailedQuickDeploymentToReview, canDeployReviewedTask, deployme
   buildConfig = function () {
     const configuration = buildRuntime.configuration
     const environment = environments.find(item => item.id === state.selectedBuildEnvironment) || environments.find(item => item.type === 'build')
-    return '<div class="resource-grid"><section class="panel"><div class="panel-head"><h2>仓库与命令</h2><span class="badge green">系统固定</span></div><div class="panel-body"><div class="form-grid"><div class="field"><label>CBB-Web-Dev 仓库</label><input class="mono" value="' + escapeHtml(configuration?.cbbWebDevRepository || '正在加载…') + '" readonly></div><div class="field"><label>默认分支</label><input value="' + escapeHtml(configuration?.defaultBranch || '正在加载…') + '" readonly></div><div class="field"><label>ArchDesign 仓库</label><input class="mono" value="' + escapeHtml(configuration?.archDesignRepository || '正在加载…') + '" readonly></div><div class="field"><label>默认分支</label><input value="' + escapeHtml(configuration?.defaultBranch || '正在加载…') + '" readonly></div><div class="field" style="grid-column:1/-1"><label>构建命令</label><input class="mono" value="' + escapeHtml(configuration?.buildCommand || '正在加载…') + '" readonly></div></div></div></section><section class="panel"><div class="panel-head"><h2>当前构建环境</h2><button class="button small" data-page="resources">打开资源中心</button></div><div class="panel-body">' + (environment ? '<h3>' + escapeHtml(environment.name) + '</h3><p style="margin-top:6px;color:var(--muted)">' + escapeHtml(environment.workdir) + '</p><div class="connection-grid"><div class="connection"><span>SSH</span><strong class="mono">huawei@' + escapeHtml(environment.ip) + '</strong></div><div class="connection"><span>系统架构</span><strong>' + (environment.architecture === 'aarch64' ? 'ARM' : 'x86') + '</strong></div><div class="connection"><span>状态</span><strong class="status ' + statusPresentation[environment.status].className + '">' + statusPresentation[environment.status].label + '</strong></div></div>' : '<p style="color:var(--muted)">请先在资源中心新增构建环境。</p>') + '</div></section></div>'
+    return '<div class="resource-grid"><section class="panel"><div class="panel-head"><h2>仓库与命令</h2><span class="badge green">系统固定</span></div><div class="panel-body"><div class="form-grid"><div class="field"><label>CBB-Web-Dev 仓库</label><input class="mono" value="' + escapeHtml(configuration?.cbbWebDevRepository || '正在加载…') + '" readonly></div><div class="field"><label>默认分支</label><input value="' + escapeHtml(configuration?.defaultBranch || '正在加载…') + '" readonly></div><div class="field"><label>ArchDesign 仓库</label><input class="mono" value="' + escapeHtml(configuration?.archDesignRepository || '正在加载…') + '" readonly></div><div class="field"><label>默认分支</label><input value="' + escapeHtml(configuration?.defaultBranch || '正在加载…') + '" readonly></div><div class="field" style="grid-column:1/-1"><label>构建命令</label><input class="mono" value="' + escapeHtml(configuration?.buildCommand || '正在加载…') + '" readonly></div></div></div></section><section class="panel"><div class="panel-head"><h2>当前构建环境</h2><button class="button small" data-page="resources">打开资源中心</button></div><div class="panel-body">' + (environment ? '<h3>' + escapeHtml(environment.name) + '</h3><p style="margin-top:6px;color:var(--muted)">' + escapeHtml(environment.workdir) + '</p><div class="connection-grid"><div class="connection"><span>SSH</span><strong class="mono">huawei@' + escapeHtml(environment.ip) + '</strong></div><div class="connection"><span>系统架构</span><strong>' + architectureLabel(environment.architecture) + '</strong></div><div class="connection"><span>状态</span><strong class="status ' + statusPresentation[environment.status].className + '">' + statusPresentation[environment.status].label + '</strong></div></div>' : '<p style="color:var(--muted)">请先在资源中心新增构建环境。</p>') + '</div></section></div>'
   }
 
   function formatBytes(value) {

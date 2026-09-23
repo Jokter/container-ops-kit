@@ -26,6 +26,21 @@ export const environmentInput = z.object({
 });
 type EnvironmentInput = z.infer<typeof environmentInput>;
 
+export async function testEnvironmentConnection(ssh: SshOperations, target: SshTarget) {
+  const result = await ssh.test(target);
+  let architecture: string | null = null;
+  let architectureError: string | null = null;
+  if (result.status === 'REACHABLE') {
+    try {
+      const detected = await ssh.execute(target, 'uname -m', () => {}, undefined, 5000);
+      const value = detected.lines.filter(line => !line.startsWith('[stderr] ')).join('\n').trim().toLowerCase();
+      if (detected.exitCode === 0) architecture = ['amd64','x86_64'].includes(value) ? 'x86_64' : ['arm64','aarch64'].includes(value) ? 'aarch64' : null;
+      if (!architecture) architectureError = '系统架构未识别，请重新测试连接';
+    } catch { architectureError = '系统架构检测失败，请重新测试连接'; }
+  }
+  return {...result, architecture, architectureError};
+}
+
 export class EnvironmentService {
   constructor(private readonly store: TaskStore, private readonly ssh: SshOperations) {}
   versions() {return this.store.db.prepare('SELECT id,code,name,sort_order sortOrder FROM release_versions ORDER BY sort_order').all();}
@@ -58,11 +73,11 @@ export class EnvironmentService {
     const current = this.get(id);
     if (input.version == null || input.version !== current.version) throw Object.assign(new Error('环境已被其他请求修改，请刷新后重试'), {statusCode: 409});
     this.version(input.releaseVersionId);
-    const connectionChanged = input.host !== current.host || input.sshPort !== current.sshPort || input.password !== current.password || input.rootPassword !== current.rootPassword;
+    const connectionChanged = input.host !== current.host || input.sshPort !== current.sshPort || input.password !== current.password || input.rootPassword !== current.rootPassword || input.type !== current.type;
     const result = this.store.db.prepare(`UPDATE environments SET release_version_id=?,type=?,name=?,host=?,ssh_port=?,password=?,root_password=?,work_directory=?,architecture=?,
       business_plane_url=?,business_plane_user=?,business_plane_password=?,management_plane_url=?,management_plane_user=?,management_plane_password=?,
       connection_status=?,last_tested_at=?,last_test_latency_ms=?,last_test_error=?,updated_at=?,version=version+1 WHERE id=? AND version=?`)
-      .run(input.releaseVersionId,input.type,input.name,input.host,input.sshPort,input.password,input.type==='CONTAINER'?input.rootPassword:null,input.workDirectory,input.architecture,
+      .run(input.releaseVersionId,input.type,input.name,input.host,input.sshPort,input.password,input.type==='CONTAINER'?input.rootPassword:null,input.workDirectory,input.architecture??(connectionChanged?null:current.architecture),
         input.businessPlaneUrl,input.businessPlaneUser,input.businessPlanePassword,input.managementPlaneUrl,input.managementPlaneUser,input.managementPlanePassword,
         connectionChanged?'UNTESTED':current.connectionStatus,connectionChanged?null:current.lastTestedAt,connectionChanged?null:current.lastTestLatencyMs,connectionChanged?null:current.lastTestError,new Date().toISOString(),id,input.version);
     if (!result.changes) throw Object.assign(new Error('环境已被其他请求修改，请刷新后重试'), {statusCode: 409});
@@ -78,10 +93,11 @@ export class EnvironmentService {
     return {host: String(environment.host), port: environment.sshPort, username, password: String(password)};
   }
   async testSaved(id: number, sshUser: z.infer<typeof user>) {
-    const environment = this.get(id); const result = await this.ssh.test(this.target(environment, sshUser));
-    this.store.db.prepare(`UPDATE environments SET connection_status=?,last_tested_at=?,last_test_latency_ms=?,last_test_error=?,updated_at=?,version=version+1 WHERE id=?`)
-      .run(result.status,new Date().toISOString(),result.latencyMs,result.error,new Date().toISOString(),id);
-    return result;
+    const environment = this.get(id); const result = await testEnvironmentConnection(this.ssh, this.target(environment, sshUser));
+    const saved = this.store.db.prepare(`UPDATE environments SET connection_status=?,last_tested_at=?,last_test_latency_ms=?,last_test_error=?,architecture=?,updated_at=?,version=version+1 WHERE id=? AND version=?`)
+      .run(result.status,new Date().toISOString(),result.latencyMs,result.error,result.architecture,new Date().toISOString(),id,environment.version);
+    if (!saved.changes) throw Object.assign(new Error('环境已修改，请重新测试连接'), {statusCode:409});
+    return {...result, version: this.get(id).version};
   }
 }
 
@@ -95,7 +111,7 @@ export function environmentRoutes(app: FastifyInstance, service: EnvironmentServ
   app.delete('/api/environments/:id', async (request, reply) => {service.delete(id(request.params)); return reply.code(204).send();});
   app.post('/api/connection-tests/preview', async request => {
     const input = z.object({user: user.default('HUAWEI'), host: z.string().trim().min(1), sshPort: z.number().int().min(1).max(65535), password: z.string().min(1)}).passthrough().parse(request.body);
-    return ssh.test({host: input.host, port: input.sshPort, username: {HUAWEI:'huawei',SOPUSER:'sopuser',ROOT:'root'}[input.user], password: input.password});
+    return testEnvironmentConnection(ssh, {host: input.host, port: input.sshPort, username: {HUAWEI:'huawei',SOPUSER:'sopuser',ROOT:'root'}[input.user], password: input.password});
   });
   app.post('/api/environments/:id/connection-test', async request => service.testSaved(id(request.params), z.object({user: user}).parse(request.body).user));
   app.post('/api/environments/connection-tests/batch', async () => Promise.all(service.list().map(environment => service.testSaved(environment.id, environment.type === 'BUILD' ? 'HUAWEI' : 'SOPUSER'))));
