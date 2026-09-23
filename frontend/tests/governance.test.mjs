@@ -41,7 +41,12 @@ test('概览聚合三类任务，成果下钻沿用版本与时间范围，记�
   assert.deepEqual([...d.querySelectorAll('[data-auto-ut-task]')].map(el=>el.dataset.autoUtTask),['new']);
   d.querySelector('[data-studio-reset-outcome]').click();
   assert.equal(d.querySelectorAll('[data-auto-ut-task]').length,3);
-  const kind=d.querySelector('#studio-record-kind');kind.value='quality';kind.dispatchEvent(new dom.window.Event('change'));
+  d.querySelector('[data-studio-record-kind="quality"]').click();
+  assert.equal(d.querySelector('[data-studio-record-kind="quality"]').getAttribute('aria-pressed'),'true');
+  assert.equal(d.querySelectorAll('.studio-record-tools button').length,4);
+  assert.equal(d.querySelectorAll('.studio-record-filters select').length,2);
+  assert.ok(d.querySelector('.studio-record-filters #qw-task-search'));
+  assert.ok(d.querySelector('.studio-record-filters [data-cleanup-records]'));
   assert.equal(d.querySelectorAll('.studio-record-table tbody tr').length,1);
   assert.ok(d.querySelector('[data-studio-record="quality"]'));
   const switcher=d.querySelector('.studio-workspace');switcher.querySelector('summary').click();assert.equal(switcher.open,true);
