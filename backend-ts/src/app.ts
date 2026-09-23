@@ -32,7 +32,7 @@ export async function createApp(config: Config) {
   const ssh=new SshOperations(),environments=new EnvironmentService(store,ssh),builds=new BuildService(store,environments,ssh,logs),autoUt=new AutoUtService(store,logs,false),containers=new ContainerResourceService(environments,ssh,config.kubectlKubeconfig,config.helmKubeconfig),deployments=new DeploymentService(store,builds,environments,ssh,config.kubectlKubeconfig,config.helmKubeconfig,logs);
   const quality=new QualityService(store,logs),reports=new AutoUtReports(store,quality,autoUt,logs,false);
   const schedules=new UnifiedSchedules(store,quality,reports,autoUt,logs);
-  const groupMr=new GroupMrService(store);
+  const groupMr=new GroupMrService(store,undefined,logs);
   groupMrRoutes(app,groupMr);
   automationRecordRoutes(app,new AutomationRecords(autoUt,reports,quality));scheduleRoutes(app,schedules);qualityRoutes(app,quality);autoUtReportRoutes(app,reports,schedules);
   await deployments.cleanupPreparations();
