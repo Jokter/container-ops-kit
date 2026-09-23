@@ -1,3 +1,4 @@
+import {RepairQueue} from './repair-queue.js';
 import {WelinkMcp} from './welink-mcp.js';
 import {WelinkSettings} from './welink-settings.js';
 import {AutomationLanguageSettings} from '../automation/language-settings.js';
@@ -69,8 +70,9 @@ export function autoUtWorkspace(task:Pick<AutoUtTask,'workspaceRoot'|'repository
 
 export class AutoUtService{
  readonly languageSettings:AutomationLanguageSettings;readonly mrConfiguration:MrConfiguration;private readonly mrWorkflow:MrWorkflow;private closing=false;private monitoring=false;
+ private readonly repairQueue=new RepairQueue(2);private readonly initialPermits=new Map<string,()=>void>();
  private readonly executions=new Map<string,Promise<void>>();private readonly controllers=new Map<string,AbortController>();private readonly running=new Set<string>();private readonly deleting=new Set<string>();private timer:NodeJS.Timeout;
- constructor(private readonly store:TaskStore,private readonly logs:LogSink=noFileLogs,private readonly ownScheduler=true){this.languageSettings=new AutomationLanguageSettings(store);this.mrConfiguration=new MrConfiguration(store);this.mrWorkflow=new MrWorkflow({loginWelink:async task=>{this.emit(task,'status','WeLink CLI 需要重新认证，请完成登录。');const result=await runProcess(['welink-cli','auth','login'],process.cwd(),120000,undefined,undefined,undefined,this.controllers.get(task.id)?.signal);return result.exitCode===0;},notifySelf:async(task,message)=>{this.emit(task,'status','通过 WeLink MCP 通知任务用户');await new WelinkMcp().send(task.username.toLowerCase(),message,new WelinkSettings(this.store).token(),this.controllers.get(task.id)?.signal);this.emit(task,'status','WeLink MCP 已确认发送成功');},run:(task,args,label,required=true)=>this.command(task,args,autoUtWorkspace(task),args[0]==='welink-cli'?30000:120000,label,required),save:task=>this.save(task),event:(task,message)=>this.emit(task,'status',message),state:(task,state,message)=>{if(task.status!==state||task.message!==message)this.change(task,state,message);},repair:(task,details,sha)=>this.repairPipeline(task,details,sha)});
+ constructor(private readonly store:TaskStore,private readonly logs:LogSink=noFileLogs,private readonly ownScheduler=true){this.languageSettings=new AutomationLanguageSettings(store);this.mrConfiguration=new MrConfiguration(store);this.mrWorkflow=new MrWorkflow({loginWelink:async task=>{this.emit(task,'status','WeLink CLI 需要重新认证，请完成登录。');const result=await runProcess(['welink-cli','auth','login'],process.cwd(),120000,undefined,undefined,undefined,this.controllers.get(task.id)?.signal);return result.exitCode===0;},notifySelf:async(task,message)=>{this.emit(task,'status','通过 WeLink MCP 通知任务用户');await new WelinkMcp().send(task.username.toLowerCase(),message,new WelinkSettings(this.store).token(),this.controllers.get(task.id)?.signal);this.emit(task,'status','WeLink MCP 已确认发送成功');},run:(task,args,label,required=true)=>this.command(task,args,autoUtWorkspace(task),args[0]==='welink-cli'?30000:120000,label,required),save:task=>this.save(task),event:(task,message)=>this.emit(task,'status',message),state:(task,state,message)=>{if(task.status!==state||task.message!==message)this.change(task,state,message);},repair:(task,details,sha)=>this.queuedRepair(task,()=>this.repairPipeline(task,details,sha))});
   for(const task of this.tasks()){
    if(task.pullRequestUrl&&task.governance?.mrState!=='MERGED'&&task.governance?.mrState!=='CLOSED'){
     task.governance??={mode:'NONE',coverageLow:false,maxClasses:5};task.governance.mrState='PENDING';
@@ -99,19 +101,21 @@ export class AutoUtService{
    if(view.state==='merged'||view.state==='closed'){archived.governance.mrState=view.state==='merged'?'MERGED':'CLOSED';archived.status=view.state==='merged'?'RESOLVED':'MR_CLOSED';archived.updatedAt=new Date().toISOString();if(view.state==='merged')archived.governance.completedAt=archived.updatedAt;this.store.putRecord('auto-ut-governance',id,archived,archived.createdAt);}return archived;
   }
   const task=this.get(id);if(!task.mr?.iid)throw Object.assign(new Error('缺少 MR 跟踪记录'),{statusCode:409});await this.trackOne(task,true);return this.governanceRecords().find(r=>r.id===id);}
- async monitorMrs(){if(this.closing||this.monitoring)return;this.monitoring=true;try{const candidates=this.tasks().filter(t=>t.mr?.iid&&t.governance?.mrState==='PENDING'&&t.mr.nextAt<=Date.now());for(const task of candidates){if(this.closing||this.running.size>=3)break;void this.trackOne(task).catch(()=>{});}}finally{this.monitoring=false;}}
+ async monitorMrs(){if(this.closing||this.monitoring)return;this.monitoring=true;try{const candidates=this.tasks().filter(t=>t.mr?.iid&&t.governance?.mrState==='PENDING'&&t.mr.nextAt<=Date.now());for(const task of candidates){if(this.closing||[...this.running].filter(id=>this.get(id).mr?.iid).length>=3)break;void this.trackOne(task).catch(()=>{});}}finally{this.monitoring=false;}}
  private async trackOne(task:AutoUtTask,checkOnly=false){task=this.get(task.id);if(this.running.has(task.id)||this.deleting.has(task.id)||this.closing)return;this.running.add(task.id);this.controllers.set(task.id,new AbortController());const execution=(async()=>{try{if(checkOnly)await this.mrWorkflow.checkTerminal(task);else await this.mrWorkflow.tick(task);}finally{this.running.delete(task.id);this.controllers.delete(task.id);this.executions.delete(task.id);}})();this.executions.set(task.id,execution);await execution;}
- async controlMr(id:string,action:'pause'|'resume'|'retry'|'apply-settings'|'retry-notifications'|'check'){
+ async controlMr(id:string,action:'pause'|'resume'|'retry'|'apply-settings'|'retry-notifications'|'check'|'rerun-pipeline'){
   if(this.running.has(id)){if(action!=='pause')throw Object.assign(new Error('任务正在执行，请稍后操作'),{statusCode:409});this.controllers.get(id)?.abort();await this.executions.get(id);}
   if(this.deleting.has(id)||this.closing)throw Object.assign(new Error('任务正在删除或服务正在关闭'),{statusCode:409});
   this.running.add(id);this.controllers.set(id,new AbortController());
   const execution=this.controlMrAction(id,action);this.executions.set(id,execution.then(()=>{},()=>{}));
   try{return await execution;}finally{this.running.delete(id);this.controllers.delete(id);this.executions.delete(id);}
  }
- private async controlMrAction(id:string,action:'pause'|'resume'|'retry'|'apply-settings'|'retry-notifications'|'check'){
+ private async controlMrAction(id:string,action:'pause'|'resume'|'retry'|'apply-settings'|'retry-notifications'|'check'|'rerun-pipeline'){
   const task=this.get(id),m=task.mr;if(!m?.iid)throw Object.assign(new Error('任务尚未关联 MR'),{statusCode:409});
   if(task.governance?.mrState!=='PENDING')throw Object.assign(new Error('MR 已结束'),{statusCode:409});
+  if(action==='rerun-pipeline'){await this.mrWorkflow.rerunPipeline(task);return this.get(id);}
   if(action==='pause'){m.paused=true;m.error='已手动暂停自动处理';this.save(task);return task;}
+  if(m.writePending==='pipeline-rebuild'){await this.mrWorkflow.checkRebuild(task);return this.get(id);}
   if(action==='retry-notifications'){for(const entry of Object.values(m.notifications)){if(entry.pending){entry.pending=false;entry.at=0;}}}
   if(action==='apply-settings'){delete m.rejectedRoles;m.config=this.mrConfiguration.snapshot(task.repository);m.setup={};m.phase='SETUP';m.generation++;}
   if(action!=='check'&&m.writePending==='pipeline-repair'){
@@ -170,7 +174,21 @@ export class AutoUtService{
  events(id:string,after:number){return this.get(id).liveEvents.filter(e=>e.sequence>after);}terminal(id:string){return this.terminalStatus(this.get(id).status);}
  private validate(username:string,ticket:string,baseBranch:string){identity.parse(username);identity.parse(ticket);branch.parse(baseBranch);}
  private async workspace(value:string){if(!value?.trim())throw Object.assign(new Error('请选择工作目录'),{statusCode:400});const root=resolve(value),probe=join(root,`.container-ops-kit-${randomUUID()}.probe`);try{const info=await stat(root);if(!info.isDirectory())throw new Error();await writeFile(probe,'',{flag:'wx'});await unlink(probe);}catch{await unlink(probe).catch(()=>{});throw Object.assign(new Error(`工作目录不存在或不可写：${root}`),{statusCode:400});}return root;}
- private schedule(task:AutoUtTask,repository:Repository){if(this.running.has(task.id)||this.deleting.has(task.id))return;this.running.add(task.id);this.controllers.set(task.id,new AbortController());const execution=this.execute(task,repository).finally(()=>{this.running.delete(task.id);this.controllers.delete(task.id);this.executions.delete(task.id);});this.executions.set(task.id,execution);}
+ private async queuedRepair<T>(task:AutoUtTask,work:()=>Promise<T>,initial=false):Promise<T>{
+  const signal=this.controllers.get(task.id)!.signal;
+  task.message='等待修复名额（最多同时执行 2 个任务）';this.save(task);
+  const release=await this.repairQueue.acquire(signal);
+  if(initial)this.initialPermits.set(task.id,release);
+  try{signal.throwIfAborted();return await work();}finally{this.initialPermits.delete(task.id);release();}
+ }
+ private schedule(task:AutoUtTask,repository:Repository){
+  if(this.running.has(task.id)||this.deleting.has(task.id)||this.closing)return;
+  this.running.add(task.id);this.controllers.set(task.id,new AbortController());
+  const execution=this.queuedRepair(task,()=>this.execute(task,repository),true).catch(error=>{
+   if(!this.deleting.has(task.id)){this.change(task,'WAITING_EXTERNAL',error instanceof Error?error.message:'排队任务已停止');this.save(task);}
+  }).finally(()=>{this.running.delete(task.id);this.controllers.delete(task.id);this.executions.delete(task.id);});
+  this.executions.set(task.id,execution);
+ }
  private claim(task:AutoUtTask){if(this.deleting.has(task.id))return false;if(task.nextStage==='DONE'||!['DISCOVERED','WAITING_CONFIRMATION'].includes(task.status))return false;const info=stageInfo[task.nextStage];if(task.nextStage==='REPAIR')task.attempts++;task.progress=Math.max(task.progress,info.progress);this.change(task,info.status,task.nextStage==='REPAIR'&&task.governance?.mode==='SUPPLEMENT'?'正在补充测试。':info.message);this.save(task);return true;}
  private wait(task:AutoUtTask,nextStage:Stage,message:string,progress:number){task.nextStage=nextStage;task.progress=Math.max(task.progress,progress);this.change(task,'WAITING_CONFIRMATION',message);this.save(task);}
  private async execute(task:AutoUtTask,repository:Repository){const workspace=autoUtWorkspace(task);task.governance??={mode:'NONE',coverageLow:false,maxClasses:5};task.governance.startedAt??=new Date().toISOString();this.save(task);
@@ -297,7 +315,7 @@ export class AutoUtService{
  private async inspect(task:AutoUtTask,workspace:string,prefix:string,base?:string){let status=(await this.command(task,['git','-c','core.quotepath=false','status','--porcelain','--untracked-files=all'],workspace,120000,`${prefix}-修改状态`)).output;if(base)status=(await this.command(task,['git','-c','core.quotepath=false','diff','--name-status','--no-renames',base,'HEAD','--'],workspace,120000,`${prefix}-已提交修改`)).output.split(/\r?\n/).filter(Boolean).map(line=>line[0]+'  '+line.slice(line.indexOf('\t')+1)).join('\n');const changedFiles:string[]=[];const violations:string[]=[];for(const line of status.split(/\r?\n/)){if(line.length<4)continue;let path=line.slice(3).replaceAll('\\','/');if(path.includes(' -> '))path=path.slice(path.indexOf(' -> ')+4);if(!(path.startsWith('src/test/')||path.includes('/src/test/'))){if(base)violations.push(`提交包含非测试文件：${path}`);continue;}changedFiles.push(path);if(line.slice(0,2).trim()==='D')violations.push(`禁止删除测试文件：${path}`);}if(!changedFiles.length)violations.push('Pi 未产生任何测试文件修改。');
   for(const path of changedFiles){const file=resolve(workspace,path);if(relative(workspace,file).startsWith('..'))continue;let text;try{text=await readFile(file,'utf8');}catch{continue;}const original=await this.command(task,['git','show',`${base||'HEAD'}:${path}`],workspace,120000,`${prefix}-原始测试`,false);const added=original.exitCode===0?(await this.command(task,['git','diff','--unified=0',base||'HEAD',...(base?['HEAD']:[]),'--',path],workspace,120000,`${prefix}-测试差异`)).output.split(/\r?\n/).filter(l=>l.startsWith('+')&&!l.startsWith('+++')).map(l=>l.slice(1)).join('\n'):text;for(const marker of settings.forbiddenMarkers)if(added.includes(marker))violations.push(`新增禁止标记 ${marker}：${path}`);if(/assertTrue\s*\(\s*true\s*\)|assertFalse\s*\(\s*false\s*\)/.test(added))violations.push(`新增恒真断言：${path}`);if(original.exitCode===0){if((text.match(/@Test/g)||[]).length<(original.output.match(/@Test/g)||[]).length)violations.push(`测试方法数量减少：${path}`);if((text.match(/\bassert[A-Z]\w*\s*\(/g)||[]).length<(original.output.match(/\bassert[A-Z]\w*\s*\(/g)||[]).length)violations.push(`断言数量减少：${path}`);}}
   return{accepted:!violations.length,changedFiles,violations};}
- private async publish(task:AutoUtTask,workspace:string){if(!settings.createMr)throw new Error('CodeHub MR 创建已被配置关闭。');task.mr??=newTracking(this.mrConfiguration.snapshot(task.repository));if(task.mr.iid){await this.mrWorkflow.setup(task);return;}const title=autoUtCommitTitle(task.ticket,task.repository);
+ private async publish(task:AutoUtTask,workspace:string){if(!settings.createMr)throw new Error('CodeHub MR 创建已被配置关闭。');task.mr??=newTracking(this.mrConfiguration.snapshot(task.repository));if(task.mr.iid){this.initialPermits.get(task.id)?.();await this.mrWorkflow.setup(task);return;}const title=autoUtCommitTitle(task.ticket,task.repository);
   const git=async(args:string[],label:string)=>(await this.command(task,['git',...args],workspace,120000,label)).output.trim();
   if(await git(['branch','--show-current'],'检查发布分支')!==task.repairBranch)throw new Error('当前分支不是任务修复分支，请切回 '+task.repairBranch+' 后重试。');
   const pending=await this.inspect(task,workspace,'发布前');
@@ -330,12 +348,12 @@ export class AutoUtService{
    this.emit(task,'status','复用已有测试提交，继续上传分支并创建 CodeHub MR。');
   }
   task.mr.sha=(await git(['rev-parse','HEAD'],'记录发布提交')).trim();
-  if(task.mr.uploadAttempted&&await this.mrWorkflow.recoverUpload(task)){await this.mrWorkflow.setup(task);return;}
+  if(task.mr.uploadAttempted&&await this.mrWorkflow.recoverUpload(task)){this.initialPermits.get(task.id)?.();await this.mrWorkflow.setup(task);return;}
   task.mr.uploadAttempted=true;task.mr.writePending='upload';this.save(task);
   const command=[settings.codehub,'mr','upload','--dest',task.baseBranch,'--br',task.repairBranch,'--topic',task.repairBranch,'-T',title,'-D',`实际修复 ${task.governance?.fixedIds?.length??0} 个失败用例，新增 ${task.governance?.addedIds?.length??0} 个通过用例。完整 UT 回归通过。`,'-y','--format','json'];
   const uploaded=await this.command(task,command,workspace,600000,'创建CodeHub-MR');
   await this.mrWorkflow.confirmUpload(task,uploaded.output);task.governance!.mrState='PENDING';delete task.governance!.completedAt;this.save(task);
-  await this.mrWorkflow.setup(task);
+  this.initialPermits.get(task.id)?.();await this.mrWorkflow.setup(task);
  }
  private async repairPipeline(task:AutoUtTask,details:string,sha:string){
   const workspace=autoUtWorkspace(task),git=async(args:string[],label:string)=>(await this.command(task,['git',...args],workspace,300000,label)).output.trimEnd();
@@ -380,7 +398,7 @@ async function multipartFields(request:FastifyRequest){const fields=new Map<stri
 export async function autoUtRoutes(app:FastifyInstance,service:AutoUtService,schedules?:UnifiedSchedules){
  app.get('/api/auto-ut/mr-settings',async()=>service.mrConfiguration.get());
  app.put('/api/auto-ut/mr-settings',async request=>service.mrConfiguration.save(request.body));
- app.post('/api/auto-ut/tasks/:id/mr-control',async request=>{const body=z.object({action:z.enum(['pause','resume','retry','apply-settings','retry-notifications','check'])}).parse(request.body);return service.controlMr(z.object({id:z.string()}).parse(request.params).id,body.action);});
+ app.post('/api/auto-ut/tasks/:id/mr-control',async request=>{const body=z.object({action:z.enum(['pause','resume','retry','apply-settings','retry-notifications','check','rerun-pipeline'])}).parse(request.body);return service.controlMr(z.object({id:z.string()}).parse(request.params).id,body.action);});
 await app.register(multipart);const id=(p:unknown)=>z.object({id:z.uuid()}).parse(p).id;
  app.post('/api/auto-ut/scan',async request=>{const{fields,file}=await multipartFields(request);return service.scan(file,fields.get('username')??'',fields.get('ticket')??'',fields.get('baseBranch')??'');});
  app.post('/api/auto-ut/tasks',async(request,reply)=>{const{fields,file}=await multipartFields(request);const mode=z.enum(['MANUAL','AUTOMATIC']).default('AUTOMATIC').parse(fields.get('executionMode'));return reply.code(202).send(await service.start(file,fields.get('username')??'',fields.get('ticket')??'',fields.get('baseBranch')??'',fields.get('workspaceRoot')??'',mode));});

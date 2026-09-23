@@ -1,3 +1,4 @@
+import {buildFailure,type PipelineRebuild} from './pipeline-rebuild.js';
 import {createHash} from 'node:crypto';
 import type {AutoUtTask} from './autout.js';
 import {type MrSettings} from './mr-settings.js';
@@ -10,6 +11,7 @@ export interface MrTracking {
  setup:{linked?:boolean;title?:boolean;reviewers?:boolean;approvers?:boolean;assignees?:boolean};
  awaitingSha?:string;awaitingSince?:number;repairBaseSha?:string;repairCommitSha?:string;uploadAttempted?:boolean;writePending?:string;rounds:number;handled:string[];fingerprint?:string;stalled:number;
  notifications:Record<string,{count:number;at:number;pending?:boolean;escalated?:boolean}>;
+ rebuild?:PipelineRebuild;
  queryFailures:number;pipelineId?:string;generation:number;
 }
 export interface MrHooks {
@@ -112,12 +114,14 @@ export class MrWorkflow {
   const m=task.mr!;if(!m.iid)return;
   try{
    const view=await this.view(task);if(this.terminal(task,view))return;
+   if(m.paused&&m.error==='已手动暂停自动处理')return;
+   if(m.writePending==='pipeline-rebuild'){await this.checkRebuild(task,now);return;}
    if(m.paused){if(m.error!=='已手动暂停自动处理')await this.notifyIntervention(task,now);return;}
    if(m.writePending){m.paused=true;m.error='检测到未确认的写操作，请重试当前步骤核对远端。';this.save(task);return;}
    if(m.phase==='SETUP'){await this.setup(task);return;}
    const sha=view.diff_refs?.head_sha||view.sha;if(!sha)throw Error('MR 未返回当前提交 SHA，暂停判断流水线。');
    if(m.awaitingSha&&sha!==m.awaitingSha){if(now-(m.awaitingSince||now)>1800000)this.pause(task,'远端 MR 尚未更新到已推送提交，请核对 MR 来源分支。');else this.hooks.state(task,'MR_PENDING','已推送新提交，等待 CodeHub 更新 MR。');return;}delete m.awaitingSha;delete m.awaitingSince;
-   if(m.sha!==sha){m.sha=sha;m.phase='PIPELINE';m.generation++;this.hooks.event(task,'检测到 MR 新提交，重新检查流水线与审批状态。');}
+   if(m.sha!==sha){m.rebuild={sha,attempts:0};m.sha=sha;m.phase='PIPELINE';m.generation++;this.hooks.event(task,'检测到 MR 新提交，重新检查流水线与审批状态。');}
    const gate=parseObject(gateSchema,(await this.command(task,['mr','gate',m.iid],'检查MR门禁')).output,g=>g.ci_state_passed!==undefined);
    const pipelines=listObjects((await this.command(task,['mr','pipeline',m.iid],'读取MR流水线')).output).map(p=>pipelineSchema.parse(p));
    let pipeline=pipelines.find(p=>(p.sha||p.commit_id||p.commit?.id)===sha);
@@ -140,9 +144,11 @@ export class MrWorkflow {
  private async failure(task:AutoUtTask,id:string,sha:string,now:number){
   const m=task.mr!,key=sha+':'+id;
   if(m.handled.includes(key)){this.pause(task,'该失败流水线已处理，等待新提交或人工重试，避免重复修复。');return;}
-  if(!m.config.autoRepair||m.rounds>=m.config.maxRepairRounds){this.pause(task,'流水线自动修复已关闭或达到轮次上限，请人工处理。');await this.notifyIntervention(task,now);return;}
   const failure=await this.command(task,['pipeline','failure',id],'获取流水线失败详情');
   const details=jsonValues(failure.output).map(v=>JSON.stringify(v)).join('\n').slice(0,40000);
+  if(buildFailure(jsonValues(failure.output))){await this.rebuildPipeline(task,id,sha,now,false);return;}
+  if(!m.config.autoRepair||m.rounds>=m.config.maxRepairRounds){this.pause(task,'流水线自动修复已关闭或达到轮次上限，请人工处理。');await this.notifyIntervention(task,now);return;}
+
   if(!details||/unauthorized|permission denied|could not resolve dependencies|connection refused|timed? out|无权限|网络异常/i.test(details)||!/(src[\\/]test[\\/]|surefire|AssertionError|test failure|测试失败|失败用例)/i.test(details)){this.pause(task,'流水线失败未定位到可修复的测试代码，请查看失败详情后人工处理。');await this.notifyIntervention(task,now);return;}
   const fingerprint=createHash('sha256').update(details.replace(/[0-9a-f]{40}/g,'SHA').replace(/\d{4}-\d\d-\d\dT[^"\s]+/g,'TIME')).digest('hex');
   m.stalled=m.fingerprint===fingerprint?m.stalled+1:0;m.fingerprint=fingerprint;
@@ -150,6 +156,57 @@ export class MrWorkflow {
   m.handled.push(key);m.rounds++;this.pending(task,'pipeline-repair');this.hooks.state(task,'MR_REPAIRING','正在修复第 '+m.rounds+' 轮流水线失败。');this.save(task);
   try{m.sha=await this.hooks.repair(task,details,sha);m.awaitingSha=m.sha;m.awaitingSince=now;m.generation++;m.phase='PIPELINE';this.done(task);this.hooks.state(task,'MR_PENDING','测试修复已推送，等待新提交流水线。');}
   catch(error){this.pause(task,error instanceof Error?error.message:'流水线修复失败');await this.notifyIntervention(task,now);}
+ }
+ async rerunPipeline(task:AutoUtTask){
+  const m=task.mr!;
+  if(m.writePending)throw Error('存在未确认的写操作，请先刷新核对，不能重复触发流水线。');
+  const view=await this.view(task);if(this.terminal(task,view))return;
+  const sha=view.diff_refs?.head_sha||view.sha;
+  if(!sha||sha!==m.sha||m.awaitingSha)throw Error('MR 提交已变化或尚未确认，请先恢复跟踪。');
+  if(!m.pipelineId)throw Error('未记录流水线 ID。');
+  await this.rebuildPipeline(task,m.pipelineId,sha,Date.now(),true);
+ }
+ private async rebuildPipeline(task:AutoUtTask,id:string,sha:string,now:number,manual:boolean){
+  const m=task.mr!;
+  if(m.writePending)throw Error('流水线写操作结果待确认。');
+  if(m.rebuild?.sha!==sha)m.rebuild={sha,attempts:0};
+  const r=m.rebuild!;
+  if(!manual&&r.manualOnly){this.pause(task,'手动重跑仍失败，请人工处理或再次手动重跑。');await this.notifyIntervention(task,now);return;}
+  if(!manual&&r.attempts>=3){this.pause(task,'构建异常已自动重跑 3 次仍失败，请人工处理或点击重跑流水线。');await this.notifyIntervention(task,now);return;}
+  const pipelines=listObjects((await this.command(task,['mr','pipeline',m.iid],'重跑前核对流水线列表')).output).map(p=>pipelineSchema.parse(p));
+  const latest=pipelines.find(p=>(p.sha||p.commit_id||p.commit?.id)===sha);
+  const detail=parseObject(pipelineSchema,(await this.command(task,['pipeline','view',id],'重跑前核对流水线')).output,p=>!!p.id);
+  if(!latest||latest.id!==id||(detail.sha||detail.commit_id||detail.commit?.id)!==sha||detail.status!=='failed')throw Error('只有当前提交最新的失败流水线可以重跑，请刷新状态。');
+  if(manual)r.manualOnly=true;else r.attempts++;
+  r.pending={pipelineId:id,knownIds:pipelines.map(p=>p.id),requestedAt:now,observed:false};
+  this.pending(task,'pipeline-rebuild');m.phase='PIPELINE';m.paused=false;
+  this.hooks.state(task,'MR_PENDING',manual?'正在手动重跑流水线。':`构建异常，正在第 ${r.attempts}/3 次自动重跑。`);this.save(task);
+  try{
+   // This write has a dedicated argument list: MR display columns are not applicable.
+   await this.hooks.run(task,['codehub-cli','pipeline','rebuild-failed',id,'--mr',m.iid],'重跑失败流水线');
+   this.hooks.state(task,'MR_PENDING','已请求重跑，等待确认新的执行状态。');this.save(task);
+  }catch(error){this.pause(task,'重跑请求结果待确认，先核对远端，勿重复触发：'+(error instanceof Error?error.message:'未知错误'));await this.notifyIntervention(task,now);}
+ }
+ async checkRebuild(task:AutoUtTask,now=Date.now()){
+  const m=task.mr!,r=m.rebuild,pending=r?.pending;
+  if(!r||!pending){this.pause(task,'缺少重跑确认记录，请人工核对流水线。');return;}
+  const view=await this.view(task);if(this.terminal(task,view))return;
+  const sha=view.diff_refs?.head_sha||view.sha;
+  if(!sha){this.pause(task,'MR 未返回提交 SHA，无法确认重跑状态。');return;}
+  if(sha!==r.sha){m.sha=sha;m.rebuild={sha,attempts:0};this.done(task);m.paused=false;m.error='';m.phase='PIPELINE';m.nextAt=0;this.hooks.state(task,'MR_PENDING','MR 已有新提交，停止重跑旧流水线并跟踪新提交。');this.save(task);return;}
+  const pipelines=listObjects((await this.command(task,['mr','pipeline',m.iid],'确认重跑流水线')).output).map(p=>pipelineSchema.parse(p));
+  let current=pipelines.find(p=>(p.sha||p.commit_id||p.commit?.id)===sha&&!pending.knownIds.includes(p.id));
+  if(current)pending.observed=true;
+  else current=parseObject(pipelineSchema,(await this.command(task,['pipeline','view',pending.pipelineId],'确认原流水线重跑状态')).output,p=>!!p.id);
+  if((current.sha||current.commit_id||current.commit?.id)!==sha){this.pause(task,'重跑流水线提交不匹配，请人工核对。');return;}
+  if(['created','pending','running','waiting','preparing','queued'].includes(current.status))pending.observed=true;
+  if(pending.observed||current.status==='success'){
+   m.pipelineId=current.id;delete r.pending;this.done(task);m.paused=false;m.error='';m.phase='PIPELINE';m.nextAt=0;
+   this.hooks.state(task,'MR_PENDING','已确认重跑执行，继续跟踪流水线。');this.save(task);return;
+  }
+  this.hooks.state(task,'MR_PENDING','等待重跑执行确认，旧失败状态不会再次触发重跑。');
+  if(now-pending.requestedAt>=600000){this.pause(task,'尚未确认重跑是否执行，请到 CodeHub 核对；不会重复提交重跑。');await this.notifyIntervention(task,now);}
+  this.save(task);
  }
  private async send(task:AutoUtTask,receiver:string,message:string,key:string,now:number){
   const m=task.mr!,entry=m.notifications[key]??={count:0,at:0};

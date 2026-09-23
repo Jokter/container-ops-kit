@@ -275,3 +275,47 @@ test('failed login or continued rejection pauses without a login loop',async()=>
   const entry=Object.values(f.task.mr!.notifications)[0]!;assert.equal(entry.count,0);assert.equal(entry.pending,false);
  }
 });
+
+function rebuildFixture(){
+ const f=fixture(),run=f.hooks.run;let rebuilds=0;f.task.mr!.pipelineId='10';
+ f.pipeline.status='failed';f.gate.ci_state_passed=false;
+ f.hooks.run=async(t,args,label,required)=>{
+  if(args[1]==='pipeline'&&args[2]==='failure')return {exitCode:0,output:JSON.stringify({failures:[{metrics:[{field_url:'?indicatorType=build2.0_build',exceeded:true}]}]})};
+  if(args[1]==='pipeline'&&args[2]==='rebuild-failed'){rebuilds++;assert.ok(!args.includes('--columns'));return {exitCode:0,output:'accepted'};}
+  return run(t,args,label,required);
+ };
+ return {...f,rebuilds:()=>rebuilds};
+}
+test('构建重跑等待实际状态变化，不因旧 failed 重复触发，最多三次',async()=>{
+ const f=rebuildFixture();f.task.mr!.rounds=f.task.mr!.config.maxRepairRounds;
+ for(let i=0;i<3;i++){
+  await f.workflow.tick(f.task,now+i*10000);assert.equal(f.rebuilds(),i+1);
+  await f.workflow.tick(f.task,now+i*10000+1000);assert.equal(f.rebuilds(),i+1);
+  f.pipeline.status='running';await f.workflow.tick(f.task,now+i*10000+2000);
+  f.pipeline.status='failed';
+ }
+ await f.workflow.tick(f.task,now+40000);assert.equal(f.rebuilds(),3);assert.equal(f.task.mr!.paused,true);assert.equal(f.repairs(),0);
+});
+test('未确认重跑跨重启只查询，人工点击不能重复提交',async()=>{
+ const f=rebuildFixture();await f.workflow.tick(f.task,now);
+ const restored=structuredClone(f.task),workflow=new MrWorkflow(f.hooks);
+ await workflow.tick(restored,now+1000);assert.equal(f.rebuilds(),1);
+ await assert.rejects(workflow.rerunPipeline(restored),/未确认/);assert.equal(f.rebuilds(),1);
+});
+test('人工重跑不能运行过时提交或正在运行的流水线',async()=>{
+ const f=rebuildFixture();f.view.sha='changed';await assert.rejects(f.workflow.rerunPipeline(f.task),/提交已变化/);
+ f.view.sha='sha1';f.pipeline.status='running';await assert.rejects(f.workflow.rerunPipeline(f.task),/最新的失败/);assert.equal(f.rebuilds(),0);
+});
+test('人工重跑一次不刷新自动额度，后续失败不自动重跑',async()=>{
+ const f=rebuildFixture();f.task.mr!.pipelineId='10';f.task.mr!.rebuild={sha:'sha1',attempts:3};
+ await f.workflow.rerunPipeline(f.task);assert.equal(f.rebuilds(),1);assert.equal(f.task.mr!.rebuild.attempts,3);
+ f.pipeline.status='running';await f.workflow.tick(f.task,now);f.pipeline.status='failed';await f.workflow.tick(f.task,now+1000);
+ assert.equal(f.rebuilds(),1);assert.equal(f.task.mr!.paused,true);
+});
+test('重跑请求响应丢失只确认远端，新提交使用独立额度',async()=>{
+ const f=rebuildFixture(),run=f.hooks.run;
+ f.hooks.run=async(t,args,label,required)=>{const result=await run(t,args,label,required);if(args[2]==='rebuild-failed')throw Error('response lost');return result;};
+ await f.workflow.tick(f.task,now);assert.equal(f.task.mr!.writePending,'pipeline-rebuild');
+ await f.workflow.tick(f.task,now+1000);assert.equal(f.rebuilds(),1);
+ f.view.sha='sha2';await f.workflow.tick(f.task,now+2000);assert.equal(f.task.mr!.rebuild?.attempts,0);assert.equal(f.task.mr!.writePending,undefined);
+});
