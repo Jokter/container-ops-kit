@@ -108,5 +108,12 @@ test('居中确认和输入弹窗支持取消、键盘、焦点与安全文本',
 
 test('流水线失败仍展示已完成的 Pi 检视，不显示流水线已通过',async t=>{
  const sha='a'.repeat(40);const {doc}=await fixture(t,{route:'group-mr',records:[{id:'pi-complete',repo:'MAE-M/Access/Demo',iid:'444',sha,phase:'FAILED',stage:'PIPELINE',pipelinePassed:false,piReview:{sha,summary:'通过'},status:'Pi 检视已通过；当前MR提交流水线失败',events:[]}]});
- const steps=[...doc.querySelectorAll('.group-mr-flow li')];assert.ok(steps[1].classList.contains('stop'));assert.ok(!steps[1].classList.contains('done'));assert.ok(steps[2].classList.contains('done'));assert.match(steps[2].textContent,/Pi 检视已通过/);
+ const steps=[...doc.querySelectorAll('.group-mr-flow li')];assert.ok(steps[3].classList.contains('stop'));assert.ok(!steps[3].classList.contains('done'));assert.ok(steps[1].classList.contains('done'));assert.match(steps[1].textContent,/Pi 检视已通过/);
+});
+
+test('Pi 阶段待处理不会将流水线误标为已通过',async t=>{
+ const {doc}=await fixture(t,{route:'group-mr',records:[{id:'issues',repo:'MAE-M/Access/Demo',iid:'444',sha:'a'.repeat(40),phase:'ISSUES',stage:'PI',pipelinePassed:false,status:'发现问题',events:[]}]});
+ const steps=[...doc.querySelectorAll('.group-mr-flow li')];
+ assert.deepEqual(steps.map(s=>s.querySelector('b').textContent),['收到消息','Pi 检视','检视意见','流水线','检视','审核','合并']);
+ assert.match(steps[1].textContent,/待处理/);assert.doesNotMatch(steps[1].textContent,/已停止/);assert.match(steps[3].textContent,/待处理/);assert.ok(!steps[3].classList.contains('done'));
 });

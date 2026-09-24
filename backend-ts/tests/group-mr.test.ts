@@ -276,3 +276,24 @@ test('Pi findings are reported despite failed CI; passed Pi waits before all Cod
   finally{await service.close();store.close();}
  }
 });
+
+test('Pi uses configured MCP and confirms submitted comments before reporting them',async()=>{
+ for(const confirmed of [true,false]){
+  const store=new TaskStore(':memory:');const sha='a'.repeat(40);
+  const execute:typeof runProcess=async(args,_dir,_timeout,_log,onLine,input)=>{
+   if(args[0]==='pi'){
+    assert.ok(!args.includes('--no-tools'));assert.ok(!args.includes('--no-extensions'));assert.ok(!args.includes('--no-skills'));
+    assert.match(input??'',/CodeHub MCP/);
+    onLine?.(JSON.stringify({type:'message_update',assistantMessageEvent:{type:'text_delta',delta:JSON.stringify({ok:false,summary:'发现问题',findings:[{path:'test.java',line:1,body:'需要判空'}],resolvedDiscussionIds:[]})}}),false);
+    return {exitCode:0,output:''};
+   }
+   return {exitCode:0,output:JSON.stringify(confirmed?[{id:'new',notes:[{body:'需要判空',author:{username:'me'}}]}]:[])};
+  };
+  const service=new GroupMrService(store,execute);
+  const entry={id:'test',repo:'MAE-M/Access/Demo',iid:'444',url:'https://codehub-y.huawei.com/MAE-M/Access/Demo/merge_requests/444',sha,previousSha:'',messageId:'1',sender:'other',shortcut:false,phase:'PI' as const,status:'',detail:'',createdAt:new Date().toISOString(),updatedAt:'',writePending:'',events:[]};
+  try{
+   if(confirmed){const result=await service['runPi'](entry,'',[]);assert.equal(result.findings.length,1);assert.equal(entry.writePending,'');}
+   else{await assert.rejects(service['runPi'](entry,'',[]),/尚未在 CodeHub 确认/);assert.equal(entry.writePending,'Pi 提交检视意见');}
+  }finally{await service.close();store.close();}
+ }
+});
