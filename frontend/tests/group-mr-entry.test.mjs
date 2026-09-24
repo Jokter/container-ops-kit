@@ -96,10 +96,11 @@ test('批量删除只选中当前过滤下可删除的记录，取消不写入',
 test('居中确认和输入弹窗支持取消、键盘、焦点与安全文本',async t=>{
  const {dom,doc}=await fixture(t);const opener=doc.querySelector('[data-group-mr-toggle]');opener.focus();
  const result=dom.window.studioConfirm('<img src=x>\n确认删除？');
+ const overlayStyle=dom.window.getComputedStyle(doc.querySelector('.studio-confirm-backdrop'));assert.equal(overlayStyle.position,'fixed');assert.equal(overlayStyle.display,'grid');assert.equal(overlayStyle.placeItems,'center');assert.equal(overlayStyle.zIndex,'10000');assert.equal(doc.querySelector('#app').inert,true);
  assert.equal(doc.querySelector('.studio-confirm-dialog img'),null);assert.match(doc.querySelector('#studio-confirm-message').textContent,/<img/);
  assert.equal(doc.activeElement,doc.querySelector('[data-studio-cancel]'));assert.equal(await dom.window.studioConfirm('重复'),false);
  dom.window.eval('render(false)');assert.ok(doc.querySelector('.studio-confirm-dialog'));
- doc.querySelector('.studio-confirm-dialog').dispatchEvent(new dom.window.KeyboardEvent('keydown',{key:'Escape',bubbles:true}));assert.equal(await result,false);assert.equal(doc.querySelector('.studio-confirm-backdrop'),null);
+ doc.querySelector('.studio-confirm-dialog').dispatchEvent(new dom.window.KeyboardEvent('keydown',{key:'Escape',bubbles:true}));assert.equal(await result,false);assert.equal(doc.querySelector('.studio-confirm-backdrop'),null);assert.ok(!doc.querySelector('#app').inert);assert.equal(doc.body.style.overflow,'');
  const input=dom.window.studioPrompt('填写原因');const field=doc.querySelector('[data-studio-input]');assert.equal(doc.activeElement,field);assert.equal(doc.querySelector('[data-studio-confirm]').disabled,true);
  field.value=' 已核对 ';field.dispatchEvent(new dom.window.Event('input',{bubbles:true}));doc.querySelector('[data-studio-confirm]').click();assert.equal(await input,'已核对');assert.equal(doc.body.style.overflow,'');
  const confirm=dom.window.studioConfirm('确认');doc.querySelector('[data-studio-confirm]').click();assert.equal(await confirm,true);
