@@ -153,7 +153,8 @@ export class GroupMrService {
   const help=await this.command(['welink-cli','im','send-to-group','--help'],10000);
   const flag=['--quote-message-id','--reply-to-message-id','--quote-msg-id'].find(option=>help.includes(option));
   if(!flag)e.events.push({time:new Date().toISOString(),phase:e.phase,message:'当前 WeLink CLI 未提供原生引用回复参数，群消息将使用原 MR 链接标识来源'});
-  const text=`${e.url}\n—— ${message.replace(/[\r\n\u2028\u2029]+/g,'；')}`.slice(0,1800);
+  // Keep --text single-line for Windows welink-cli.cmd; never weaken batch argument validation.
+  const text=`${e.url} —— ${message.replace(/[\r\n\0\u2028\u2029]+/g,'；')}`.slice(0,1800);
   e.reply={text,mode:flag?'quote':'reference',status:'sending'};e.writePending='群消息回复';this.save(e);
   try{
    const result=await this.command(['welink-cli','im','send-to-group','--group-id',cfg.groupId,'--text',text,...(flag?[flag,e.messageId]:[])],30000);
