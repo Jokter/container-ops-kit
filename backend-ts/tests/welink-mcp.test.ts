@@ -66,3 +66,22 @@ test('a tool error is not retried even if its content contains a success sentenc
  const client=new WelinkMcp(token=>{const child=spawn(process.execPath,['-e',childSource],{detached:process.platform!=='win32',stdio:['pipe','pipe','pipe'],env:{...process.env,WELINK_TOKEN:token}});child.stderr.on('data',chunk=>{calls+=String(chunk).split('tool-call').length-1;});return child;},5000);
  await assert.rejects(client.send('w00789509','test message','test-only-token'),/未返回明确/);assert.equal(calls,1);
 });
+
+test('saved MCP configuration persists, overrides environment args and never changes the token',()=>{
+ const store=new TaskStore(':memory:'),settings=new WelinkSettings(store),previous=process.env.WELINK_MCP_UVX_ARGS;
+ try{
+  process.env.WELINK_MCP_UVX_ARGS=JSON.stringify(['uvx','--from','https://env.example.test/pkg','welink-msg','stdio']);
+  assert.equal(settings.mcpStatus().config.packageUrl,'https://env.example.test/pkg');
+  const config={packageUrl:'https://saved.example.test/pkg',indexUrl:'https://saved.example.test/simple',insecureHosts:'saved.example.test'};
+  settings.saveMcp(config);
+  assert.deepEqual(new WelinkSettings(store).mcpStatus().config,config);
+  assert.ok(settings.mcpArgs().includes(config.packageUrl));
+  assert.ok(!settings.mcpArgs().includes('https://env.example.test/pkg'));
+  settings.clear();assert.deepEqual(settings.mcpStatus().config,config);
+  assert.throws(()=>settings.saveMcp({...config,packageUrl:'file:///tmp/pkg'}));
+  assert.throws(()=>settings.saveMcp({...config,indexUrl:'https://user:pass@example.test'}));
+  assert.throws(()=>settings.saveMcp({...config,insecureHosts:'example.test --from evil'}));
+  assert.deepEqual(settings.mcpStatus().config,config);
+  settings.saveMcp(settings.mcpStatus().defaults);assert.deepEqual(settings.mcpArgs(),welinkMcpArgs({}));
+ }finally{if(previous===undefined)delete process.env.WELINK_MCP_UVX_ARGS;else process.env.WELINK_MCP_UVX_ARGS=previous;store.close();}
+});

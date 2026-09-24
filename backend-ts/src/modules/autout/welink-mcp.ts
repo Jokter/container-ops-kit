@@ -50,7 +50,7 @@ export function confirmedWelinkResult(value:unknown):boolean{
  return confirmed;
 }
 export class WelinkMcp {
- constructor(private readonly launch:(token:string)=>ChildProcessWithoutNullStreams=token=>spawn(process.platform==='win32'?'uvx.exe':'uvx',welinkMcpArgs(),{windowsHide:true,detached:process.platform!=='win32',stdio:['pipe','pipe','pipe'],env:{...process.env,WELINK_TOKEN:token}}),private readonly timeoutMs=120000){}
+ constructor(private readonly launch:(token:string)=>ChildProcessWithoutNullStreams=token=>spawn(process.platform==='win32'?'uvx.exe':'uvx',args(),{windowsHide:true,detached:process.platform!=='win32',stdio:['pipe','pipe','pipe'],env:{...process.env,WELINK_TOKEN:token}}),private readonly timeoutMs=120000,args:()=>string[]=()=>welinkMcpArgs()){}
  async send(receiver:string,content:string,token:string,signal?:AbortSignal){
   if(!/^[a-z][a-z0-9._-]{1,79}$/.test(receiver))throw Error('WeLink MCP 接收者工号格式不正确');
   signal?.throwIfAborted();const child=this.launch(token);let sequence=0,buffer='',failure:Error|undefined;

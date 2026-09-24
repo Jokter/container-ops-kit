@@ -1,4 +1,13 @@
 import {z} from 'zod';
+import {welinkMcpArgs} from './welink-mcp.js';
+
+const mcpSchema=z.object({packageUrl:z.string().trim().min(1).max(8192),indexUrl:z.string().trim().min(1).max(8192),insecureHosts:z.string().trim().max(2048)}).strict();
+type McpConfig=z.infer<typeof mcpSchema>;
+function configArgs(config:McpConfig){return welinkMcpArgs({WELINK_MCP_PACKAGE:config.packageUrl,WELINK_MCP_INDEX_URL:config.indexUrl,WELINK_MCP_INSECURE_HOSTS:config.insecureHosts});}
+function argsConfig(args:string[]):McpConfig{
+ const last=(flag:string)=>{const index=args.lastIndexOf(flag);return index<0?'':args[index+1]??'';};
+ return {packageUrl:last('--from'),indexUrl:last('--index-url'),insecureHosts:args.flatMap((v,i)=>v==='--allow-insecure-host'?[args[i+1]??'']:[]).join(',')};
+}
 import {createCipheriv,createDecipheriv,randomBytes} from 'node:crypto';
 import {mkdirSync,readFileSync,writeFileSync} from 'node:fs';
 import {dirname,join} from 'node:path';
@@ -8,6 +17,9 @@ import type {TaskStore} from '../../platform/store.js';
 interface Secret {iv:string;tag:string;encrypted:string}
 export class WelinkSettings {
  constructor(private readonly store:TaskStore,private readonly keyPath=join(homedir(),'.container-ops-kit','welink.key')){}
+ mcpArgs(){const saved=this.store.getRecord<McpConfig>('welink-settings','mcp');return saved?configArgs(mcpSchema.parse(saved)):welinkMcpArgs();}
+ mcpStatus(){return {config:argsConfig(this.mcpArgs()),defaults:argsConfig(welinkMcpArgs({})),source:this.store.getRecord('welink-settings','mcp')?'saved':'runtime'};}
+ saveMcp(value:unknown){const config=mcpSchema.parse(value);try{configArgs(config);}catch{throw Object.assign(Error('WeLink MCP 配置无效：地址须为 HTTP(S)，不能包含账号密码；主机用逗号分隔。'),{statusCode:400});}this.store.putRecord('welink-settings','mcp',config);return this.mcpStatus();}
  status(){return{configured:!!this.store.getRecord<Secret>('welink-settings','token')||!!process.env.WELINK_TOKEN?.trim()};}
  private key(create=false){
   if(create){mkdirSync(dirname(this.keyPath),{recursive:true,mode:0o700});try{writeFileSync(this.keyPath,randomBytes(32),{flag:'wx',mode:0o600});}catch(error){if(!(error instanceof Error&&'code' in error&&error.code==='EEXIST'))throw error;}}
@@ -29,6 +41,8 @@ export class WelinkSettings {
 
 export function welinkSettingsRoutes(app:import('fastify').FastifyInstance,store:TaskStore){
  const settings=new WelinkSettings(store);
+ app.get('/api/auto-ut/welink-mcp-settings',async()=>settings.mcpStatus());
+ app.put('/api/auto-ut/welink-mcp-settings',async request=>settings.saveMcp(request.body));
  app.get('/api/auto-ut/welink-settings',async()=>settings.status());
  app.put('/api/auto-ut/welink-settings',async request=>{const {token}=z.object({token:z.string().trim().min(1).max(16384).regex(/^[^\r\n]+$/)}).parse(request.body);return settings.save(token);});
  app.delete('/api/auto-ut/welink-settings',async()=>settings.clear());
