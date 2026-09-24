@@ -104,3 +104,8 @@ test('居中确认和输入弹窗支持取消、键盘、焦点与安全文本',
  field.value=' 已核对 ';field.dispatchEvent(new dom.window.Event('input',{bubbles:true}));doc.querySelector('[data-studio-confirm]').click();assert.equal(await input,'已核对');assert.equal(doc.body.style.overflow,'');
  const confirm=dom.window.studioConfirm('确认');doc.querySelector('[data-studio-confirm]').click();assert.equal(await confirm,true);
 });
+
+test('流水线失败仍展示已完成的 Pi 检视，不显示流水线已通过',async t=>{
+ const sha='a'.repeat(40);const {doc}=await fixture(t,{route:'group-mr',records:[{id:'pi-complete',repo:'MAE-M/Access/Demo',iid:'444',sha,phase:'FAILED',stage:'PIPELINE',pipelinePassed:false,piReview:{sha,summary:'通过'},status:'Pi 检视已通过；当前MR提交流水线失败',events:[]}]});
+ const steps=[...doc.querySelectorAll('.group-mr-flow li')];assert.ok(steps[1].classList.contains('stop'));assert.ok(!steps[1].classList.contains('done'));assert.ok(steps[2].classList.contains('done'));assert.match(steps[2].textContent,/Pi 检视已通过/);
+});
