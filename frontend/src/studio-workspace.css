@@ -108,3 +108,5 @@
 .environment-row-name .environment-architecture{display:inline-block;width:fit-content;margin-top:6px;padding:2px 8px;font-size:11px}
 
 .ut-task-current strong .ut-pi-round{display:inline;margin-left:10px;font-size:12px;font-weight:400;color:var(--muted);white-space:nowrap}
+
+.group-mr-history-table{min-width:940px}.group-mr-history-table th:first-child{width:42px}.group-mr-history-table th:nth-child(2){width:23%}.group-mr-history-table th:nth-child(3){width:17%}.group-mr-history-table th:nth-child(4){width:13%}.group-mr-history-table th:nth-child(5){width:auto}.group-mr-history-table th:nth-child(6){width:15%}.group-mr-history-table th:last-child{width:76px}

@@ -81,7 +81,9 @@ export class GroupMrService {
   for(const r of related){r.writePending='';if(r.reply)r.reply.status='checked';r.events.push({time:new Date().toISOString(),phase:r.phase,message:'已人工核对群消息回复，解除拦截；未重发消息，请重新发送 MR 链接触发检查'});this.save(r);}
   return {ok:true};
  }
- removeHistory(id:string){const e=this.editable(id);if(!['DONE','FAILED','NO_PERMISSION','INTERRUPTED'].includes(e.phase))throw Object.assign(Error('只能删除已结束的执行历史'),{statusCode:409});if(e.writePending)throw Object.assign(Error('操作结果未确认，请先人工核对'),{statusCode:409});this.store.putRecord('group-mr-hidden',id,{id,deletedAt:new Date().toISOString()});return {ok:true};}
+ removeHistory(id:string){return this.removeHistories([id]);}
+ removeHistories(ids:string[]){const entries=[...new Set(ids)].map(id=>this.editable(id));for(const e of entries){if(!['DONE','FAILED','NO_PERMISSION','INTERRUPTED'].includes(e.phase))throw Object.assign(Error('只能删除已结束的执行历史'),{statusCode:409});if(e.writePending)throw Object.assign(Error('操作结果未确认，请先人工核对'),{statusCode:409});}for(const e of entries)this.store.putRecord('group-mr-hidden',e.id,{id:e.id,deletedAt:new Date().toISOString()});return {ok:true,deleted:entries.length};}
+
  private save(e:Entry){e.updatedAt=new Date().toISOString();this.store.putRecord('group-mr-entry',e.id,e,e.createdAt);}
  private mark(e:Entry,p:Phase,message:string){e.phase=p;if(['PIPELINE','PI','COMMENTS','REVIEW','APPROVE','MERGE'].includes(p))e.stage=p;e.status=message;e.events.push({time:new Date().toISOString(),phase:p,message});this.save(e);}
  private async command(args:string[],timeout=120000){
@@ -131,6 +133,7 @@ export class GroupMrService {
     this.store.putRecord('group-mr-cursor',cursorKey,{id:msg.id});}
    for(const entry of this.summary().pending.filter(e=>e.phase==='PIPELINE'&&!e.writePending)){
     if(this.closing||this.active.has(entry.repo+':'+entry.iid))continue;
+    if(entry.sender.trim().toLowerCase()===cfg.authorizedSender.trim().toLowerCase()){this.mark(entry,'INTERRUPTED','触发消息来自已过滤的授权账号，停止跟进；请由其他群成员发送 MR 链接');continue;}
     this.active.add(entry.repo+':'+entry.iid);
     this.updateMonitor({state:'processing',message:`复查流水线 ${entry.repo} !${entry.iid}`});
     try{await this.process(entry,cfg);}catch(error){const reason=error instanceof Error?error.message:'处理失败';if(['DONE','FAILED','NO_PERMISSION'].includes(entry.phase)){entry.detail=reason;this.save(entry);}else{this.mark(entry,'INTERRUPTED',reason);if(entry.writePending!=='群消息回复')await this.reply(entry,cfg,reason).catch(()=>{});}}finally{this.active.delete(entry.repo+':'+entry.iid);}
@@ -138,10 +141,9 @@ export class GroupMrService {
    this.updateMonitor({state:'waiting',error:'',message:summary()+'；本轮完成，等待新消息'});this.recordLog('info',summary());
   }catch(error){const message=error instanceof Error?error.message:'监听失败';this.updateMonitor({state:'error',error:message,message});this.recordLog('error',message);}finally{this.busy=false;}}
  private trigger(msg:GroupMessage,cfg:Configuration){
+  if(msg.sender.trim().toLowerCase()===cfg.authorizedSender.trim().toLowerCase())return;
   const direct=mrLinkFromMessage(msg.content,cfg.repositoryPrefix);
-  const shortcut=!direct&&msg.content.trim()==='合入'&&msg.sender.toLowerCase()===cfg.authorizedSender.toLowerCase()&&msg.quoteId;
-  const previous=shortcut?this.store.getRecord<{repo:string;iid:string;url:string}>('group-mr-message',cfg.groupId+':'+msg.quoteId):undefined;
-  const link=direct??previous;return link?{link,direct,shortcut:!!shortcut}:undefined;
+  return direct?{link:direct,direct,shortcut:false}:undefined;
  }
  private async accept(msg:GroupMessage,cfg:Configuration){
   const trigger=this.trigger(msg,cfg);if(!trigger)return;const {link,direct,shortcut}=trigger;
@@ -193,7 +195,7 @@ export class GroupMrService {
   e.sha=this.head(initial);if(!/^[a-f0-9]{40}$/i.test(e.sha))throw Error('CodeHub 未返回完整的当前提交 SHA');this.save(e);
   const gate=await this.gate(e);const pipelines=listObjects(await this.code(['mr','pipeline',e.iid,'-p',e.repo],'id,status,sha,commit_id,commit')).map(p=>pipelineSchema.parse(p));const current=pipelines.find(p=>(p.sha||p.commit_id||p.commit?.id)===e.sha);
   if(!current){if(e.status!=='等待当前提交触发流水线')this.mark(e,'PIPELINE','等待当前提交触发流水线');return;}
-  if(current.status!=='success'||gate.ci_state_passed!==true){const message=current.status==='failed'?'当前提交流水线失败，本次处理结束。':`当前提交流水线状态为 ${current.status}，持续等待。`;if(e.status!==message)this.mark(e,current.status==='failed'?'FAILED':'PIPELINE',message);if(current.status==='failed')await this.reply(e,cfg,message);return;}
+  if(current.status!=='success'||gate.ci_state_passed!==true){const message=current.status==='failed'?'当前MR提交流水线失败，本次暂不处理。':`当前提交流水线状态为 ${current.status}，持续等待。`;if(e.status!==message)this.mark(e,current.status==='failed'?'FAILED':'PIPELINE',message);if(current.status==='failed')await this.reply(e,cfg,message);return;}
   if(gate.quality_gate?.passed===false||gate.conflict_passed===false){this.mark(e,'FAILED','质量门禁或冲突检查失败，本次处理结束');await this.reply(e,cfg,e.status);return;}
   if(!e.shortcut){
    this.mark(e,'PI','Pi 正在检视当前提交');const raw=await this.code(['mr','changes',e.iid,'-p',e.repo],'changes,changes_count,added_lines,removed_lines');if(raw.length>=115000)throw Error('改动超出检视输入上限，请人工检视');
@@ -236,5 +238,6 @@ export function groupMrRoutes(app:FastifyInstance,service:GroupMrService){
  app.put('/api/automation/group-mr/config',async request=>service.configure(request.body));
  app.get('/api/automation/group-mr/records',async()=>service.visibleList());
  app.post('/api/automation/group-mr/records/:id/acknowledge-reply',async request=>{const {id}=z.object({id:z.string().min(1)}).parse(request.params);z.object({confirmed:z.literal(true)}).strict().parse(request.body);return service.acknowledgeReply(id);});
+ app.post('/api/automation/group-mr/records/delete',async request=>service.removeHistories(z.object({ids:z.array(z.string().min(1)).min(1).max(200)}).strict().parse(request.body).ids));
  app.delete('/api/automation/group-mr/records/:id',async request=>service.removeHistory(z.object({id:z.string().min(1)}).parse(request.params).id));
 }

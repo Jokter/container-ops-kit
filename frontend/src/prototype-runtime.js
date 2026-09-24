@@ -297,7 +297,7 @@ import {canConvertFailedQuickDeploymentToReview, canDeployReviewedTask, deployme
       showToast('环境数据尚未从后端加载')
       return
     }
-    if (!confirm('确定删除“' + environment.name + '”吗？删除后无法恢复。')) return
+    if (!(await studioConfirm('确定删除“' + environment.name + '”吗？删除后无法恢复。'))) return
     try {
       await request('/api/environments/' + environment._apiId, {method: 'DELETE'})
       await loadResources()
@@ -655,7 +655,7 @@ import {canConvertFailedQuickDeploymentToReview, canDeployReviewedTask, deployme
     const copy = deleteWorkspace
       ? '确定清理该任务的远端工作目录并删除历史记录吗？此操作无法恢复。'
       : '确定只删除该任务的历史记录吗？远端工作目录将保留。'
-    if (!confirm(copy)) return
+    if (!(await studioConfirm(copy))) return
     try {
       await request('/api/build-tasks/' + id + '?deleteWorkspace=' + deleteWorkspace, {method: 'DELETE'})
       if (buildRuntime.task?.id === id) {
@@ -965,12 +965,13 @@ import {canConvertFailedQuickDeploymentToReview, canDeployReviewedTask, deployme
     const environment = environments.find(item => item.id === state.selectedContainerEnvironment) || environments.find(item => item.type === 'container')
     const services = [...deploymentRuntime.selectedServices]
     const namespace = deploymentRuntime.namespace
+    const artifactId = Number(deploymentRuntime.artifactId)
     if (!services.length || !namespace || !environment?._apiId) return showToast('请选择命名空间和至少一个服务')
-    if (mode === 'QUICK' && !confirm('确认快速部署到 ' + environment.name + ' / ' + namespace + '：' + services.join('、') + '\n\n系统将执行覆盖式重装，开始后无需再次确认。')) return
+    if (mode === 'QUICK' && !(await studioConfirm('确认快速部署到 ' + environment.name + ' / ' + namespace + '：' + services.join('、') + '\n\n系统将执行覆盖式重装，开始后无需再次确认。'))) return
     deploymentRuntime.busy = true
     render(false)
     try {
-      deploymentRuntime.task = await request('/api/deployment-tasks', {method: 'POST', body: JSON.stringify({mode, artifactId: Number(deploymentRuntime.artifactId), environmentId: environment._apiId, namespace, services})})
+      deploymentRuntime.task = await request('/api/deployment-tasks', {method: 'POST', body: JSON.stringify({mode, artifactId, environmentId: environment._apiId, namespace, services})})
       localStorage.setItem(activeDeploymentTaskKey, deploymentRuntime.task.id)
       localStorage.removeItem(deploymentEventSequenceKey(deploymentRuntime.task.id))
       localStorage.removeItem(deploymentEventLogKey(deploymentRuntime.task.id))
@@ -1082,7 +1083,7 @@ import {canConvertFailedQuickDeploymentToReview, canDeployReviewedTask, deployme
     if (!task || deploymentRuntime.busy) return
     const services = [...deploymentRuntime.selectedServices].filter(name => task.services[name])
     if (!services.length) return showToast('请至少选择一个需要部署的服务')
-    if (!confirm('确认部署已选服务：' + services.join('、') + '\n\n系统将依次生成 Chart、执行渲染校验和覆盖式重装。确定继续吗？')) return
+    if (!(await studioConfirm('确认部署已选服务：' + services.join('、') + '\n\n系统将依次生成 Chart、执行渲染校验和覆盖式重装。确定继续吗？'))) return
     deploymentRuntime.busy = true
     render(false)
     try {
