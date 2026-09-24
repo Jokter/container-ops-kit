@@ -9,9 +9,9 @@ const flush=()=>new Promise(r=>setTimeout(r,30))
 async function fixture(t,{route='tools',save,records=[],history=[]}={}){
  const writes=[],config={enabled:false,groupId:'1234567891011',authorizedSender:'w00789509',repositoryPrefix:'MAE-M/Access/',intervalSeconds:10}
  const snapshot=()=>({config:{...config},pending:records,history,metrics:{pending:records.length,issues:0,mergedToday:0},monitor:{error:'',at:''}})
- const dom=new JSDOM(html,{runScripts:'dangerously',url:'http://localhost/#/automation/'+route,beforeParse(w){w.scrollTo=()=>{};w.confirm=()=>true;const timeout=w.setTimeout.bind(w);w.setTimeout=(callback,delay,...args)=>delay>500?0:timeout(callback,delay,...args);w.fetch=async(url,options)=>{
+ const dom=new JSDOM(html,{runScripts:'dangerously',url:'http://localhost/#/automation/'+route,beforeParse(w){w.scrollTo=()=>{};w.confirm=()=>{throw Error('原生弹窗不应调用')};const timeout=w.setTimeout.bind(w);w.setTimeout=(callback,delay,...args)=>delay>500?0:timeout(callback,delay,...args);w.fetch=async(url,options)=>{
   if(url==='/api/automation/group-mr/config'&&options?.method==='PUT'){const body=JSON.parse(options.body);writes.push(body);if(save)return save(body);Object.assign(config,body);return response({...config})}
-  if(url.startsWith('/api/automation/group-mr/records/')){writes.push({url,...options});if(options?.method==='DELETE')history.splice(0,1);else for(const r of history){r.writePending='';if(r.reply)r.reply.status='checked';}return response({ok:true})}
+  if(url.startsWith('/api/automation/group-mr/records/')){writes.push({url,...options});if(url.endsWith('/delete')){const ids=JSON.parse(options.body).ids;for(let i=history.length-1;i>=0;i--)if(ids.includes(history[i].id))history.splice(i,1);}else for(const r of history){r.writePending='';if(r.reply)r.reply.status='checked';}return response({ok:true})}
   if(url==='/api/automation/group-mr')return response(snapshot())
   return response([])
  }}})
@@ -70,9 +70,37 @@ test('阶段过滤、人工核对和历史删除沿用当前列表布局',async 
  assert.equal(doc.querySelectorAll('[data-group-mr-record]').length,1);assert.ok(doc.querySelector('[data-group-mr-record="approve"]'));
  doc.querySelector('#group-mr-phase').value='FAILED';doc.querySelector('#group-mr-phase').dispatchEvent(new dom.window.Event('change',{bubbles:true}));
  assert.equal(doc.querySelector('[data-group-mr-action="delete"]').disabled,true);
- doc.querySelector('[data-group-mr-action="ack"]').click();await flush();await flush();
+ doc.querySelector('[data-group-mr-action="ack"]').click();doc.querySelector('[data-studio-confirm]').click();await flush();await flush();
  assert.equal(writes[0].url,'/api/automation/group-mr/records/failed/acknowledge-reply');assert.deepEqual(JSON.parse(writes[0].body),{confirmed:true});
  assert.match(doc.querySelector('.group-mr-reply').textContent,/已人工核对/);
- doc.querySelector('[data-group-mr-action="delete"]').click();await flush();await flush();
- assert.equal(writes[1].method,'DELETE');assert.equal(writes[1].body,undefined);assert.equal(doc.querySelectorAll('[data-group-mr-record]').length,0);
+ assert.ok(doc.querySelector('td:last-child [data-group-mr-action="delete"]'));assert.equal(doc.querySelector('.group-mr-detail [data-group-mr-action="delete"]'),null);
+ doc.querySelector('[data-group-mr-action="delete"]').click();doc.querySelector('[data-studio-confirm]').click();await flush();await flush();
+ assert.equal(writes[1].method,'POST');assert.deepEqual(JSON.parse(writes[1].body),{ids:['failed']});assert.equal(doc.querySelectorAll('[data-group-mr-record]').length,0);
+});
+
+
+test('批量删除只选中当前过滤下可删除的记录，取消不写入',async t=>{
+ const base={repo:'MAE-M/Access/Demo',iid:'444',phase:'FAILED',stage:'PIPELINE',status:'失败',events:[]};
+ const {doc,dom,writes}=await fixture(t,{route:'group-mr',history:[{...base,id:'a'},{...base,id:'b'},{...base,id:'blocked',writePending:'群消息回复'}]});
+ doc.querySelector('[data-group-mr-tab="history"]').click();
+ assert.equal(doc.querySelectorAll('.group-mr-table th').length,7);
+ doc.querySelector('[data-group-mr-check-all]').click();
+ assert.equal(doc.querySelectorAll('[data-group-mr-check]:checked').length,2);
+ assert.equal(doc.querySelector('[data-group-mr-check="blocked"]').disabled,true);
+ doc.querySelector('[data-group-mr-action="batch"]').click();assert.equal(writes.length,0);
+ doc.querySelector('[data-studio-cancel]').click();await flush();assert.equal(writes.length,0);
+ doc.querySelector('[data-group-mr-action="batch"]').click();doc.querySelector('[data-studio-confirm]').click();await flush();await flush();
+ assert.deepEqual(JSON.parse(writes[0].body),{ids:['a','b']});assert.equal(doc.querySelectorAll('[data-group-mr-record]').length,1);
+});
+
+test('居中确认和输入弹窗支持取消、键盘、焦点与安全文本',async t=>{
+ const {dom,doc}=await fixture(t);const opener=doc.querySelector('[data-group-mr-toggle]');opener.focus();
+ const result=dom.window.studioConfirm('<img src=x>\n确认删除？');
+ assert.equal(doc.querySelector('.studio-confirm-dialog img'),null);assert.match(doc.querySelector('#studio-confirm-message').textContent,/<img/);
+ assert.equal(doc.activeElement,doc.querySelector('[data-studio-cancel]'));assert.equal(await dom.window.studioConfirm('重复'),false);
+ dom.window.eval('render(false)');assert.ok(doc.querySelector('.studio-confirm-dialog'));
+ doc.querySelector('.studio-confirm-dialog').dispatchEvent(new dom.window.KeyboardEvent('keydown',{key:'Escape',bubbles:true}));assert.equal(await result,false);assert.equal(doc.querySelector('.studio-confirm-backdrop'),null);
+ const input=dom.window.studioPrompt('填写原因');const field=doc.querySelector('[data-studio-input]');assert.equal(doc.activeElement,field);assert.equal(doc.querySelector('[data-studio-confirm]').disabled,true);
+ field.value=' 已核对 ';field.dispatchEvent(new dom.window.Event('input',{bubbles:true}));doc.querySelector('[data-studio-confirm]').click();assert.equal(await input,'已核对');assert.equal(doc.body.style.overflow,'');
+ const confirm=dom.window.studioConfirm('确认');doc.querySelector('[data-studio-confirm]').click();assert.equal(await confirm,true);
 });

@@ -13,6 +13,8 @@ test('connection settings saves MCP independently of token and restores defaults
   return [];
  }});}});
  try{await pause();const d=dom.window.document;d.querySelector('[data-qw-drawer="connection"]').click();await pause();
+  for(const id of ['welink-mcp-packageUrl','welink-mcp-indexUrl','welink-mcp-insecureHosts','welink-mcp-save','welink-mcp-default','welink-test-send'])assert.ok(d.querySelectorAll('#'+id).length<=1,'重复配置控件：'+id);
+  assert.equal(d.querySelectorAll('#welink-mcp-packageUrl').length,1);
   assert.equal(d.querySelector('#welink-mcp-packageUrl').value,config.packageUrl);
   assert.equal(d.querySelector('#welink-token').value,'');
   d.querySelector('#welink-mcp-packageUrl').value='https://example.test/new.tar.gz';d.querySelector('#welink-mcp-save').click();await pause();

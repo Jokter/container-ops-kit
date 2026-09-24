@@ -213,11 +213,13 @@ import {environmentOptionLabel} from './environment-presentation.js'
   }
 
   async function applyUpdate() {
-    if (!runtime.preview || runtime.busy || !confirm('将当前 YAML 同步到环境中的“' + runtime.editable.coordinates.name + '”，是否继续？')) return
+    if (!runtime.preview || runtime.busy) return
+    const body = updateBody()
+    if (!(await studioConfirm('将当前 YAML 同步到环境中的“' + runtime.editable.coordinates.name + '”，是否继续？'))) return
     runtime.busy = true
     render(false)
     try {
-      const result = await api('/api/container-resource-changes/apply', {method: 'POST', body: JSON.stringify(updateBody())})
+      const result = await api('/api/container-resource-changes/apply', {method: 'POST', body: JSON.stringify(body)})
       runtime.editable = Object.assign({}, runtime.editable, result)
       runtime.yaml = result.yaml
       runtime.preview = null

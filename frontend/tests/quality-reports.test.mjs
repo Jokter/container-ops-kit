@@ -23,7 +23,7 @@ test('任务进度使用列表与详情布局并展示按版本隔离的实际�
 });
 test('UT 任务可手动删除记录与 clone 代码目录',async()=>{
  const task={id:'11111111-1111-4111-8111-111111111111',repository:'Demo',reportVersion:'R27C10',status:'RESOLVED',nextStage:'DONE',progress:100,workspaceRoot:'/tmp',repairBranch:'repair',message:'完成'};let tasks=[task],deleted='';const dom=page((path,o)=>{if(path==='/api/auto-ut/tasks')return tasks;if(path===`/api/auto-ut/tasks/${task.id}`&&o?.method==='DELETE'){deleted=path;tasks=[];return{id:task.id,workspace:'/tmp/R27C10/demo',workspaceDeleted:true};}});
- try{dom.window.confirm=()=>true;const d=open(dom,'auto-ut');await pause();d.querySelector('[data-automation-nav="tasks"]').click();d.querySelector(`[data-governance-detail="${task.id}"]`).click();d.querySelector('[data-auto-ut-delete]').click();await pause();assert.equal(deleted,`/api/auto-ut/tasks/${task.id}`);assert.equal(d.querySelectorAll('[data-auto-ut-task]').length,0);assert.match(d.body.textContent,/暂无执行记录/);}finally{await pause();dom.window.close();}
+ try{dom.window.studioConfirm=()=>true;const d=open(dom,'auto-ut');await pause();d.querySelector('[data-automation-nav="tasks"]').click();d.querySelector(`[data-governance-detail="${task.id}"]`).click();d.querySelector('[data-auto-ut-delete]').click();await pause();assert.equal(deleted,`/api/auto-ut/tasks/${task.id}`);assert.equal(d.querySelectorAll('[data-auto-ut-task]').length,0);assert.match(d.body.textContent,/暂无执行记录/);}finally{await pause();dom.window.close();}
 });
 test('UT 定时清理可配置保留天数并进入统一计划',async()=>{
  let saved;const dom=page((path,o)=>{if(path==='/api/automation/schedules'&&o?.method==='POST'){saved=JSON.parse(o.body);return{...saved,id:'cleanup',revision:1};}});
@@ -119,14 +119,14 @@ test('执行记录单条停止删除与按当前筛选批量清理，确认取�
  let tasks=[{id:'11111111-1111-4111-8111-111111111111',repository:'Demo',reportVersion:'R27C10',status:'MR_PENDING',nextStage:'TRACK',progress:92,governance:{mrState:'PENDING'}}];
  let quality=[{id:'22222222-2222-4222-8222-222222222222',status:'RUNNING',createdAt:new Date().toISOString(),input:{versions:['R27C10']}}];const requests=[];let confirmed=false,prompt='';
  const dom=page((path,o)=>{if(path==='/api/auto-ut/tasks')return tasks;if(path==='/api/quality/jobs')return quality;if(path==='/api/automation/records/cleanup'){const {entries}=JSON.parse(o.body);requests.push(entries);tasks=tasks.filter(t=>!entries.some(e=>e.kind==='ut'&&e.id===t.id));quality=quality.filter(t=>!entries.some(e=>e.kind==='quality'&&e.id===t.id));return{deleted:entries,failed:[]};}});
- try{dom.window.confirm=text=>{prompt=text;return confirmed;};const d=open(dom,'auto-ut');await pause();d.querySelector('[data-automation-nav="tasks"]').click();await pause();assert.equal(d.querySelectorAll('[data-delete-record]').length,2);d.querySelector('[data-record-kind="ut"]').click();await pause();assert.equal(requests.length,0);confirmed=true;d.querySelector('[data-record-kind="ut"]').click();await pause();assert.match(prompt,/先停止/);assert.match(prompt,/clone 代码目录、任务明细日志和 Pi 会话将一起删除/);assert.equal(requests[0][0].kind,'ut');assert.equal(d.querySelectorAll('[data-record-kind="ut"]').length,0);
+ try{dom.window.studioConfirm=text=>{prompt=text;return confirmed;};const d=open(dom,'auto-ut');await pause();d.querySelector('[data-automation-nav="tasks"]').click();await pause();assert.equal(d.querySelectorAll('[data-delete-record]').length,2);d.querySelector('[data-record-kind="ut"]').click();await pause();assert.equal(requests.length,0);confirmed=true;d.querySelector('[data-record-kind="ut"]').click();await pause();assert.match(prompt,/先停止/);assert.match(prompt,/clone 代码目录、任务明细日志和 Pi 会话将一起删除/);assert.equal(requests[0][0].kind,'ut');assert.equal(d.querySelectorAll('[data-record-kind="ut"]').length,0);
  d.querySelector('[data-studio-record-kind="quality"]').click();d.querySelector('[data-cleanup-records]').click();await pause();assert.deepEqual(requests[1],[{kind:'quality',id:'22222222-2222-4222-8222-222222222222'}]);assert.match(d.body.textContent,/暂无执行记录/);
  }finally{dom.window.close();}
 });
 test('批量清理逐项失败显示原因，失败记录保留',async()=>{
  const task={id:'11111111-1111-4111-8111-111111111111',repository:'Demo',reportVersion:'R27C10',status:'WAITING_EXTERNAL',nextStage:'VERIFY',message:'待处理'};
  const dom=page(path=>path==='/api/auto-ut/tasks'?[task]:path==='/api/automation/records/cleanup'?{deleted:[],failed:[{kind:'ut',id:task.id,message:'进程停止失败'}]}:undefined);
- try{dom.window.confirm=()=>true;const d=open(dom,'auto-ut');await pause();d.querySelector('[data-automation-nav="tasks"]').click();await pause();d.querySelector('[data-cleanup-records]').click();await pause();assert.match(d.querySelector('[role="alert"]').textContent,/进程停止失败/);assert.equal(d.querySelectorAll('[data-delete-record]').length,1);assert.equal(d.querySelector('[data-cleanup-records]').disabled,false);}finally{dom.window.close();}
+ try{dom.window.studioConfirm=()=>true;const d=open(dom,'auto-ut');await pause();d.querySelector('[data-automation-nav="tasks"]').click();await pause();d.querySelector('[data-cleanup-records]').click();await pause();assert.match(d.querySelector('[role="alert"]').textContent,/进程停止失败/);assert.equal(d.querySelectorAll('[data-delete-record]').length,1);assert.equal(d.querySelector('[data-cleanup-records]').disabled,false);}finally{dom.window.close();}
 });
 
 test('历史 MR 阻塞展示原因，取消不写入，确认后只解除指定记录',async()=>{
@@ -136,8 +136,8 @@ test('历史 MR 阻塞展示原因，取消不写入，确认后只解除指定�
   if(path.endsWith('/release-block')){writes.push({path,body:JSON.parse(options.body)});released=true;return {};}
  });
  try{const d=open(dom,'auto-ut');await pause();assert.match(d.body.textContent,/历史 MR 阻塞/);assert.match(d.body.textContent,/CodeHub 返回缺少必要字段/);
- dom.window.prompt=()=>null;d.querySelector('[data-release-mr-block]').click();await pause();assert.equal(writes.length,0);
- dom.window.prompt=()=> '已核对旧 MR 失效';d.querySelector('[data-release-mr-block]').click();await pause();
+ dom.window.studioPrompt=()=>null;d.querySelector('[data-release-mr-block]').click();await pause();assert.equal(writes.length,0);
+ dom.window.studioPrompt=()=> '已核对旧 MR 失效';d.querySelector('[data-release-mr-block]').click();await pause();
  assert.deepEqual(writes,[{path:'/api/auto-ut/governance/'+id+'/release-block',body:{reason:'已核对旧 MR 失效'}}]);assert.equal(d.querySelector('[data-release-mr-block]'),null);
  }finally{await pause();dom.window.close();}
 });
