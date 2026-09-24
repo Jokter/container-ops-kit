@@ -379,3 +379,49 @@ test('authorized merge still waits for pipeline and does not resolve or approve 
  try{await service['accept']({id:'1',sender:'owner123',content:'合入',quoteId:'2',quotedContent:'https://codehub-y.huawei.com/MAE-M/Access/Demo/merge_requests/1'},{enabled:true,groupId:'123456789',authorizedSender:'owner123',repositoryPrefix:'MAE-M/Access/',intervalSeconds:5});assert.equal(service.list()[0]?.phase,'PIPELINE');assert.deepEqual(writes,[]);assert.doesNotMatch(service.list()[0]?.status??'',/Pi 检视已通过/);}
  finally{await service.close();store.close();}
 });
+
+test('own replies do not retrigger when WeLink returns a different sender; genuine resend still works',async()=>{
+ const store=new TaskStore(':memory:'),sha='a'.repeat(40),url='https://codehub-y.huawei.com/MAE-M/Access/Demo/merge_requests/1';
+ const cfg={enabled:true,groupId:'123456789',authorizedSender:'w00789509',repositoryPrefix:'MAE-M/Access/',intervalSeconds:5};
+ const messages=[{msgId:'1',sender:'developer',content:url}];let sends=0,reviews=0;
+ const service=new GroupMrService(store,async args=>{
+  let value:unknown={};
+  if(args.includes('--help'))return {exitCode:0,output:''};
+  if(args[2]==='query-history-message')value=messages;
+  if(args[2]==='send-to-group'){sends++;messages.push({msgId:String(messages.length+1),sender:'00789509',content:args[args.indexOf('--text')+1]!});value={resultCode:0};}
+  if(args[1]==='user')value={username:'reviewer'};
+  if(args[1]==='mr'&&args[2]==='view')value={iid:1,state:'opened',sha};
+  if(args[2]==='review')value=[];
+  if(args[2]==='gate')value={ci_state_passed:false};
+  if(args[2]==='pipeline')value=[{id:1,status:'failed',sha}];
+  return {exitCode:0,output:JSON.stringify(value)};
+ });
+ service['runPi']=async()=>{reviews++;return {ok:true,summary:'通过',findings:[],resolvedDiscussionIds:[]};};
+ try{
+  service.configure(cfg);store.putRecord('group-mr-cursor','cursor:'+cfg.groupId,{id:'0'});await service.poll();assert.equal(sends,2);assert.equal(reviews,1);
+  service.configure(cfg);await service.poll();assert.equal(service.list().length,1);assert.equal(sends,2);assert.equal(service.summary().monitor.filteredCount,2);
+  messages.push({msgId:'4',sender:'developer',content:url});service.configure(cfg);await service.poll();assert.equal(sends,4);assert.equal(reviews,1);assert.equal(service.list().length,2);
+ }finally{await service.close();store.close();}
+});
+
+test('legacy receipt and failed-pipeline replies are ignored without stored records while authorized quotes remain usable',async()=>{
+ const store=new TaskStore(':memory:'),service=new GroupMrService(store),url='https://codehub-y.huawei.com/MAE-M/Access/Demo/merge_requests/1';
+ const cfg={enabled:true,groupId:'123456789',authorizedSender:'owner',repositoryPrefix:'MAE-M/Access/',intervalSeconds:5};
+ try{
+  for(const status of ['已收到 MR，正在检视中。','Pi 检视已通过；当前MR提交流水线失败，本次暂不执行检视、审核和合并。']){
+   const content=url+' —— '+status;assert.equal(service['trigger']({id:'1',sender:'alias',content,quoteId:''},cfg),undefined);
+   assert.equal(service['trigger']({id:'2',sender:'owner',content:'合入',quoteId:'1',quotedContent:content},cfg)?.shortcut,true);
+  }
+  assert.ok(service['trigger']({id:'3',sender:'developer',content:url+' 请重新检视',quoteId:''},cfg));
+ }finally{await service.close();store.close();}
+});
+
+test('arbitrary outgoing replies remain filtered after restart even when sending was unconfirmed',async()=>{
+ const store=new TaskStore(':memory:'),cfg={enabled:true,groupId:'123456789',authorizedSender:'owner',repositoryPrefix:'MAE-M/Access/',intervalSeconds:5};
+ const service=new GroupMrService(store,async args=>args.includes('--help')?{exitCode:0,output:''}:{exitCode:0,output:'{}'});
+ const entry={id:'outgoing',repo:'MAE-M/Access/Demo',iid:'1',url:'https://codehub-y.huawei.com/MAE-M/Access/Demo/merge_requests/1',sha:'',previousSha:'',messageId:'1',sender:'developer',shortcut:false,phase:'FAILED' as const,status:'',detail:'',createdAt:new Date().toISOString(),updatedAt:'',writePending:'',events:[]};
+ try{await assert.rejects(service['reply'](entry,cfg,'一个自定义处理结果'),/未确认/);await service.close();
+  const restarted=new GroupMrService(store);try{const msg={id:'2',sender:'different-alias',content:entry.url+'   ——   一个自定义处理结果',quoteId:''};assert.equal(restarted['trigger'](msg,cfg),undefined);assert.ok(store.records('group-mr-outgoing').length);}
+  finally{await restarted.close();}
+ }finally{await service.close();store.close();}
+});
