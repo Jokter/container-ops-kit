@@ -50,8 +50,9 @@
 .group-mr-tabs button:hover{background:#edf1fc;color:#365ccb}
 .group-mr-tabs button.active{border-bottom-color:#365ccb;color:#365ccb;font-weight:600}
 .group-mr-toolbar{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:12px;color:#8693a5;font-size:12px}
-.group-mr-toolbar>div{display:flex;gap:14px;align-items:center}
+.group-mr-toolbar>div{display:flex;gap:14px;align-items:center;flex-wrap:wrap}
 .group-mr-toolbar input{width:250px}
+.group-mr-toolbar select{min-width:140px}
 .group-mr-table{width:100%;min-width:780px;border-collapse:collapse;text-align:left;font-size:12px;table-layout:fixed}
 .group-mr-workspace .qw-table-wrap{min-height:0}
 .group-mr-table th{color:#8b97a8;background:#f9fafc;font-weight:500}

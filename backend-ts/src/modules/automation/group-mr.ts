@@ -12,7 +12,7 @@ type Configuration=z.infer<typeof configSchema>;
 const defaults:Configuration={enabled:false,groupId:'',authorizedSender:'',repositoryPrefix:'MAE-M/Access/',intervalSeconds:10};
 const phase=z.enum(['PIPELINE','PI','COMMENTS','REVIEW','APPROVE','MERGE','DONE','ISSUES','FAILED','NO_PERMISSION','INTERRUPTED']);
 type Phase=z.infer<typeof phase>;
-interface Entry{id:string;repo:string;iid:string;url:string;sha:string;previousSha:string;messageId:string;sender:string;shortcut:boolean;phase:Phase;stage?:Phase;status:string;detail:string;createdAt:string;updatedAt:string;writePending:string;events:Array<{time:string;phase:Phase;message:string}>;reviewComments?:Array<{id:string;body:string;resolved:boolean}>;reply?:{text:string;mode:'quote'|'reference';status:'sending'|'sent'|'unconfirmed'}}
+interface Entry{id:string;repo:string;iid:string;url:string;sha:string;previousSha:string;messageId:string;sender:string;shortcut:boolean;phase:Phase;stage?:Phase;status:string;detail:string;createdAt:string;updatedAt:string;writePending:string;events:Array<{time:string;phase:Phase;message:string}>;reviewComments?:Array<{id:string;body:string;resolved:boolean}>;reply?:{text:string;mode:'quote'|'reference';status:'sending'|'sent'|'unconfirmed'|'checked'}}
 interface GroupMessage{id:string;content:string;sender:string;quoteId:string}
 interface Discussion{id:string;body:string;author:string;resolved:boolean}
 interface Monitor {state:'waiting'|'polling'|'processing'|'error';at:string;lastSuccessAt:string;error:string;readCount:number;newCount:number;matchedCount:number;filteredCount:number;message:string}
@@ -72,7 +72,16 @@ export class GroupMrService {
  private recordLog(level:MonitorEvent['level'],message:string){const event:MonitorEvent={time:new Date().toISOString(),level,message};const events=this.store.getRecord<MonitorEvent[]>('group-mr-log','main')??[];this.store.putRecord('group-mr-log','main',[...events,event].slice(-100));this.logs.task('automation','group-mr-monitor',event);}
 
  list(){return this.store.records<Entry>('group-mr-entry').sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt));}
- summary(){const entries=this.list(),today=new Date().toISOString().slice(0,10),latest=[...new Map([...entries].reverse().map(e=>[e.repo+':'+e.iid,e])).values()].reverse(),pending=latest.filter(e=>!['DONE','FAILED','NO_PERMISSION','INTERRUPTED'].includes(e.phase));return {config:this.configuration(),pending,history:entries.filter(e=>['DONE','FAILED','NO_PERMISSION','INTERRUPTED'].includes(e.phase)),monitor:{...this.monitor(),running:this.busy,command:this.activeCommand,logs:this.store.getRecord<MonitorEvent[]>('group-mr-log','main')??[]},metrics:{pending:pending.length,issues:pending.filter(e=>e.phase==='ISSUES').length,mergedToday:entries.filter(e=>e.phase==='DONE'&&e.updatedAt.startsWith(today)).length}};}
+ summary(){const entries=this.list(),today=new Date().toISOString().slice(0,10),latest=[...new Map([...entries].reverse().map(e=>[e.repo+':'+e.iid,e])).values()].reverse(),pending=latest.filter(e=>!['DONE','FAILED','NO_PERMISSION','INTERRUPTED'].includes(e.phase));return {config:this.configuration(),pending,history:entries.filter(e=>['DONE','FAILED','NO_PERMISSION','INTERRUPTED'].includes(e.phase)&&!this.store.getRecord('group-mr-hidden',e.id)),monitor:{...this.monitor(),running:this.busy,command:this.activeCommand,logs:this.store.getRecord<MonitorEvent[]>('group-mr-log','main')??[]},metrics:{pending:pending.length,issues:pending.filter(e=>e.phase==='ISSUES').length,mergedToday:entries.filter(e=>e.phase==='DONE'&&e.updatedAt.startsWith(today)).length}};}
+ visibleList(){return this.list().filter(e=>!this.store.getRecord('group-mr-hidden',e.id));}
+ private editable(id:string){const e=this.store.getRecord<Entry>('group-mr-entry',id);if(!e)throw Object.assign(Error('MR 记录不存在'),{statusCode:404});if(this.active.has(e.repo+':'+e.iid))throw Object.assign(Error('MR 正在执行，请结束后再操作'),{statusCode:409});return e;}
+ acknowledgeReply(id:string){
+  const e=this.editable(id),related=this.list().filter(r=>r.repo===e.repo&&r.iid===e.iid&&r.writePending==='群消息回复');
+  if(!related.length)throw Object.assign(Error('没有待核对的群消息回复'),{statusCode:409});
+  for(const r of related){r.writePending='';if(r.reply)r.reply.status='checked';r.events.push({time:new Date().toISOString(),phase:r.phase,message:'已人工核对群消息回复，解除拦截；未重发消息，请重新发送 MR 链接触发检查'});this.save(r);}
+  return {ok:true};
+ }
+ removeHistory(id:string){const e=this.editable(id);if(!['DONE','FAILED','NO_PERMISSION','INTERRUPTED'].includes(e.phase))throw Object.assign(Error('只能删除已结束的执行历史'),{statusCode:409});if(e.writePending)throw Object.assign(Error('操作结果未确认，请先人工核对'),{statusCode:409});this.store.putRecord('group-mr-hidden',id,{id,deletedAt:new Date().toISOString()});return {ok:true};}
  private save(e:Entry){e.updatedAt=new Date().toISOString();this.store.putRecord('group-mr-entry',e.id,e,e.createdAt);}
  private mark(e:Entry,p:Phase,message:string){e.phase=p;if(['PIPELINE','PI','COMMENTS','REVIEW','APPROVE','MERGE'].includes(p))e.stage=p;e.status=message;e.events.push({time:new Date().toISOString(),phase:p,message});this.save(e);}
  private async command(args:string[],timeout=120000){
@@ -141,7 +150,8 @@ export class GroupMrService {
   const key=link.repo+':'+link.iid;if(this.active.has(key))return;
   this.active.add(key);const now=new Date().toISOString();const old=this.list().find(e=>e.repo===link.repo&&e.iid===link.iid&&e.phase!=='DONE');
   const entry:Entry={id:randomUUID(),repo:link.repo,iid:link.iid,url:link.url,sha:'',previousSha:old?.sha??'',messageId:msg.id,sender:msg.sender,shortcut:!!shortcut,phase:'PIPELINE',status:'检查当前提交流水线',detail:'',createdAt:now,updatedAt:now,writePending:'',events:[]};this.save(entry);
-  if(old?.writePending){this.mark(entry,'INTERRUPTED',`上一次${old.writePending}结果未确认，需人工核对后再处理`);this.active.delete(key);return;}
+  const blocked=this.list().find(e=>e.repo===link.repo&&e.iid===link.iid&&e.writePending);
+  if(blocked){entry.writePending=blocked.writePending;this.mark(entry,'INTERRUPTED',`上一次${blocked.writePending}结果未确认，需人工核对后再处理`);this.active.delete(key);return;}
   try{await this.process(entry,cfg);}catch(error){const reason=error instanceof Error?error.message:'处理失败';if(['DONE','FAILED','NO_PERMISSION'].includes(entry.phase)){entry.detail=reason;this.save(entry);}else{this.mark(entry,'INTERRUPTED',reason);if(entry.writePending!=='群消息回复')await this.reply(entry,cfg,reason).catch(()=>{});}}finally{this.active.delete(key);}
  }
  private async view(e:Entry){return parseMr(await this.code(['mr','view',e.iid,'-p',e.repo],'iid,id,mr_url,state,sha,diff_refs,approval_merge_request_reviewers,approval_merge_request_approvers,merge_request_assignee_list'));}
@@ -224,5 +234,7 @@ export function groupMrRoutes(app:FastifyInstance,service:GroupMrService){
  app.get('/api/automation/group-mr',async()=>service.summary());
  app.get('/api/automation/group-mr/config',async()=>service.configuration());
  app.put('/api/automation/group-mr/config',async request=>service.configure(request.body));
- app.get('/api/automation/group-mr/records',async()=>service.list());
+ app.get('/api/automation/group-mr/records',async()=>service.visibleList());
+ app.post('/api/automation/group-mr/records/:id/acknowledge-reply',async request=>{const {id}=z.object({id:z.string().min(1)}).parse(request.params);z.object({confirmed:z.literal(true)}).strict().parse(request.body);return service.acknowledgeReply(id);});
+ app.delete('/api/automation/group-mr/records/:id',async request=>service.removeHistory(z.object({id:z.string().min(1)}).parse(request.params).id));
 }

@@ -6,11 +6,12 @@ import {JSDOM} from 'jsdom'
 const html=await readFile(new URL('../../index.html',import.meta.url),'utf8')
 const response=(data,ok=true)=>({ok,status:ok?200:500,json:async()=>data,text:async()=>JSON.stringify(data)})
 const flush=()=>new Promise(r=>setTimeout(r,30))
-async function fixture(t,{route='tools',save,records=[]}={}){
+async function fixture(t,{route='tools',save,records=[],history=[]}={}){
  const writes=[],config={enabled:false,groupId:'1234567891011',authorizedSender:'w00789509',repositoryPrefix:'MAE-M/Access/',intervalSeconds:10}
- const snapshot=()=>({config:{...config},pending:records,history:[],metrics:{pending:records.length,issues:0,mergedToday:0},monitor:{error:'',at:''}})
- const dom=new JSDOM(html,{runScripts:'dangerously',url:'http://localhost/#/automation/'+route,beforeParse(w){w.scrollTo=()=>{};const timeout=w.setTimeout.bind(w);w.setTimeout=(callback,delay,...args)=>delay>500?0:timeout(callback,delay,...args);w.fetch=async(url,options)=>{
+ const snapshot=()=>({config:{...config},pending:records,history,metrics:{pending:records.length,issues:0,mergedToday:0},monitor:{error:'',at:''}})
+ const dom=new JSDOM(html,{runScripts:'dangerously',url:'http://localhost/#/automation/'+route,beforeParse(w){w.scrollTo=()=>{};w.confirm=()=>true;const timeout=w.setTimeout.bind(w);w.setTimeout=(callback,delay,...args)=>delay>500?0:timeout(callback,delay,...args);w.fetch=async(url,options)=>{
   if(url==='/api/automation/group-mr/config'&&options?.method==='PUT'){const body=JSON.parse(options.body);writes.push(body);if(save)return save(body);Object.assign(config,body);return response({...config})}
+  if(url.startsWith('/api/automation/group-mr/records/')){writes.push({url,...options});if(options?.method==='DELETE')history.splice(0,1);else for(const r of history){r.writePending='';if(r.reply)r.reply.status='checked';}return response({ok:true})}
   if(url==='/api/automation/group-mr')return response(snapshot())
   return response([])
  }}})
@@ -59,3 +60,19 @@ test('无需 MR 记录也可查看监听时间、过滤数量和命令失败日�
  doc.querySelector('[data-group-mr-logs]').click();assert.match(doc.querySelector('[role="log"]').textContent,/CLI 未找到/);assert.equal(doc.querySelector('[role="log"] script'),null)
  dom.window.eval('render(false)');assert.ok(doc.querySelector('[role="log"]'));assert.match(doc.querySelector('.group-mr-log-path').textContent,/automation\/group-mr-monitor.jsonl/)
 })
+
+
+test('阶段过滤、人工核对和历史删除沿用当前列表布局',async t=>{
+ const base={repo:'MAE-M/Access/Demo',iid:'444',phase:'FAILED',stage:'PIPELINE',status:'流水线失败',updatedAt:'2026-09-24T08:00:00Z',events:[]};
+ const {dom,doc,writes}=await fixture(t,{route:'group-mr',history:[{...base,id:'failed',writePending:'群消息回复',reply:{status:'unconfirmed',mode:'reference',text:'失败'}},{...base,id:'approve',stage:'APPROVE',phase:'NO_PERMISSION'}]});
+ doc.querySelector('[data-group-mr-tab="history"]').click();
+ const filter=doc.querySelector('#group-mr-phase');filter.value='stage:APPROVE';filter.dispatchEvent(new dom.window.Event('change',{bubbles:true}));
+ assert.equal(doc.querySelectorAll('[data-group-mr-record]').length,1);assert.ok(doc.querySelector('[data-group-mr-record="approve"]'));
+ doc.querySelector('#group-mr-phase').value='FAILED';doc.querySelector('#group-mr-phase').dispatchEvent(new dom.window.Event('change',{bubbles:true}));
+ assert.equal(doc.querySelector('[data-group-mr-action="delete"]').disabled,true);
+ doc.querySelector('[data-group-mr-action="ack"]').click();await flush();await flush();
+ assert.equal(writes[0].url,'/api/automation/group-mr/records/failed/acknowledge-reply');assert.deepEqual(JSON.parse(writes[0].body),{confirmed:true});
+ assert.match(doc.querySelector('.group-mr-reply').textContent,/已人工核对/);
+ doc.querySelector('[data-group-mr-action="delete"]').click();await flush();await flush();
+ assert.equal(writes[1].method,'DELETE');assert.equal(writes[1].body,undefined);assert.equal(doc.querySelectorAll('[data-group-mr-record]').length,0);
+});
