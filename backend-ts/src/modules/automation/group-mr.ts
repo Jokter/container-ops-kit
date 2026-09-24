@@ -25,6 +25,11 @@ export function mrLinkFromMessage(content:string,prefix:string):{repo:string;iid
  if(!matches.length||matches.some(m=>!m.repo.startsWith(prefix)||m.repo.includes('..')||m.repo.includes('//')))return;
  const unique=new Map(matches.map(m=>[m.repo+':'+m.iid,m]));return unique.size===1?matches[0]:undefined;
 }
+function replyTextKey(groupId:string,text:string){return groupId+':'+createHash('sha256').update(text.replace(/\s+/g,' ').trim()).digest('hex');}
+function legacyAutomaticReply(content:string):boolean{
+ const normalized=content.replace(/\s+/g,' ').trim();
+ return /^https:\/\/codehub-y\.huawei\.com\/[A-Za-z0-9._/-]+\/merge_requests\/\d+ —— (?:已收到 MR，正在检视中。|已收到合入指令，正在处理。|Pi 检视已通过；当前MR提交流水线失败，本次暂不执行检视、审核和合并。)$/.test(normalized);
+}
 function object(v:unknown):Record<string,unknown>|undefined{return v&&typeof v==='object'&&!Array.isArray(v)?v as Record<string,unknown>:undefined;}
 function string(v:unknown){return typeof v==='string'?v:typeof v==='number'?String(v):'';}
 export function parseGroupMessages(output:string):GroupMessage[]{
@@ -162,6 +167,11 @@ export class GroupMrService {
   }
   // A quoted card from another account is not an authorized merge instruction.
   if(msg.quotedContent!==undefined)return;
+  // Do not depend on the sender representation: WeLink may return another account alias.
+  const fingerprint=replyTextKey(cfg.groupId,msg.content);
+  if(this.store.getRecord('group-mr-outgoing',fingerprint)||legacyAutomaticReply(msg.content))return;
+  // Upgrade compatibility: older versions retained only the latest reply on each record.
+  if(this.list().some(e=>e.reply&&replyTextKey(cfg.groupId,e.reply.text)===fingerprint))return;
   const direct=mrLinkFromMessage(msg.content,cfg.repositoryPrefix);
   return direct?{link:direct,direct,shortcut:false}:undefined;
  }
@@ -191,6 +201,8 @@ export class GroupMrService {
   // Keep --text single-line for Windows welink-cli.cmd; never weaken batch argument validation.
   const text=`${e.url} —— ${message.replace(/[\r\n\0\u2028\u2029]+/g,'；')}`.slice(0,1800);
   e.reply={text,mode:flag?'quote':'reference',status:'sending'};e.writePending='群消息回复';this.save(e);
+  // Persist before sending: even an unconfirmed send can later appear in group history.
+  this.store.putRecord('group-mr-outgoing',replyTextKey(cfg.groupId,text),{entryId:e.id,createdAt:new Date().toISOString()});
   try{
    const result=await this.command(['welink-cli','im','send-to-group','--group-id',cfg.groupId,'--text',text,...(flag?[flag,e.messageId]:[])],30000);
    if(!jsonValues(result).some(v=>{const o=object(v);return o?.resultCode===0||o?.resultCode==='0';}))throw Error('WeLink 群消息发送结果未确认，请核对后再手动处理');
