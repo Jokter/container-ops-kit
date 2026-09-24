@@ -297,3 +297,32 @@ test('Pi uses configured MCP and confirms submitted comments before reporting th
   }finally{await service.close();store.close();}
  }
 });
+
+test('resending MR reuses same SHA conclusions, archives prior task, and deletion stops polling until a new message',async()=>{
+ for(const issues of [false,true]){
+ const store=new TaskStore(':memory:');let sha='a'.repeat(40),reviews=0,mrReads=0;
+ const cfg={enabled:true,groupId:'123456789',authorizedSender:'owner123',repositoryPrefix:'MAE-M/Access/',intervalSeconds:5};
+ const service=new GroupMrService(store,async args=>{
+  let value:unknown={};
+  if(args[0]==='codehub-cli')mrReads++;
+  if(args[2]==='query-history-message')value=[];
+  if(args[2]==='view')value={iid:444,state:'opened',sha};
+  if(args[1]==='user')value={username:'me'};
+  if(args[2]==='review')value=[];
+  if(args[2]==='gate')value={ci_state_passed:false};
+  if(args[2]==='pipeline')value=[{id:1,status:'running',sha}];
+  if(args[2]==='send-to-group')value={resultCode:0};
+  return {exitCode:0,output:JSON.stringify(value)};
+ });
+ service['runPi']=async()=>{reviews++;return {ok:!issues,summary:'检查完成',findings:issues?[{path:'a.java',line:1,body:'问题'}]:[],resolvedDiscussionIds:[]};};
+ const send=(id:string)=>service['accept']({id,sender:'developer',content:'https://codehub-y.huawei.com/MAE-M/Access/Demo/merge_requests/444',quoteId:''},cfg);
+ try{
+  service.configure(cfg);await send('1');const first=service.summary().pending[0]!;
+  await send('2');assert.equal(reviews,1);assert.equal(service.summary().pending.length,1);assert.ok(service.summary().history.some(r=>r.id===first.id));
+  sha='b'.repeat(40);await send('3');assert.equal(reviews,2);assert.equal(service.summary().pending.length,1);
+  const current=service.summary().pending[0]!;service.removeHistories([current.id]);assert.equal(service.summary().pending.length,0);
+  store.putRecord('group-mr-cursor','cursor:'+cfg.groupId,{id:'3'});const reads=mrReads;await service.poll();assert.equal(mrReads,reads);
+  await send('4');assert.equal(service.summary().pending.length,1);assert.equal(reviews,2);
+ }finally{await service.close();store.close();}
+ }
+});
