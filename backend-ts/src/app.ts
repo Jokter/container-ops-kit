@@ -1,3 +1,4 @@
+import {codehubSettingsRoutes} from './modules/autout/codehub-settings.js';
 import {welinkSettingsRoutes} from './modules/autout/welink-settings.js';
 import {languageSettingsRoutes} from './modules/automation/language-settings.js';
 import {AutomationRecords,automationRecordRoutes} from './modules/automation/records.js';
@@ -47,7 +48,7 @@ export async function createApp(config: Config) {
   app.get('/api/platform/health', async () => ({status:'UP',backend:'typescript',migrationStage:'complete'}));
   app.get('/api/health', async () => ({status:'UP'}));
   taskRoutes(app, runner);
-  dtsRoutes(app,store,reports);welinkSettingsRoutes(app,store);
+  dtsRoutes(app,store,reports);welinkSettingsRoutes(app,store);codehubSettingsRoutes(app,store);
   languageSettingsRoutes(app,autoUt.languageSettings);
   environmentRoutes(app,environments,ssh);buildRoutes(app,builds);await autoUtRoutes(app,autoUt,schedules);containerResourceRoutes(app,containers);deploymentRoutes(app,deployments);
   return app;

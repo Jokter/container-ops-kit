@@ -37,3 +37,10 @@ test('test-message button requires a recipient and saved settings, prevents doub
   button.click();assert.equal(sends,2);finish({ok:false,status:502,json:async()=>({message:'测试消息发送未确认'})});await pause();assert.equal(sends,2);assert.match(d.querySelector('#welink-test-result').textContent,/未确认/);
  }finally{dom.window.close();}
 });
+
+test('CodeHub token settings saves and clears independently without displaying the secret',async()=>{
+ let configured=false,writes=0;
+ const dom=new JSDOM(html,{url:'http://localhost/#/automation/settings',runScripts:'dangerously',beforeParse(w){w.scrollTo=()=>{};w.fetch=async(url,options)=>({ok:true,status:200,json:async()=>{if(url==='/api/automation/codehub-settings'){if(options?.method==='PUT'){assert.deepEqual(JSON.parse(options.body),{token:'test-token'});configured=true;writes++;}if(options?.method==='DELETE'){configured=false;writes++;}return{configured};}return [];}});}});
+ try{await pause();const d=dom.window.document;d.querySelector('[data-qw-drawer="connection"]').click();await pause();assert.equal(d.querySelector('#codehub-clear').disabled,true);assert.equal(d.querySelector('#codehub-token').type,'password');d.querySelector('#codehub-token').value='test-token';d.querySelector('#codehub-save').click();await pause();assert.equal(configured,true);assert.equal(d.querySelector('#codehub-token').value,'');assert.equal(d.querySelector('#codehub-clear').disabled,false);assert.doesNotMatch(d.body.textContent,/test-token/);d.querySelector('#codehub-clear').click();await pause();assert.equal(configured,false);assert.equal(writes,2);}
+ finally{dom.window.close();}
+});

@@ -1,4 +1,5 @@
-import {randomUUID} from 'node:crypto';
+import {CodehubSettings} from '../autout/codehub-settings.js';
+import {randomUUID,createHash} from 'node:crypto';
 import type {FastifyInstance} from 'fastify';
 import {z} from 'zod';
 import type {TaskStore} from '../../platform/store.js';
@@ -56,8 +57,8 @@ function retryableRead(args:readonly string[]):boolean{
  return args[1]==='user'||(args[1]==='mr'&&(['view','gate','pipeline','changes'].includes(args[2]??'')||(args[2]==='review'&&args[3]==='list')));
 }
 export class GroupMrService {
- private timer:NodeJS.Timeout;private busy=false;private closing=false;private active=new Set<string>();private initialised=false;private lastPoll=0;private controller=new AbortController();private pollPromise:Promise<void>|undefined;private activeCommand='';private lastLoginAt:number|undefined;
- constructor(private store:TaskStore,private readonly execute:typeof runProcess=runProcess,private readonly logs:LogSink=noFileLogs){
+ private timer:NodeJS.Timeout;private busy=false;private closing=false;private active=new Set<string>();private initialised=false;private lastPoll=0;private controller=new AbortController();private pollPromise:Promise<void>|undefined;private activeCommand='';private lastLoginAt=new Map<string,number>();
+ constructor(private store:TaskStore,private readonly execute:typeof runProcess=runProcess,private readonly logs:LogSink=noFileLogs,private readonly codehubSettings=new CodehubSettings(store)){
   for(const entry of this.list()){if(entry.reply?.status==='sending'){entry.reply.status='unconfirmed';this.save(entry);}}
   for(const entry of this.list().filter(e=>!['DONE','ISSUES','FAILED','NO_PERMISSION','INTERRUPTED'].includes(e.phase))){entry.phase='INTERRUPTED';entry.status='服务重启，原执行中断，请重新发送 MR 链接';entry.writePending=entry.writePending||'需核对远端';this.save(entry);}
   this.updateMonitor({state:'waiting',error:'',message:this.configuration().enabled?'服务已启动，等待轮询':'监听已暂停'});
@@ -80,13 +81,21 @@ export class GroupMrService {
   try{
    let r=await this.execute(args,process.cwd(),timeout,undefined,undefined,undefined,this.controller.signal);
    if(groupMrAccessFailure(r)){
-    if(this.lastLoginAt!==undefined&&Date.now()-this.lastLoginAt<300000)throw Error(`${action} 认证或访问权限仍异常；最近已尝试 welink-cli auth login，5 分钟内不重复登录，请检查 ${args[0]} 登录状态及仓库/群组权限`);
-    this.lastLoginAt=Date.now();this.activeCommand='welink-cli auth login';
-    this.recordLog('info',`${action} 认证或访问权限异常，正在执行 welink-cli auth login`);
-    this.updateMonitor({message:'正在执行 welink-cli auth login，请在运行服务的机器完成登录'});
-    const login=await this.execute(['welink-cli','auth','login'],process.cwd(),120000,undefined,undefined,undefined,this.controller.signal);
-    if(login.exitCode!==0||groupMrAccessFailure(login))throw Error('welink-cli auth login 未完成，请在运行服务的机器手动登录；本次处理停止');
-    this.recordLog('info','welink-cli auth login 已结束');this.activeCommand=action;
+    const cli=args[0];
+    if(cli!=='codehub-cli'&&cli!=='welink-cli')throw Error(`${action} 认证失败，请检查对应工具配置`);
+    if(cli==='codehub-cli'&&/\b(?:403|forbidden)\b|permission denied|access denied|无(?:访问)?权限|权限不足/i.test(r.output))throw Error(`${action} HTTP 403 / 无权限，请检查 CodeHub 仓库访问或操作权限`);
+    const loginArgs=cli==='codehub-cli'?['codehub-cli','auth','login','--token',this.codehubSettings.token(),'-H','yellow']:['welink-cli','auth','login'];
+    const loginKey=cli==='codehub-cli'?cli+':'+createHash('sha256').update(loginArgs[4]!).digest('hex'):cli;
+    const last=this.lastLoginAt.get(loginKey);
+    if(last!==undefined&&Date.now()-last<300000)throw Error(`${action} 认证仍异常；最近已尝试 ${cli} auth login，5 分钟内不重复登录，请检查 ${cli} 登录状态`);
+    this.lastLoginAt.set(loginKey,Date.now());this.activeCommand=cli+' auth login';
+    this.recordLog('info',`${action} 认证异常，正在执行 ${cli} auth login`);
+    this.updateMonitor({message:cli==='codehub-cli'?'正在使用已保存的 CodeHub Token 登录 yellow':'正在执行 welink-cli auth login，请在运行服务的机器完成登录'});
+    let login;
+    try{login=await this.execute(loginArgs,process.cwd(),120000,undefined,undefined,undefined,this.controller.signal);}
+    catch{throw Error(`${cli} auth login 未完成，请检查对应认证配置；本次处理停止`);}
+    if(login.exitCode!==0||groupMrAccessFailure(login))throw Error(`${cli} auth login 未完成，请检查对应 Token 或登录状态；本次处理停止`);
+    this.recordLog('info',`${cli} auth login 已结束`);this.activeCommand=action;
     if(!retryableRead(args))throw Error(`${action} 遇到权限问题，已执行登录；该写操作不自动重试，请核对远端结果后手动处理`);
     this.recordLog('info',`登录后重新读取 ${action}`);
     r=await this.execute(args,process.cwd(),timeout,undefined,undefined,undefined,this.controller.signal);
