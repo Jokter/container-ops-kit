@@ -593,7 +593,7 @@ import {canConvertFailedQuickDeploymentToReview, canDeployReviewedTask, deployme
     const body = state.buildTab === 'single' ? singleBuildForm() : state.buildTab === 'compare' ? compareBuildForm() : buildConfig()
     if (state.buildTab === 'config') return environmentBar() + buildStorageSummary() + buildTabs() + body
     const completed = buildRuntime.task?.status === 'SUCCEEDED' && (state.buildTab === 'single') === (buildRuntime.task.mode === 'SINGLE')
-    return environmentBar() + buildStorageSummary() + buildTabs() + '<details class="panel br-config" ' + (completed ? '' : 'open') + '><summary>构建配置 <span class="br-sub">· ' + escapeHtml(buildRuntime.task?.module || '选择模块与分支') + '</span></summary><div class="br-config-body">' + body + '</div></details><div style="margin-top:16px">' + buildExecutionResult() + '</div>'
+    return environmentBar() + buildStorageSummary() + buildTabs() + '<details class="panel br-config" data-qw-open="build-config-' + escapeHtml(state.buildTab + '-' + (buildRuntime.task?.id || 'new') + '-' + (completed ? 'completed' : 'active')) + '" ' + (completed ? '' : 'open') + '><summary>构建配置 <span class="br-sub">· ' + escapeHtml(buildRuntime.task?.module || '选择模块与分支') + '</span></summary><div class="br-config-body">' + body + '</div></details><div style="margin-top:16px">' + buildExecutionResult() + '</div>'
   }
 
   async function loadBuildConfiguration() {
