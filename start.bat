@@ -43,7 +43,7 @@ pause
 exit /b 1
 
 :backend_ready
-start "Container Ops Kit Frontend" powershell -NoExit -NoProfile -ExecutionPolicy Bypass -File "%LOG_RUNNER%" -WorkingDirectory "%PROJECT_ROOT%\frontend" -LogFile "%LOG_ROOT%\frontend\frontend.log" -LoggedCommand "npm run dev -- --host 127.0.0.1 --port %FRONTEND_PORT% --strictPort"
+start "Container Ops Kit Frontend" powershell -NoExit -NoProfile -ExecutionPolicy Bypass -File "%LOG_RUNNER%" -WorkingDirectory "%PROJECT_ROOT%\frontend" -LogFile "%LOG_ROOT%\frontend\frontend.log" -LoggedCommand "npm run dev -- --host 0.0.0.0 --port %FRONTEND_PORT% --strictPort"
 for /l %%I in (1,1,60) do (
   powershell -NoProfile -Command "try { $r = Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:%FRONTEND_PORT%' -TimeoutSec 1; if ($r.StatusCode -eq 200) { exit 0 } else { exit 1 } } catch { exit 1 }"
   if not errorlevel 1 goto frontend_ready
