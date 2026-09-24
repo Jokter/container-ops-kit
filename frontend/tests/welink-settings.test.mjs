@@ -22,3 +22,18 @@ test('connection settings saves MCP independently of token and restores defaults
   d.querySelector('[data-qw-close]').click();d.querySelector('[data-qw-drawer="connection"]').click();await pause();assert.equal(d.querySelector('#welink-mcp-packageUrl').value,defaults.packageUrl);
  }finally{dom.window.close();}
 });
+
+test('test-message button requires a recipient and saved settings, prevents double sends and shows outcome',async()=>{
+ const config={packageUrl:'https://example.test/pkg',indexUrl:'https://example.test/simple',insecureHosts:''};let sends=0,finish;
+ const dom=new JSDOM(html,{url:'http://localhost/#/automation/settings',runScripts:'dangerously',beforeParse(w){w.scrollTo=()=>{};w.fetch=async(url,options)=>{
+  if(url==='/api/auto-ut/welink-mcp-settings/test'){sends++;assert.deepEqual(JSON.parse(options.body),{receiver:'w12345678'});return new Promise(resolve=>{finish=resolve;});}
+  return {ok:true,status:200,json:async()=>url==='/api/auto-ut/welink-mcp-settings'?{config,defaults:config}:url==='/api/auto-ut/welink-settings'?{configured:true}:[]};
+ };}});
+ try{await pause();const d=dom.window.document;d.querySelector('[data-qw-drawer="connection"]').click();await pause();
+  const button=d.querySelector('#welink-test-send'),receiver=d.querySelector('#welink-test-receiver');button.click();assert.equal(sends,0);assert.match(d.querySelector('#welink-test-result').textContent,/工号/);
+  receiver.value='W12345678';d.querySelector('#welink-token').value='unsaved';button.click();assert.equal(sends,0);assert.match(d.querySelector('#welink-test-result').textContent,/先保存/);d.querySelector('#welink-token').value='';
+  button.click();button.click();assert.equal(sends,1);assert.equal(button.disabled,true);
+  finish({ok:true,status:200,json:async()=>({message:'MCP 已确认发送成功'})});await pause();assert.equal(button.disabled,false);assert.match(d.querySelector('#welink-test-result').textContent,/确认发送成功/);
+  button.click();assert.equal(sends,2);finish({ok:false,status:502,json:async()=>({message:'测试消息发送未确认'})});await pause();assert.equal(sends,2);assert.match(d.querySelector('#welink-test-result').textContent,/未确认/);
+ }finally{dom.window.close();}
+});

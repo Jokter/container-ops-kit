@@ -85,3 +85,24 @@ test('saved MCP configuration persists, overrides environment args and never cha
   settings.saveMcp(settings.mcpStatus().defaults);assert.deepEqual(settings.mcpArgs(),welinkMcpArgs({}));
  }finally{if(previous===undefined)delete process.env.WELINK_MCP_UVX_ARGS;else process.env.WELINK_MCP_UVX_ARGS=previous;store.close();}
 });
+
+test('test-message API validates recipient, sends once, blocks concurrent sends and reports uncertainty without retry',async()=>{
+ const {default:Fastify}=await import('fastify');const {welinkSettingsRoutes}=await import('../src/modules/autout/welink-settings.js');
+ const app=Fastify(),store=new TaskStore(':memory:'),previous=process.env.WELINK_TOKEN;
+ let release:()=>void=()=>{},started:()=>void=()=>{},calls=0,fail=false;
+ const inFlight=new Promise<void>(resolve=>{started=resolve;});
+ const blocked=new Promise<void>(resolve=>{release=resolve;});
+ process.env.WELINK_TOKEN='test-only-token';
+ const config={packageUrl:'https://example.test/package',indexUrl:'https://example.test/simple',insecureHosts:''};new WelinkSettings(store).saveMcp(config);
+ welinkSettingsRoutes(app,store,{send:async(receiver,content,token)=>{calls++;assert.equal(receiver,'w12345678');assert.match(content,/连接测试消息/);assert.equal(token,'test-only-token');started();await blocked;if(fail)throw Error('private server details');}});
+ const url='/api/auto-ut/welink-mcp-settings/test';
+ try{
+  assert.equal((await app.inject({method:'POST',url,payload:{receiver:'invalid receiver'}})).statusCode,400);assert.equal(calls,0);
+  assert.equal((await app.inject({method:'POST',url,payload:{receiver:'w12345678',content:'arbitrary'}})).statusCode,400);
+  const first=app.inject({method:'POST',url,payload:{receiver:' W12345678 '}});await inFlight;
+  assert.equal((await app.inject({method:'POST',url,payload:{receiver:'w12345678'}})).statusCode,409);assert.equal(calls,1);
+  release();const result=await first;assert.equal(result.statusCode,200);assert.match(result.json().message,/确认发送成功/);assert.ok(!result.body.includes('test-only-token'));
+  fail=true;const failed=await app.inject({method:'POST',url,payload:{receiver:'w12345678'}});assert.equal(failed.statusCode,502);assert.match(failed.json().message,/未确认/);assert.ok(!failed.body.includes('private server details'));assert.equal(calls,2);
+  delete process.env.WELINK_TOKEN;assert.equal((await app.inject({method:'POST',url,payload:{receiver:'w12345678'}})).statusCode,400);assert.equal(calls,2);
+ }finally{release();await app.close();store.close();if(previous===undefined)delete process.env.WELINK_TOKEN;else process.env.WELINK_TOKEN=previous;}
+});
