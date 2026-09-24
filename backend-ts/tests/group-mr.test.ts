@@ -1,3 +1,7 @@
+import {CodehubSettings} from '../src/modules/autout/codehub-settings.js';
+import {mkdtempSync,rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import {test} from 'node:test';
 import {strict as assert} from 'node:assert';
 import {mrLinkFromMessage,parseGroupMessages} from '../src/modules/automation/group-mr.js';
@@ -123,18 +127,18 @@ test('access recovery inspects failed CLI diagnostics, not successful untrusted 
  assert.equal(groupMrAccessFailure({exitCode:4,output:'unknown command'}),false);
 });
 
-for(const scenario of ['recovered','still-denied','login-failed','history-auth','write-auth'] as const)test(`group MR login recovery: ${scenario}`,async()=>{
- const store=new TaskStore(':memory:');const calls:string[][]=[];let views=0,histories=0,sends=0;
+for(const scenario of ['recovered','still-denied','login-failed','login-throws','history-auth','write-auth'] as const)test(`group MR login recovery: ${scenario}`,async()=>{
+ const root=mkdtempSync(join(tmpdir(),'codehub-auth-')),store=new TaskStore(':memory:'),credentials=new CodehubSettings(store,join(root,'key'));credentials.save('private-token');const calls:string[][]=[];let views=0,histories=0,sends=0;
  const service=new GroupMrService(store,async args=>{
   calls.push([...args]);
-  if(args[1]==='auth'){assert.deepEqual(args,['welink-cli','auth','login']);return{exitCode:scenario==='login-failed'?1:0,output:'private-login-output'};}
+  if(args[1]==='auth'){assert.deepEqual(args,scenario==='history-auth'||scenario==='write-auth'?['welink-cli','auth','login']:['codehub-cli','auth','login','--token','private-token','-H','yellow']);if(scenario==='login-throws')throw Error('private-token private-login-output');return{exitCode:scenario==='login-failed'?1:0,output:'private-login-output'};}
   if(args[2]==='query-history-message'){
    if(scenario==='history-auth'&&++histories===1)return{exitCode:0,output:'{"resultCode":401}'};
    return{exitCode:0,output:JSON.stringify([{msgId:'2',sender:'u123',content:'https://codehub-y.huawei.com/MAE-M/Access/Demo/merge_requests/444'}])};
   }
   if(args[2]==='view'){
    views++;
-   if(scenario!=='history-auth'&&scenario!=='write-auth'&&(views===1||scenario==='still-denied'))return{exitCode:4,output:'Please run welink-cli auth login private-token'};
+   if(scenario!=='history-auth'&&scenario!=='write-auth'&&(views===1||scenario==='still-denied'))return{exitCode:4,output:'HTTP 401 unauthorized private-token'};
    return{exitCode:0,output:JSON.stringify({iid:444,state:scenario==='write-auth'?'opened':'merged',sha:'a'.repeat(40)})};
   }
   if(args[2]==='gate')return{exitCode:0,output:'{"ci_state_passed":false}'};
@@ -142,7 +146,7 @@ for(const scenario of ['recovered','still-denied','login-failed','history-auth',
   if(args.includes('--help'))return{exitCode:0,output:'--quote-message-id'};
   if(args[2]==='send-to-group'){sends++;return{exitCode:scenario==='write-auth'?4:0,output:scenario==='write-auth'?'HTTP 401 token expired':'{"resultCode":0}'};}
   throw Error('unexpected command');
- });
+ },undefined,credentials);
  const config={enabled:true,groupId:'123456789',authorizedSender:'u123',repositoryPrefix:'MAE-M/Access/',intervalSeconds:5};
  try{
   service.configure(config);store.putRecord('group-mr-cursor','cursor:123456789',{id:'1'});await service.poll();
@@ -150,10 +154,10 @@ for(const scenario of ['recovered','still-denied','login-failed','history-auth',
   const row=service.list()[0]!;
   if(scenario==='recovered'||scenario==='history-auth')assert.equal(row.phase,'DONE');
   if(scenario==='still-denied'){assert.equal(views,2);assert.equal(row.phase,'INTERRUPTED');assert.match(row.status,/codehub-cli 登录状态/);}
-  if(scenario==='login-failed'){assert.equal(views,1);assert.match(row.status,/login 未完成/);}
+  if(scenario==='login-failed'||scenario==='login-throws'){assert.equal(views,1);assert.match(row.status,/login 未完成/);}
   if(scenario==='write-auth'){assert.equal(sends,1);assert.equal(row.reply?.status,'unconfirmed');assert.equal(row.writePending,'群消息回复');}
   assert.doesNotMatch(JSON.stringify(service.summary()),/private-token|private-login-output/);
- }finally{await service.close();store.close();}
+ }finally{await service.close();store.close();rmSync(root,{recursive:true,force:true});}
 });
 
 test('failed polling login is throttled across subsequent polls',async()=>{
@@ -165,4 +169,18 @@ test('failed polling login is throttled across subsequent polls',async()=>{
  const config={enabled:true,groupId:'123456789',authorizedSender:'u123',repositoryPrefix:'MAE-M/Access/',intervalSeconds:5};
  try{service.configure(config);await service.poll();service.configure(config);await service.poll();assert.equal(logins,1);assert.match(service.summary().monitor.error,/5 分钟内不重复/);}
  finally{await service.close();store.close();}
+});
+
+
+test('CodeHub permission failures never login; missing token requests CodeHub configuration',async()=>{
+ const store=new TaskStore(':memory:');let calls=0,output='HTTP 403 forbidden';const service=new GroupMrService(store,async()=>{calls++;return{exitCode:4,output};});
+ try{await assert.rejects(service['command'](['codehub-cli','mr','view','1']),/403/);assert.equal(calls,1);output='HTTP 401 unauthorized';await assert.rejects(service['command'](['codehub-cli','mr','view','1']),/配置 CodeHub Token/);assert.equal(calls,2);}
+ finally{await service.close();store.close();}
+});
+
+test('CodeHub and WeLink have independent login cooldowns and failed writes are never replayed',async()=>{
+ const root=mkdtempSync(join(tmpdir(),'codehub-auth-')),store=new TaskStore(':memory:'),credentials=new CodehubSettings(store,join(root,'key'));credentials.save('private-token');const calls:string[][]=[];
+ const service=new GroupMrService(store,async args=>{calls.push([...args]);return args[1]==='auth'?{exitCode:0,output:''}:{exitCode:4,output:'HTTP 401'};},undefined,credentials);
+ try{await assert.rejects(service['command'](['codehub-cli','mr','merge','1']),/写操作不自动重试/);await assert.rejects(service['command'](['welink-cli','im','send-to-group']),/写操作不自动重试/);assert.deepEqual(calls.filter(a=>a[1]==='auth').map(a=>a[0]),['codehub-cli','welink-cli']);assert.equal(calls.filter(a=>a[2]==='merge').length,1);assert.doesNotMatch(JSON.stringify(service.summary()),/private-token/);}
+ finally{await service.close();store.close();rmSync(root,{recursive:true,force:true});}
 });
