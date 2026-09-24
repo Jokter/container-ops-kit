@@ -42,3 +42,11 @@ test('Windows 批处理转发保留空格、中文、URL 与特殊字符', {skip
  const args=['--text','UT 治理；MR：https://example.invalid/1854?a=1&b=2','a"b','C:\\test dir\\'];
  const result=await runProcess([batch,...args],root,5000);assert.equal(result.exitCode,0);assert.deepEqual(JSON.parse(result.output),args);
 });
+
+test('large pretty JSON is complete with MR capture limit; default truncation is explicit',async()=>{
+ const command=[process.execPath,'-e',`console.log(JSON.stringify(Array.from({length:1400},(_,i)=>({id:i,body:'检视意见'.repeat(30)})),null,2))`];
+ const small=await runProcess(command,process.cwd(),5000);
+ assert.equal(small.exitCode,0);assert.equal(small.outputTruncated,true);assert.equal(small.output.length,120000);assert.ok(small.outputChars!>120000);assert.throws(()=>JSON.parse(small.output));
+ const full=await runProcess(command,process.cwd(),5000,undefined,undefined,undefined,undefined,8*1024*1024);
+ assert.equal(full.outputTruncated,false);const list=JSON.parse(full.output);assert.equal(list.length,1400);assert.equal(list[1399].body,'检视意见'.repeat(30));assert.equal(full.outputChars,full.output.length);
+});
