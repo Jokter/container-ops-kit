@@ -203,3 +203,24 @@ test('MR replies use original link and dash with Windows-safe arguments and nati
   }finally{await service.close();store.close();}
  }
 });
+
+test('reply acknowledgement releases all related blocks without sending; history deletion retains dedup state',async()=>{
+ const store=new TaskStore(':memory:');let calls=0;
+ const service=new GroupMrService(store,async()=>{calls++;return {exitCode:0,output:'{}'};});
+ const cfg={enabled:true,groupId:'123456789',authorizedSender:'u123',repositoryPrefix:'MAE-M/Access/',intervalSeconds:5};
+ const row={id:'old',repo:'MAE-M/Access/Demo',iid:'444',url:'https://codehub-y.huawei.com/MAE-M/Access/Demo/merge_requests/444',sha:'a'.repeat(40),previousSha:'',messageId:'1',sender:'u123',shortcut:false,phase:'FAILED' as const,stage:'PIPELINE' as const,status:'流水线失败',detail:'',createdAt:'2026-09-24T00:00:00Z',updatedAt:'2026-09-24T00:00:00Z',writePending:'群消息回复',events:[],reply:{text:'失败',mode:'reference' as const,status:'unconfirmed' as const}};
+ try{
+  store.putRecord('group-mr-entry',row.id,row);
+  assert.throws(()=>service.removeHistory(row.id),/人工核对/);
+  for(const id of ['2','3'])await service['accept']({id,content:row.url,sender:'u123',quoteId:''},cfg);
+  assert.equal(calls,0);assert.equal(service.list().filter(r=>r.writePending==='群消息回复').length,3);
+  service.acknowledgeReply(row.id);assert.equal(calls,0);assert.ok(service.list().every(r=>!r.writePending));
+  assert.equal(store.getRecord<{reply:{status:string}}>('group-mr-entry',row.id)?.reply.status,'checked');
+  service.removeHistory(row.id);assert.ok(!service.summary().history.some(r=>r.id===row.id));assert.ok(store.getRecord('group-mr-entry',row.id));
+  assert.throws(()=>service.acknowledgeReply(row.id),/没有待核对/);
+  store.putRecord('group-mr-entry','review',{...row,id:'review',writePending:'审核'});
+  assert.throws(()=>service.acknowledgeReply('review'),/没有待核对/);assert.throws(()=>service.removeHistory('review'),/人工核对/);
+  store.putRecord('group-mr-entry','running',{...row,id:'running',phase:'PI',writePending:''});assert.throws(()=>service.removeHistory('running'),/已结束/);
+  service['active'].add(row.repo+':'+row.iid);assert.throws(()=>service.removeHistory(row.id),/正在执行/);
+ }finally{await service.close();store.close();}
+});
