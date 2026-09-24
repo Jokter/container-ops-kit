@@ -1,0 +1,20 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
+import {JSDOM} from 'jsdom';
+const html=await readFile(new URL('../../index.html',import.meta.url),'utf8');
+const pause=()=>new Promise(resolve=>setTimeout(resolve,60));
+test('settings groups expose one entry per configuration, isolate drawers and save Grafana only',async t=>{
+ const writes=[];let connection={url:'https://example.test/query',datasourceId:1,timeoutSeconds:30,parallel:2,auth:'none'};
+ const dom=new JSDOM(html,{url:'http://localhost/#/automation/settings',runScripts:'dangerously',beforeParse(w){w.scrollTo=()=>{};w.fetch=async(url,options)=>{if(options?.method)writes.push({url,...options});if(url==='/api/quality/settings'&&options?.method==='PUT')connection=JSON.parse(options.body);return{ok:true,status:200,json:async()=>url==='/api/quality/settings'?{...connection}:url.endsWith('/codehub-settings')?{configured:true}:url.endsWith('/dts-settings')||url.endsWith('/welink-settings')?{configured:false}:url.endsWith('/welink-mcp-settings')?{config:{packageUrl:'https://example.test/pkg',indexUrl:'https://example.test/simple',insecureHosts:''},defaults:{}}:[]};};}});
+ t.after(()=>dom.window.close());await pause();const d=dom.window.document;
+ assert.deepEqual([...d.querySelectorAll('.studio-setting-section>h2')].map(e=>e.textContent),['连接与认证','执行配置','MR 与通知']);
+ assert.deepEqual([...d.querySelectorAll('.studio-setting-row [data-qw-drawer]')].map(e=>e.dataset.qwDrawer),['codehub','welink','connection','dts','java-settings','execution','versions','mr-settings']);
+ assert.equal(d.querySelector('[data-connection-status="codehub"]').textContent,'已配置');assert.equal(d.querySelector('[data-connection-status="dts"]').textContent,'未配置');
+ d.querySelector('[data-qw-drawer="dts"]').click();await pause();assert.ok(d.querySelector('#dts-token'));assert.equal(d.querySelector('#welink-token'),null);assert.equal(d.querySelector('[data-qw-save]'),null);d.querySelector('[data-qw-close]').click();
+ d.querySelector('[data-qw-drawer="connection"]').click();await pause();assert.equal(d.querySelector('#codehub-token'),null);assert.equal(d.querySelector('#dts-token'),null);assert.equal(d.querySelector('[data-qw-save]').textContent,'保存 Grafana 配置');
+ const input=d.querySelector('[data-q-connection="url"]');input.value='https://example.test/new';input.dispatchEvent(new dom.window.Event('input',{bubbles:true}));
+ d.querySelector('[data-qw-save]').click();await pause();assert.equal(writes.length,1);assert.equal(writes[0].url,'/api/quality/settings');assert.equal(JSON.parse(writes[0].body).url,'https://example.test/new');
+ d.querySelector('[data-qw-drawer="connection"]').click();await pause();const draft=d.querySelector('[data-q-connection="url"]');draft.value='https://example.test/discard';draft.dispatchEvent(new dom.window.Event('input',{bubbles:true}));d.querySelector('[data-qw-close]').click();assert.equal(writes.length,1);
+ d.querySelector('[data-qw-drawer="connection"]').click();await pause();assert.equal(d.querySelector('[data-q-connection="url"]').value,'https://example.test/new');
+});
