@@ -46,3 +46,33 @@ test('执行中删除先停止子进程，不进入下一阶段，也不重建�
  const {readFile}=await import('node:fs/promises');let pid=0;for(let i=0;i<200&&!pid;i++){pid=Number(await readFile(pidFile,'utf8').catch(()=>''));if(!pid)await new Promise(r=>setTimeout(r,10));}assert.ok(pid);
  await service.deleteTask(value.id);assert.throws(()=>process.kill(pid,0));assert.equal(baseline,false);await assert.rejects(stat(workspace));assert.throws(()=>service.get(value.id),/不存在/);assert.equal(service['running'].has(value.id),false);
 });
+
+test('MR 合入后收尾删除工具 clone 的仓库，保留任务和治理记录，删除仅执行一次',async t=>{
+ const{root,store,service}=await fixture(t),value=task('66666666-6666-4666-8666-666666666666',root,'MergedRepo','MR_PENDING',new Date().toISOString()),workspace=autoUtWorkspace(value);
+ value.governance={mode:'REPAIR',coverageLow:false,maxClasses:5,mrState:'PENDING'};
+ await mkdir(workspace,{recursive:true});await writeFile(join(workspace,'source.java'),'test');store.putRecord('auto-ut-task',value.id,value);
+ await service['rememberClonedWorkspace'](value);
+ service['mrWorkflow'].checkTerminal=async current=>{assert.ok(await stat(workspace));current.status='RESOLVED';current.governance!.mrState='MERGED';service['save'](current);return true;};
+ await service['trackOne'](value,true);
+ await assert.rejects(stat(workspace));assert.equal(service.get(value.id).status,'RESOLVED');assert.equal(service.get(value.id).workspaceCleanup?.state,'DELETED');assert.ok(service.governanceRecords().some(r=>r.id===value.id));assert.ok(service.events(value.id,0).some(e=>e.content.includes('克隆仓库已清理')));
+ await mkdir(workspace);await writeFile(join(workspace,'new-owner'),'keep');await service['cleanupCompletedWorkspace'](service.get(value.id));assert.ok(await stat(join(workspace,'new-owner')));
+});
+
+test('未合入、失败、无归属和共享工作目录均不自动删除',async t=>{
+ const{root,store,service}=await fixture(t);
+ for(const status of ['MR_PENDING','MR_CLOSED','WAITING_EXTERNAL','RETRY_PENDING','NO_CHANGE','RESOLVED'] as const){
+  const value=task('keep-'+status,root,status,status,new Date().toISOString()),workspace=autoUtWorkspace(value);value.governance={mode:'REPAIR',coverageLow:false,maxClasses:5,mrState:status==='RESOLVED'?'MERGED':'PENDING'};
+  await mkdir(workspace,{recursive:true});store.putRecord('auto-ut-task',value.id,value);if(status!=='RESOLVED')await service['rememberClonedWorkspace'](value);
+  await service['cleanupCompletedWorkspace'](value);assert.ok(await stat(workspace));
+ }
+ const owner=task('shared-owner',root,'SharedCompleted','RESOLVED',new Date().toISOString());owner.governance={mode:'REPAIR',coverageLow:false,maxClasses:5,mrState:'MERGED'};
+ const waiting={...owner,id:'shared-waiting',status:'RETRY_PENDING' as const};await mkdir(autoUtWorkspace(owner),{recursive:true});store.putRecord('auto-ut-task',owner.id,owner);store.putRecord('auto-ut-task',waiting.id,waiting);await service['rememberClonedWorkspace'](owner);await service['cleanupCompletedWorkspace'](owner);assert.ok(await stat(autoUtWorkspace(owner)));assert.equal(owner.workspaceCleanup?.state,'SKIPPED');
+});
+
+test('路径被替换为符号链接时保留外部文件，清理失败不改变完成状态且不重试',async t=>{
+ const{root,store,service}=await fixture(t),value=task('symlink-test',root,'SymlinkRepo','RESOLVED',new Date().toISOString()),workspace=autoUtWorkspace(value);value.governance={mode:'REPAIR',coverageLow:false,maxClasses:5,mrState:'MERGED'};
+ await mkdir(workspace,{recursive:true});store.putRecord('auto-ut-task',value.id,value);await service['rememberClonedWorkspace'](value);
+ const outside=join(root,'outside');await mkdir(outside);await writeFile(join(outside,'keep'),'safe');await rm(workspace,{recursive:true});const{symlink}=await import('node:fs/promises');await symlink(outside,workspace,'junction');
+ await service['cleanupCompletedWorkspace'](value);assert.equal(value.status,'RESOLVED');assert.equal(value.workspaceCleanup?.state,'FAILED');assert.ok(await stat(join(outside,'keep')));
+ await rm(workspace);await mkdir(workspace);await service['cleanupCompletedWorkspace'](value);assert.ok(await stat(workspace));
+});
