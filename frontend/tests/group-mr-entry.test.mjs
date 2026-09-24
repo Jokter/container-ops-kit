@@ -127,3 +127,11 @@ test('待处理支持批量删除，执行中和未确认操作不可选',async 
  await flush();doc.querySelector('[data-studio-confirm]').click();await flush();
  assert.deepEqual(JSON.parse(writes[0].body).ids,['waiting','issues']);assert.equal(records.length,2);
 });
+
+test('快捷合入显示意见闭环及无权限检视跳过',async t=>{
+ const {doc}=await fixture(t,{route:'group-mr',records:[{id:'shortcut',repo:'MAE-M/Access/Demo',iid:'1',sha:'a'.repeat(40),phase:'APPROVE',stage:'APPROVE',shortcut:true,reviewSkipped:true,pipelinePassed:true,reviewComments:[{id:'others',body:'意见',resolved:true}],events:[]}]});
+ const steps=[...doc.querySelectorAll('.group-mr-flow li')];
+ assert.match(steps.find(s=>s.querySelector('b').textContent==='Pi 检视').textContent,/已跳过/);
+ assert.match(steps.find(s=>s.querySelector('b').textContent==='检视意见').textContent,/已通过/);
+ assert.match(steps.find(s=>s.querySelector('b').textContent==='检视').textContent,/已跳过/);
+});
