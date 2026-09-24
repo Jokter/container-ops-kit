@@ -100,7 +100,7 @@ test('选择框点击外部收起，内部多选保留展开，切换选择框�
 test('DTS Token 仅在密码框输入，保存后不回显并支持清除',async()=>{
  let configured=false,received='';
  const dom=page((path,options)=>{if(path!=='/api/auto-ut/dts-settings')return;if(options?.method==='PUT'){received=JSON.parse(options.body).token;configured=true;}if(options?.method==='DELETE')configured=false;return{configured};});
- try{const d=open(dom,'auto-ut');await pause();d.querySelector('[data-automation-nav="settings"]').click();d.querySelector('[data-qw-drawer="connection"]').click();await pause();
+ try{const d=open(dom,'auto-ut');await pause();d.querySelector('[data-automation-nav="settings"]').click();d.querySelector('[data-qw-drawer="dts"]').click();await pause();
  assert.equal(d.querySelector('#dts-token').type,'password');assert.match(d.querySelector('#dts-status').textContent,/未配置/);
  d.querySelector('#dts-token').value='test-secret-token';d.querySelector('#dts-save').click();await pause();assert.equal(received,'test-secret-token');assert.equal(d.querySelector('#dts-token').value,'');assert.match(d.querySelector('#dts-status').textContent,/已配置/);assert.ok(!d.documentElement.outerHTML.includes('test-secret-token'));assert.ok(!JSON.stringify(dom.window.sessionStorage).includes('test-secret-token'));
  d.querySelector('#dts-clear').click();await pause();assert.match(d.querySelector('#dts-status').textContent,/未配置/);
@@ -145,7 +145,7 @@ test('历史 MR 阻塞展示原因，取消不写入，确认后只解除指定�
 test('WeLink MCP token can be saved and cleared without returning it to the page',async()=>{
  let configured=false,token='';
  const dom=page((path,o)=>{if(path==='/api/auto-ut/welink-settings'){if(o?.method==='PUT'){token=JSON.parse(o.body).token;configured=true;}if(o?.method==='DELETE')configured=false;return{configured};}});
- try{const d=open(dom,'auto-ut');await pause();dom.window.qwOpen({type:'connection'});await pause();const input=d.querySelector('#welink-token');assert.equal(input.type,'password');input.value='test-token';d.querySelector('#welink-save').click();await pause();assert.equal(token,'test-token');assert.equal(d.querySelector('#welink-token').value,'');assert.match(d.querySelector('#welink-status').textContent,/已配置/);d.querySelector('#welink-clear').click();await pause();assert.equal(configured,false);}finally{await pause();dom.window.close();}
+ try{const d=open(dom,'auto-ut');await pause();dom.window.qwOpen({type:'welink'});await pause();const input=d.querySelector('#welink-token');assert.equal(input.type,'password');input.value='test-token';d.querySelector('#welink-save').click();await pause();assert.equal(token,'test-token');assert.equal(d.querySelector('#welink-token').value,'');assert.match(d.querySelector('#welink-status').textContent,/已配置/);d.querySelector('#welink-clear').click();await pause();assert.equal(configured,false);}finally{await pause();dom.window.close();}
 });
 
 

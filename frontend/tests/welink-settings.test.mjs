@@ -12,16 +12,16 @@ test('connection settings saves MCP independently of token and restores defaults
   if(url==='/api/auto-ut/welink-settings'){if(options?.method)tokenWrites++;return {configured:true};}
   return [];
  }});}});
- try{await pause();const d=dom.window.document;d.querySelector('[data-qw-drawer="connection"]').click();await pause();
+ try{await pause();const d=dom.window.document;d.querySelector('[data-qw-drawer="welink"]').click();await pause();
   for(const id of ['welink-mcp-packageUrl','welink-mcp-indexUrl','welink-mcp-insecureHosts','welink-mcp-save','welink-mcp-default','welink-test-send'])assert.ok(d.querySelectorAll('#'+id).length<=1,'重复配置控件：'+id);
-  assert.equal(d.querySelectorAll('#welink-mcp-packageUrl').length,1);
+  assert.equal(d.querySelectorAll('#welink-mcp-packageUrl').length,1);assert.equal(d.querySelector('[data-qw-save]'),null);const advanced=d.querySelector('.studio-advanced-settings');assert.equal(advanced.open,false);advanced.open=true;
   assert.equal(d.querySelector('#welink-mcp-packageUrl').value,config.packageUrl);
   assert.equal(d.querySelector('#welink-token').value,'');
   d.querySelector('#welink-mcp-packageUrl').value='https://example.test/new.tar.gz';d.querySelector('#welink-mcp-save').click();await pause();
   assert.equal(config.packageUrl,'https://example.test/new.tar.gz');assert.equal(writes,1);assert.equal(tokenWrites,0);
   d.querySelector('#welink-mcp-default').click();assert.equal(writes,1);assert.equal(d.querySelector('#welink-mcp-packageUrl').value,defaults.packageUrl);
   d.querySelector('#welink-mcp-save').click();await pause();assert.deepEqual(config,defaults);assert.equal(writes,2);
-  d.querySelector('[data-qw-close]').click();d.querySelector('[data-qw-drawer="connection"]').click();await pause();assert.equal(d.querySelector('#welink-mcp-packageUrl').value,defaults.packageUrl);
+  d.querySelector('[data-qw-close]').click();d.querySelector('[data-qw-drawer="welink"]').click();await pause();assert.equal(d.querySelector('#welink-mcp-packageUrl').value,defaults.packageUrl);
  }finally{dom.window.close();}
 });
 
@@ -31,7 +31,7 @@ test('test-message button requires a recipient and saved settings, prevents doub
   if(url==='/api/auto-ut/welink-mcp-settings/test'){sends++;assert.deepEqual(JSON.parse(options.body),{receiver:'w12345678'});return new Promise(resolve=>{finish=resolve;});}
   return {ok:true,status:200,json:async()=>url==='/api/auto-ut/welink-mcp-settings'?{config,defaults:config}:url==='/api/auto-ut/welink-settings'?{configured:true}:[]};
  };}});
- try{await pause();const d=dom.window.document;d.querySelector('[data-qw-drawer="connection"]').click();await pause();
+ try{await pause();const d=dom.window.document;d.querySelector('[data-qw-drawer="welink"]').click();await pause();
   const button=d.querySelector('#welink-test-send'),receiver=d.querySelector('#welink-test-receiver');button.click();assert.equal(sends,0);assert.match(d.querySelector('#welink-test-result').textContent,/工号/);
   receiver.value='W12345678';d.querySelector('#welink-token').value='unsaved';button.click();assert.equal(sends,0);assert.match(d.querySelector('#welink-test-result').textContent,/先保存/);d.querySelector('#welink-token').value='';
   button.click();button.click();assert.equal(sends,1);assert.equal(button.disabled,true);
@@ -43,6 +43,6 @@ test('test-message button requires a recipient and saved settings, prevents doub
 test('CodeHub token settings saves and clears independently without displaying the secret',async()=>{
  let configured=false,writes=0;
  const dom=new JSDOM(html,{url:'http://localhost/#/automation/settings',runScripts:'dangerously',beforeParse(w){w.scrollTo=()=>{};w.fetch=async(url,options)=>({ok:true,status:200,json:async()=>{if(url==='/api/automation/codehub-settings'){if(options?.method==='PUT'){assert.deepEqual(JSON.parse(options.body),{token:'test-token'});configured=true;writes++;}if(options?.method==='DELETE'){configured=false;writes++;}return{configured};}return [];}});}});
- try{await pause();const d=dom.window.document;d.querySelector('[data-qw-drawer="connection"]').click();await pause();assert.equal(d.querySelector('#codehub-clear').disabled,true);assert.equal(d.querySelector('#codehub-token').type,'password');d.querySelector('#codehub-token').value='test-token';d.querySelector('#codehub-save').click();await pause();assert.equal(configured,true);assert.equal(d.querySelector('#codehub-token').value,'');assert.equal(d.querySelector('#codehub-clear').disabled,false);assert.doesNotMatch(d.body.textContent,/test-token/);d.querySelector('#codehub-clear').click();await pause();assert.equal(configured,false);assert.equal(writes,2);}
+ try{await pause();const d=dom.window.document;d.querySelector('[data-qw-drawer="codehub"]').click();await pause();assert.equal(d.querySelector('#codehub-clear').disabled,true);assert.equal(d.querySelector('#codehub-token').type,'password');d.querySelector('#codehub-token').value='test-token';d.querySelector('#codehub-save').click();await pause();assert.equal(configured,true);assert.equal(d.querySelector('#codehub-token').value,'');assert.equal(d.querySelector('#codehub-clear').disabled,false);assert.doesNotMatch(d.body.textContent,/test-token/);d.querySelector('#codehub-clear').click();await pause();assert.equal(configured,false);assert.equal(writes,2);}
  finally{dom.window.close();}
 });
