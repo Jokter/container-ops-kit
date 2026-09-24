@@ -13,7 +13,7 @@ type Configuration=z.infer<typeof configSchema>;
 const defaults:Configuration={enabled:false,groupId:'',authorizedSender:'',repositoryPrefix:'MAE-M/Access/',intervalSeconds:10};
 const phase=z.enum(['PIPELINE','PI','COMMENTS','REVIEW','APPROVE','MERGE','DONE','ISSUES','FAILED','NO_PERMISSION','INTERRUPTED']);
 type Phase=z.infer<typeof phase>;
-interface Entry{pipelinePassed?:boolean;piReview?:{sha:string;discussionKey:string;summary:string;resolvedDiscussionIds:string[]};id:string;repo:string;iid:string;url:string;sha:string;previousSha:string;messageId:string;sender:string;shortcut:boolean;phase:Phase;stage?:Phase;status:string;detail:string;createdAt:string;updatedAt:string;writePending:string;events:Array<{time:string;phase:Phase;message:string}>;reviewComments?:Array<{id:string;body:string;resolved:boolean}>;reply?:{text:string;mode:'quote'|'reference';status:'sending'|'sent'|'unconfirmed'|'checked'}}
+interface Entry{supersededBy?:string;pipelinePassed?:boolean;piReview?:{ok?:boolean;findings?:Array<{path:string;line:number;body:string}>;sha:string;discussionKey:string;summary:string;resolvedDiscussionIds:string[]};id:string;repo:string;iid:string;url:string;sha:string;previousSha:string;messageId:string;sender:string;shortcut:boolean;phase:Phase;stage?:Phase;status:string;detail:string;createdAt:string;updatedAt:string;writePending:string;events:Array<{time:string;phase:Phase;message:string}>;reviewComments?:Array<{id:string;body:string;resolved:boolean}>;reply?:{text:string;mode:'quote'|'reference';status:'sending'|'sent'|'unconfirmed'|'checked'}}
 interface GroupMessage{id:string;content:string;sender:string;quoteId:string}
 interface Discussion{id:string;body:string;author:string;resolved:boolean}
 interface Monitor {state:'waiting'|'polling'|'processing'|'error';at:string;lastSuccessAt:string;error:string;readCount:number;newCount:number;matchedCount:number;filteredCount:number;message:string}
@@ -73,7 +73,7 @@ export class GroupMrService {
  private recordLog(level:MonitorEvent['level'],message:string){this.trace.push({time:new Date().toISOString(),level,message,phase:this.currentEntry?.phase,diagnostic:{...this.diagnostic}});this.trace=this.trace.slice(-80);const event:MonitorEvent={time:new Date().toISOString(),level,message};const events=this.store.getRecord<MonitorEvent[]>('group-mr-log','main')??[];this.store.putRecord('group-mr-log','main',[...events,event].slice(-100));this.logs.task('automation','group-mr-monitor',event);if(level==='error')this.errorLog('command-or-monitor',message);}
 
  list(){return this.store.records<Entry>('group-mr-entry').sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt));}
- summary(){const entries=this.list(),today=new Date().toISOString().slice(0,10),latest=[...new Map([...entries].reverse().map(e=>[e.repo+':'+e.iid,e])).values()].reverse(),pending=latest.filter(e=>!['DONE','FAILED','NO_PERMISSION','INTERRUPTED'].includes(e.phase));return {config:this.configuration(),pending,history:entries.filter(e=>['DONE','FAILED','NO_PERMISSION','INTERRUPTED'].includes(e.phase)&&!this.store.getRecord('group-mr-hidden',e.id)),monitor:{...this.monitor(),running:this.busy,command:this.activeCommand,logs:this.store.getRecord<MonitorEvent[]>('group-mr-log','main')??[]},metrics:{pending:pending.length,issues:pending.filter(e=>e.phase==='ISSUES').length,mergedToday:entries.filter(e=>e.phase==='DONE'&&e.updatedAt.startsWith(today)).length}};}
+ summary(){const entries=this.list(),today=new Date().toISOString().slice(0,10),latest=[...new Map(entries.filter(e=>!e.supersededBy).reverse().map(e=>[e.repo+':'+e.iid,e])).values()].reverse(),pending=latest.filter(e=>!['DONE','FAILED','NO_PERMISSION','INTERRUPTED'].includes(e.phase)&&!this.store.getRecord('group-mr-hidden',e.id)).map(e=>({...e,running:this.active.has(e.repo+':'+e.iid)}));return {config:this.configuration(),pending,history:entries.filter(e=>['DONE','FAILED','NO_PERMISSION','INTERRUPTED'].includes(e.phase)&&!this.store.getRecord('group-mr-hidden',e.id)),monitor:{...this.monitor(),running:this.busy,command:this.activeCommand,logs:this.store.getRecord<MonitorEvent[]>('group-mr-log','main')??[]},metrics:{pending:pending.length,issues:pending.filter(e=>e.phase==='ISSUES').length,mergedToday:entries.filter(e=>e.phase==='DONE'&&e.updatedAt.startsWith(today)).length}};}
  visibleList(){return this.list().filter(e=>!this.store.getRecord('group-mr-hidden',e.id));}
  private editable(id:string){const e=this.store.getRecord<Entry>('group-mr-entry',id);if(!e)throw Object.assign(Error('MR 记录不存在'),{statusCode:404});if(this.active.has(e.repo+':'+e.iid))throw Object.assign(Error('MR 正在执行，请结束后再操作'),{statusCode:409});return e;}
  acknowledgeReply(id:string){
@@ -83,7 +83,7 @@ export class GroupMrService {
   return {ok:true};
  }
  removeHistory(id:string){return this.removeHistories([id]);}
- removeHistories(ids:string[]){const entries=[...new Set(ids)].map(id=>this.editable(id));for(const e of entries){if(!['DONE','FAILED','NO_PERMISSION','INTERRUPTED'].includes(e.phase))throw Object.assign(Error('只能删除已结束的执行历史'),{statusCode:409});if(e.writePending)throw Object.assign(Error('操作结果未确认，请先人工核对'),{statusCode:409});}for(const e of entries)this.store.putRecord('group-mr-hidden',e.id,{id:e.id,deletedAt:new Date().toISOString()});return {ok:true,deleted:entries.length};}
+ removeHistories(ids:string[]){const entries=[...new Set(ids)].map(id=>this.editable(id));for(const e of entries){if(!['DONE','FAILED','NO_PERMISSION','INTERRUPTED','ISSUES','PIPELINE'].includes(e.phase))throw Object.assign(Error('只能删除待处理或已结束的记录'),{statusCode:409});if(e.writePending)throw Object.assign(Error('操作结果未确认，请先人工核对'),{statusCode:409});}for(const e of entries)this.store.putRecord('group-mr-hidden',e.id,{id:e.id,deletedAt:new Date().toISOString()});return {ok:true,deleted:entries.length};}
 
  private save(e:Entry){e.updatedAt=new Date().toISOString();this.store.putRecord('group-mr-entry',e.id,e,e.createdAt);}
  private mark(e:Entry,p:Phase,message:string){this.trace.push({time:new Date().toISOString(),event:'phase-change',from:e.phase,to:p});this.trace=this.trace.slice(-80);e.phase=p;if(['PIPELINE','PI','COMMENTS','REVIEW','APPROVE','MERGE'].includes(p))e.stage=p;e.status=message;e.events.push({time:new Date().toISOString(),phase:p,message});this.save(e);}
@@ -138,7 +138,7 @@ export class GroupMrService {
     try{await this.accept(msg,cfg);}catch{this.recordLog('error','MR 处理异常，请查看该 MR 的处理记录');}
     this.store.putRecord('group-mr-cursor',cursorKey,{id:msg.id});}
    for(const entry of this.summary().pending.filter(e=>e.phase==='PIPELINE'&&!e.writePending)){
-    if(this.closing||this.active.has(entry.repo+':'+entry.iid))continue;
+    if(this.closing||this.active.has(entry.repo+':'+entry.iid)||this.store.getRecord('group-mr-hidden',entry.id))continue;
     if(entry.sender.trim().toLowerCase()===cfg.authorizedSender.trim().toLowerCase()){this.mark(entry,'INTERRUPTED','触发消息来自已过滤的授权账号，停止跟进；请由其他群成员发送 MR 链接');continue;}
     this.active.add(entry.repo+':'+entry.iid);
     this.updateMonitor({state:'processing',message:`复查流水线 ${entry.repo} !${entry.iid}`});
@@ -156,10 +156,13 @@ export class GroupMrService {
   this.updateMonitor({state:'processing',message:`处理 MR ${link.repo} !${link.iid}`});this.recordLog('info',`识别 MR ${link.repo} !${link.iid}，开始处理`);
   if(direct)this.store.putRecord('group-mr-message',cfg.groupId+':'+msg.id,link);
   const key=link.repo+':'+link.iid;if(this.active.has(key))return;
-  this.active.add(key);const now=new Date().toISOString();const old=this.list().find(e=>e.repo===link.repo&&e.iid===link.iid&&e.phase!=='DONE');
+  this.active.add(key);const now=new Date().toISOString();const old=this.list().find(e=>e.repo===link.repo&&e.iid===link.iid&&e.phase!=='DONE'&&!e.supersededBy);
   const entry:Entry={id:randomUUID(),repo:link.repo,iid:link.iid,url:link.url,sha:'',previousSha:old?.sha??'',messageId:msg.id,sender:msg.sender,shortcut:!!shortcut,pipelinePassed:false,phase:'PI',stage:'PI',status:'准备检视当前提交',detail:'',createdAt:now,updatedAt:now,writePending:'',events:[]};this.save(entry);
   const blocked=this.list().find(e=>e.repo===link.repo&&e.iid===link.iid&&e.writePending);
   if(blocked){entry.writePending=blocked.writePending;this.mark(entry,'INTERRUPTED',`上一次${blocked.writePending}结果未确认，需人工核对后再处理`);this.active.delete(key);return;}
+  for(const previous of this.list().filter(r=>r.id!==entry.id&&r.repo===entry.repo&&r.iid===entry.iid&&!r.supersededBy)){previous.supersededBy=entry.id;if(!['DONE','FAILED','NO_PERMISSION','INTERRUPTED'].includes(previous.phase))this.mark(previous,'INTERRUPTED','收到新的 MR 消息，本记录停止跟进，后续处理见最新记录');else this.store.putRecord('group-mr-entry',previous.id,previous,previous.createdAt);}
+  if(old?.piReview)entry.piReview=old.piReview;
+  this.save(entry);
   try{await this.process(entry,cfg);}catch(error){const reason=error instanceof Error?error.message:'处理失败';if(['DONE','FAILED','NO_PERMISSION'].includes(entry.phase)){entry.detail=reason;this.save(entry);}else{this.mark(entry,'INTERRUPTED',reason);if(!entry.writePending)await this.reply(entry,cfg,reason).catch(()=>{});}}finally{this.active.delete(key);}
  }
  private async view(e:Entry){return parseMr(await this.code(['mr','view',e.iid,'-p',e.repo],'iid,id,mr_url,state,sha,diff_refs,approval_merge_request_reviewers,approval_merge_request_approvers,merge_request_assignee_list'));}
@@ -217,12 +220,14 @@ export class GroupMrService {
    const notes=parseDiscussions(await this.code(['mr','review','list',e.iid,'-p',e.repo]));mine=notes.filter(n=>!n.resolved&&n.author.toLowerCase()===username.toLowerCase());
    e.reviewComments=mine.map(n=>({id:n.id,body:n.body,resolved:false}));this.save(e);
    const discussionKey=JSON.stringify(mine.map(n=>({id:n.id,body:n.body})));
-   const cached=e.piReview?.sha===e.sha&&e.piReview.discussionKey===discussionKey&&mine.every(n=>e.piReview?.resolvedDiscussionIds.includes(n.id))?e.piReview:undefined;
+   const cached=e.piReview?.sha===e.sha&&e.piReview.discussionKey===discussionKey?e.piReview:undefined;
    if(!cached)this.mark(e,'PI','Pi 正在检视当前提交');
-   const result=cached?{ok:true,findings:[],...cached}:await this.runPi(e,raw,mine);
+   const result=cached?{...cached,ok:cached.ok??true,findings:cached.findings??[]}:await this.runPi(e,raw,mine);
+   if(cached)this.mark(e,'PI','当前提交未变化，复用已有 Pi 检视结论');
    const afterPi=await this.view(e);if(afterPi.state!=='opened'||this.head(afterPi)!==e.sha)throw Error('MR 已关闭或提交已变化，本次检视结果不再适用；请重新发送 MR 链接');
+   const finalDiscussionKey=!cached&&result.findings.length?JSON.stringify(parseDiscussions(await this.code(['mr','review','list',e.iid,'-p',e.repo])).filter(n=>!n.resolved&&n.author.toLowerCase()===username.toLowerCase()).map(n=>({id:n.id,body:n.body}))):discussionKey;
+   e.piReview={sha:e.sha,discussionKey:finalDiscussionKey,ok:result.ok,findings:result.findings,summary:result.summary,resolvedDiscussionIds:result.resolvedDiscussionIds};this.save(e);
    if(!result.ok||result.findings.length){this.mark(e,'ISSUES',result.summary||'Pi 检视发现问题，请修改后重新发送 MR 链接');await this.reply(e,cfg,result.findings.length?'Pi 检视发现问题，检视意见已提交至 MR，请修改后重新发送链接。':'Pi 检视未通过，请查看执行详情。');return;}
-   e.piReview={sha:e.sha,discussionKey,summary:result.summary,resolvedDiscussionIds:result.resolvedDiscussionIds};this.save(e);
    if(!cached)this.mark(e,'COMMENTS',mine.length?'正在确认本人提出的检视意见':'无本人待处理的检视意见');
    for(const note of mine){if(!result.resolvedDiscussionIds.includes(note.id)){this.mark(e,'ISSUES','仍有本人提出的检视意见未确认修复，请修改后重发');await this.reply(e,cfg,e.status);return;}}
   }

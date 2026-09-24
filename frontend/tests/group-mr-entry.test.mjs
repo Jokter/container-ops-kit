@@ -11,7 +11,7 @@ async function fixture(t,{route='tools',save,records=[],history=[]}={}){
  const snapshot=()=>({config:{...config},pending:records,history,metrics:{pending:records.length,issues:0,mergedToday:0},monitor:{error:'',at:''}})
  const dom=new JSDOM(html,{runScripts:'dangerously',url:'http://localhost/#/automation/'+route,beforeParse(w){w.scrollTo=()=>{};w.confirm=()=>{throw Error('原生弹窗不应调用')};const timeout=w.setTimeout.bind(w);w.setTimeout=(callback,delay,...args)=>delay>500?0:timeout(callback,delay,...args);w.fetch=async(url,options)=>{
   if(url==='/api/automation/group-mr/config'&&options?.method==='PUT'){const body=JSON.parse(options.body);writes.push(body);if(save)return save(body);Object.assign(config,body);return response({...config})}
-  if(url.startsWith('/api/automation/group-mr/records/')){writes.push({url,...options});if(url.endsWith('/delete')){const ids=JSON.parse(options.body).ids;for(let i=history.length-1;i>=0;i--)if(ids.includes(history[i].id))history.splice(i,1);}else for(const r of history){r.writePending='';if(r.reply)r.reply.status='checked';}return response({ok:true})}
+  if(url.startsWith('/api/automation/group-mr/records/')){writes.push({url,...options});if(url.endsWith('/delete')){const ids=JSON.parse(options.body).ids;for(const list of [history,records])for(let i=list.length-1;i>=0;i--)if(ids.includes(list[i].id))list.splice(i,1);}else for(const r of history){r.writePending='';if(r.reply)r.reply.status='checked';}return response({ok:true})}
   if(url==='/api/automation/group-mr')return response(snapshot())
   return response([])
  }}})
@@ -27,7 +27,7 @@ test('工具卡片独立开关，设置留在侧栏，键盘可以进入 MR 页�
  assert.equal(dom.window.location.hash,'#/automation/tools');assert.equal(doc.querySelector('[data-group-mr-toggle]').getAttribute('aria-checked'),'true')
  doc.querySelector('[data-automation-capability="group-mr"]').dispatchEvent(new dom.window.KeyboardEvent('keydown',{key:'Enter',bubbles:true}));await flush()
  assert.equal(dom.window.location.hash,'#/automation/group-mr');assert.equal(doc.querySelectorAll('.group-mr-overview>.panel').length,4)
- assert.deepEqual([...doc.querySelectorAll('.group-mr-table th')].map(x=>x.textContent),['MR','触发消息','当前阶段','最新结果','更新时间'])
+ assert.deepEqual([...doc.querySelectorAll('.group-mr-table th')].map(x=>x.textContent),['','MR','触发消息','当前阶段','最新结果','更新时间','操作'])
  assert.ok(doc.querySelector('[data-group-mr-config]'));assert.equal(doc.querySelector('#group-mr-form'),null)
 })
 test('开关写入期间禁止重复请求，失败恢复原状态',async t=>{
@@ -116,4 +116,14 @@ test('Pi 阶段待处理不会将流水线误标为已通过',async t=>{
  const steps=[...doc.querySelectorAll('.group-mr-flow li')];
  assert.deepEqual(steps.map(s=>s.querySelector('b').textContent),['收到消息','Pi 检视','检视意见','流水线','检视','审核','合并']);
  assert.match(steps[1].textContent,/待处理/);assert.doesNotMatch(steps[1].textContent,/已停止/);assert.match(steps[3].textContent,/待处理/);assert.ok(!steps[3].classList.contains('done'));
+});
+
+test('待处理支持批量删除，执行中和未确认操作不可选',async t=>{
+ const records=[{id:'waiting',phase:'PIPELINE'},{id:'issues',phase:'ISSUES'},{id:'busy',phase:'PIPELINE',running:true},{id:'blocked',phase:'ISSUES',writePending:'Pi 提交检视意见'}].map(r=>({repo:'MAE-M/Access/Demo',iid:r.id,events:[],...r}));
+ const {doc,writes}=await fixture(t,{route:'group-mr',records});
+ assert.equal(doc.querySelectorAll('[data-group-mr-action="delete"]').length,4);
+ assert.equal(doc.querySelectorAll('[data-group-mr-check]:not(:disabled)').length,2);
+ doc.querySelector('[data-group-mr-check-all]').click();doc.querySelector('[data-group-mr-action="batch"]').click();
+ await flush();doc.querySelector('[data-studio-confirm]').click();await flush();
+ assert.deepEqual(JSON.parse(writes[0].body).ids,['waiting','issues']);assert.equal(records.length,2);
 });
