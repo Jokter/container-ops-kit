@@ -37,15 +37,6 @@ export async function createApp(config: Config) {
   automationRecordRoutes(app,new AutomationRecords(autoUt,reports,quality));scheduleRoutes(app,schedules);qualityRoutes(app,quality);autoUtReportRoutes(app,reports,schedules);
   await deployments.cleanupPreparations();
   app.addHook('onClose', async () => {await groupMr.close();schedules.stop();await quality.close();await reports.close();await schedules.close();await autoUt.close();await builds.close();await runner.close();store.close();});
-  app.addHook('onRequest', async (request, reply) => {
-    // Local tools are not an authenticated multi-user service. Reject browser requests from remote origins.
-    const local = (host: string) => ['localhost', '127.0.0.1', '[::1]'].includes(host);
-    try {
-      if (!local(new URL(`http://${request.headers.host ?? ''}`).hostname)) return reply.code(403).send({message: '仅允许本机访问'});
-      if (request.headers.origin && !local(new URL(request.headers.origin).hostname)) return reply.code(403).send({message: '不允许跨站访问'});
-      if (request.headers['sec-fetch-site'] === 'cross-site') return reply.code(403).send({message: '不允许跨站访问'});
-    } catch {return reply.code(403).send({message: '无效请求来源'});}
-  });
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof ZodError) return reply.code(400).send({message: '输入不符合接口约定', fields: error.issues.map(issue => issue.path.join('.'))});
     const code = error instanceof Error && 'statusCode' in error ? error.statusCode : 500;

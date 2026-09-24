@@ -29,8 +29,6 @@ test('native task API validates input, persists lifecycle and replays SSE', asyn
   const app = await createApp({...readConfig({}),port: 8080,database: ':memory:',workers:1,taskTimeoutMs:5000});
   t.after(() => app.close());
   assert.equal((await app.inject({method: 'POST', url: '/api/platform/tasks', payload: {kind: 'shell', command: 'anything'}})).statusCode, 400);
-  assert.equal((await app.inject({method: 'POST', url: '/api/platform/tasks', headers: {origin: 'https://example.com'}, payload: {kind: 'workspace-inspect', path: tmpdir()}})).statusCode, 403);
-  assert.equal((await app.inject({url: '/api/platform/tasks', headers: {host: 'evil.example'}})).statusCode, 403);
   assert.equal((await app.inject('/api/platform/tasks/not-a-uuid')).statusCode, 400);
   assert.equal((await app.inject('/api/platform/tasks/00000000-0000-4000-8000-000000000000')).statusCode, 404);
   const created = await app.inject({method: 'POST', url: '/api/platform/tasks', payload: {kind: 'workspace-inspect', path: tmpdir()}});
@@ -57,4 +55,21 @@ test('MR settings API persists roles and validates controls',async t=>{
  assert.equal((await app.inject({method:'PUT',url:'/api/auto-ut/mr-settings',payload:{...config,maxRepairRounds:0}})).statusCode,400);
  assert.equal((await app.inject({method:'POST',url:'/api/auto-ut/tasks/missing/mr-control',payload:{action:'force-merge'}})).statusCode,400);
  assert.equal((await app.inject({method:'POST',url:'/api/auto-ut/tasks/missing/mr-control',payload:{action:'check'}})).statusCode,404);
+});
+
+
+test('LAN and other browser origins reach environment APIs without a source restriction', async t => {
+  const app = await createApp({...readConfig({}), database: ':memory:', workers: 1, taskTimeoutMs: 5000});
+  t.after(() => app.close());
+  for (const headers of [
+    {host: '10.189.209.20:5173', origin: 'http://10.189.209.20:5173', 'sec-fetch-site': 'same-origin'},
+    {host: 'localhost:8080', origin: 'http://10.189.209.20:5173', 'sec-fetch-site': 'same-origin'},
+    {host: 'ops.example:5173', origin: 'https://example.com', 'sec-fetch-site': 'cross-site'},
+  ]) {
+    assert.equal((await app.inject({url: '/api/environments', headers})).statusCode, 200);
+    const result = await app.inject({method: 'POST', url: '/api/environments/999999/connection-test', headers, payload: {user: 'SOPUSER'}});
+    assert.equal(result.statusCode, 404);
+    assert.equal(result.json().message, '环境不存在');
+    assert.equal((await app.inject({method: 'POST', url: '/api/environments', headers, payload: {}})).statusCode, 400);
+  }
 });
