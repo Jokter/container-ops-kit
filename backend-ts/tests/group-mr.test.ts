@@ -184,3 +184,17 @@ test('CodeHub and WeLink have independent login cooldowns and failed writes are 
  try{await assert.rejects(service['command'](['codehub-cli','mr','merge','1']),/写操作不自动重试/);await assert.rejects(service['command'](['welink-cli','im','send-to-group']),/写操作不自动重试/);assert.deepEqual(calls.filter(a=>a[1]==='auth').map(a=>a[0]),['codehub-cli','welink-cli']);assert.equal(calls.filter(a=>a[2]==='merge').length,1);assert.doesNotMatch(JSON.stringify(service.summary()),/private-token/);}
  finally{await service.close();store.close();rmSync(root,{recursive:true,force:true});}
 });
+
+
+test('MR replies use original link and dash on separate lines with and without native quotes',async()=>{
+ for(const flag of ['--quote-message-id','--reply-to-message-id','--quote-msg-id','']){
+  const store=new TaskStore(':memory:');let sent:readonly string[]=[];
+  const service=new GroupMrService(store,async args=>{if(args.includes('--help'))return{exitCode:0,output:flag};sent=args;return{exitCode:0,output:'{"resultCode":0}'};});
+  try{const cfg={enabled:true,groupId:'123456789',authorizedSender:'u123',repositoryPrefix:'MAE-M/Access/',intervalSeconds:5};
+   const entry={id:'reply-format',repo:'MAE-M/Access/Demo',iid:'444',url:'https://codehub-y.huawei.com/MAE-M/Access/Demo/merge_requests/444',sha:'',previousSha:'',messageId:'12345',sender:'u123',shortcut:false,phase:'DONE' as const,status:'',detail:'',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),writePending:'',events:[]};
+   await service['reply'](entry,cfg,'检视、审核已通过，MR 已合入。');
+   assert.equal(sent[sent.indexOf('--text')+1],entry.url+'\n—— 检视、审核已通过，MR 已合入。');
+   if(flag)assert.deepEqual(sent.slice(-2),[flag,'12345']);else assert.equal(sent.length,7);
+  }finally{await service.close();store.close();}
+ }
+});
