@@ -152,8 +152,8 @@ export class GroupMrService {
   // Use a native quote flag only when this installed CLI advertises one. Otherwise identify the source explicitly.
   const help=await this.command(['welink-cli','im','send-to-group','--help'],10000);
   const flag=['--quote-message-id','--reply-to-message-id','--quote-msg-id'].find(option=>help.includes(option));
-  if(!flag)e.events.push({time:new Date().toISOString(),phase:e.phase,message:'当前 WeLink CLI 未提供原生引用回复参数，群消息将明确标识来源消息 ID'});
-  const text=`${flag?'':`回复 MR 消息 ${e.messageId}：`}${e.repo} !${e.iid} ${message}`.replace(/[\r\n\u2028\u2029]+/g,'；').slice(0,1800);
+  if(!flag)e.events.push({time:new Date().toISOString(),phase:e.phase,message:'当前 WeLink CLI 未提供原生引用回复参数，群消息将使用原 MR 链接标识来源'});
+  const text=`${e.url}\n—— ${message.replace(/[\r\n\u2028\u2029]+/g,'；')}`.slice(0,1800);
   e.reply={text,mode:flag?'quote':'reference',status:'sending'};e.writePending='群消息回复';this.save(e);
   try{
    const result=await this.command(['welink-cli','im','send-to-group','--group-id',cfg.groupId,'--text',text,...(flag?[flag,e.messageId]:[])],30000);
@@ -216,7 +216,7 @@ export class GroupMrService {
   if(before.merge_gate_passed!==true){this.mark(e,'ISSUES','尚有合并门禁未通过，本次处理结束');await this.reply(e,cfg,e.status);return;}
   try{await this.write(e,'合并',['mr','merge',e.iid,'-p',e.repo],async()=>{const v=await this.view(e);return v.state==='merged';});}
   catch(error){if(object(error)?.noPermission){await this.permission(e,cfg,'合并');return;}throw error;}
-  this.mark(e,'DONE','检视、审核与合并已完成');await this.reply(e,cfg,'当前提交已完成检视、审核和合并。');
+  this.mark(e,'DONE','检视、审核与合并已完成');await this.reply(e,cfg,e.shortcut?'已按指令完成审核并合入。':'检视、审核已通过，MR 已合入。');
  }
 }
 export function groupMrRoutes(app:FastifyInstance,service:GroupMrService){
