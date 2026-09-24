@@ -27,3 +27,14 @@ test('list parse failure writes a dedicated error file with MR context and preci
   const records=content.trim().split('\n').map(line=>JSON.parse(line));const failure=records.find(r=>r.source==='mr-processing');assert.ok(failure);assert.ok(failure.stack.some((frame:string)=>frame.includes('listObjects')));assert.ok(failure.trace.some((event:{diagnostic:{command:string}})=>event.diagnostic.command==='codehub-cli mr view'));assert.equal(failure.diagnostic.attempt,1);assert.equal(failure.diagnostic.timeoutMs,120000);assert.equal(typeof failure.diagnostic.elapsedMs,'number');assert.equal(failure.platform,process.platform);
  }finally{await service.close();store.close();rmSync(root,{recursive:true,force:true});}
 });
+
+test('MR commands request larger capture and reject truncated JSON even when its prefix parses',async()=>{
+ const store=new TaskStore(':memory:');let limit:number|undefined;
+ const service=new GroupMrService(store,async (_args,_cwd,_timeout,_log,_line,_input,_signal,maxCaptureChars)=>{
+  limit=maxCaptureChars;return {exitCode:0,output:'[]',outputTruncated:true,outputChars:9000000};
+ });
+ try{
+  await assert.rejects(service['command'](['codehub-cli','mr','review','list','--format','json']),/输出超过.*已截断/);
+  assert.equal(limit,8*1024*1024);
+ }finally{await service.close();store.close();}
+});

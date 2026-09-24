@@ -90,10 +90,11 @@ export class GroupMrService {
  private errorLog(source:string,message:string,error?:unknown){const e=this.currentEntry;this.logs.task('automation','group-mr-errors',{time:new Date().toISOString(),source,message,entryId:e?.id,repo:e?.repo,iid:e?.iid,sha:e?.sha,phase:e?.phase,stage:e?.stage,writePending:e?.writePending,pipelinePassed:e?.pipelinePassed,platform:process.platform,node:process.version,diagnostic:this.diagnostic,trace:this.trace,stack:error instanceof Error?error.stack?.split('\n').filter(line=>/^\s+at /.test(line)).slice(0,15):undefined});}
  private async command(args:string[],timeout=120000){
   // Log only fixed command names and outcomes, never arguments or raw CLI output.
-  const action=args.slice(0,args[0]==='codehub-cli'&&args[2]==='review'?4:3).join(' '),start=Date.now();this.diagnostic={command:action,timeoutMs:timeout,attempt:1,flags:args.filter(a=>/^--[a-z-]+$/.test(a))};this.activeCommand=action;this.recordLog('info',`开始 ${action}`);
+  const captureLimitChars=8*1024*1024;const action=args.slice(0,args[0]==='codehub-cli'&&args[2]==='review'?4:3).join(' '),start=Date.now();this.diagnostic={command:action,captureLimitChars,timeoutMs:timeout,attempt:1,flags:args.filter(a=>/^--[a-z-]+$/.test(a))};this.activeCommand=action;this.recordLog('info',`开始 ${action}`);
   try{
-   let r=await this.execute(args,process.cwd(),timeout,undefined,undefined,undefined,this.controller.signal);
-   this.diagnostic={...this.diagnostic,elapsedMs:Date.now()-start,exitCode:r.exitCode,response:responseDiagnostic(r.output)};this.recordLog('info',`${action} 返回，退出码 ${r.exitCode}`);
+   let r=await this.execute(args,process.cwd(),timeout,undefined,undefined,undefined,this.controller.signal,captureLimitChars);
+   this.diagnostic={...this.diagnostic,elapsedMs:Date.now()-start,exitCode:r.exitCode,outputTruncated:r.outputTruncated??false,outputChars:r.outputChars??r.output.length,response:responseDiagnostic(r.output)};this.recordLog('info',`${action} 返回，退出码 ${r.exitCode}`);
+   if(r.outputTruncated)throw Error(`${action} 输出超过 ${captureLimitChars} 字符，已截断，不能确认远端状态；详见 group-mr-errors.jsonl`);
    if(groupMrAccessFailure(r)){
     const cli=args[0];
     if(cli!=='codehub-cli'&&cli!=='welink-cli')throw Error(`${action} 认证失败，请检查对应工具配置`);
@@ -111,9 +112,10 @@ export class GroupMrService {
     if(login.exitCode!==0||groupMrAccessFailure(login))throw Error(`${cli} auth login 未完成，请检查对应 Token 或登录状态；本次处理停止`);
     this.recordLog('info',`${cli} auth login 已结束`);this.activeCommand=action;
     if(!retryableRead(args))throw Error(`${action} 遇到权限问题，已执行登录；该写操作不自动重试，请核对远端结果后手动处理`);
-    this.diagnostic={command:action,timeoutMs:timeout,attempt:2};this.recordLog('info',`登录后重新读取 ${action}`);
-    r=await this.execute(args,process.cwd(),timeout,undefined,undefined,undefined,this.controller.signal);
-    this.diagnostic={...this.diagnostic,elapsedMs:Date.now()-start,exitCode:r.exitCode,response:responseDiagnostic(r.output)};this.recordLog('info',`${action} 返回，退出码 ${r.exitCode}`);
+    this.diagnostic={command:action,captureLimitChars,timeoutMs:timeout,attempt:2};this.recordLog('info',`登录后重新读取 ${action}`);
+    r=await this.execute(args,process.cwd(),timeout,undefined,undefined,undefined,this.controller.signal,captureLimitChars);
+    this.diagnostic={...this.diagnostic,elapsedMs:Date.now()-start,exitCode:r.exitCode,outputTruncated:r.outputTruncated??false,outputChars:r.outputChars??r.output.length,response:responseDiagnostic(r.output)};this.recordLog('info',`${action} 返回，退出码 ${r.exitCode}`);
+   if(r.outputTruncated)throw Error(`${action} 输出超过 ${captureLimitChars} 字符，已截断，不能确认远端状态；详见 group-mr-errors.jsonl`);
     if(groupMrAccessFailure(r))throw Error(`${action} 登录后仍存在认证或访问权限问题，请检查 ${args[0]} 登录状态及仓库/群组权限`);
    }
    if(r.exitCode!==0){const hint=/401|unauthorized|not logged|login|登录|认证/i.test(r.output)?`请检查 ${args[0]} 登录状态`:/403|无权限|permission denied/i.test(r.output)?'HTTP 403 / 无权限，请检查当前账号访问权限':/unknown (?:option|command)|unexpected argument|unrecognized/i.test(r.output)?'CLI 不支持当前命令或参数，请检查版本':'请在启动服务的同一终端手动验证 CLI 命令';throw Error(`${action} 失败，退出码 ${r.exitCode}；${hint}`);}
