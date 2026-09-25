@@ -353,6 +353,7 @@ for(const review of ['allowed','absent','forbidden','failed'] as const)test('aut
  });
  const cfg={enabled:true,groupId:'123456789',authorizedSender:'owner123',repositoryPrefix:'MAE-M/Access/',intervalSeconds:5};
  try{await service['accept']({id:'3',sender:'owner123',content:'合入',quoteId:'2',quotedContent:'https://codehub-y.huawei.com/MAE-M/Access/Demo/merge_requests/1'},cfg);
+ assert.equal(service.list()[0]?.humanReview,undefined);assert.equal(service.list()[0]?.notification,undefined);assert.equal(service.knowledge.reviews().length,0);
  assert.match(sent[0]??'',/已收到合入指令/);assert.equal(calls[0],'welink');assert.deepEqual([...closed],['mine','others']);assert.equal(calls.includes('pi'),false);
  assert.equal(merged,review!=='failed');assert.equal(service.list()[0]?.phase,review==='failed'?'INTERRUPTED':'DONE');
  if(review==='failed')assert.equal(service.list()[0]?.writePending,'检视');else assert.equal(sent.length,2);

@@ -1,3 +1,5 @@
+import {effectivenessRoutes} from './modules/automation/effectiveness.js';
+import {knowledgeRoutes} from './modules/automation/review-knowledge.js';
 import {codehubSettingsRoutes} from './modules/autout/codehub-settings.js';
 import {welinkSettingsRoutes} from './modules/autout/welink-settings.js';
 import {languageSettingsRoutes} from './modules/automation/language-settings.js';
@@ -34,7 +36,7 @@ export async function createApp(config: Config) {
   const quality=new QualityService(store,logs),reports=new AutoUtReports(store,quality,autoUt,logs,false);
   const schedules=new UnifiedSchedules(store,quality,reports,autoUt,logs);
   const groupMr=new GroupMrService(store,undefined,logs);
-  groupMrRoutes(app,groupMr);
+  groupMrRoutes(app,groupMr);knowledgeRoutes(app,groupMr.knowledge);effectivenessRoutes(app,store,groupMr);
   automationRecordRoutes(app,new AutomationRecords(autoUt,reports,quality));scheduleRoutes(app,schedules);qualityRoutes(app,quality);autoUtReportRoutes(app,reports,schedules);
   await deployments.cleanupPreparations();
   app.addHook('onClose', async () => {await groupMr.close();schedules.stop();await quality.close();await reports.close();await schedules.close();await autoUt.close();await builds.close();await runner.close();store.close();});

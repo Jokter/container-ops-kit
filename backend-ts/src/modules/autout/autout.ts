@@ -1,3 +1,4 @@
+import {intervention} from '../automation/interventions.js';
 import {compileCommand,defaultCompileCommand,taskMavenCommand} from './compile-command.js';
 import {RepairQueue} from './repair-queue.js';
 import {WelinkMcp} from './welink-mcp.js';
@@ -176,7 +177,7 @@ export class AutoUtService{
  retryCompile(id:string,command:string){
   const task=this.get(id);
   if(this.running.has(id)||this.deleting.has(id)||this.closing||task.mr?.iid||task.status!=='WAITING_EXTERNAL'||task.nextStage!=='BASELINE'||!task.compileFailure)throw Object.assign(Error('仅可在当前任务预编译失败且已停止执行时修改命令重试。'),{statusCode:409});
-  task.mavenSelection=compileCommand(command).slice(defaultCompileCommand.length);this.save(task);return this.continue(id);
+  task.mavenSelection=compileCommand(command).slice(defaultCompileCommand.length);this.save(task);intervention(this.store,id,'compile-command');return this.continue(id);
  }
  continue(id:string){const task=this.get(id);if(task.mr?.iid){return this.controlMr(id,'retry');}if(this.deleting.has(id))throw Object.assign(new Error('任务正在删除，不能继续执行'),{statusCode:409});const repository=this.repository(task.repository);if(!repository)throw Object.assign(new Error('代码仓未配置，任务无法继续。'),{statusCode:409});if(!(task.executionMode==='MANUAL'&&task.status==='WAITING_CONFIRMATION')&&task.status!=='WAITING_EXTERNAL'&&task.status!=='RETRY_PENDING')throw Object.assign(new Error('当前任务不处于可继续或重试的阶段。'),{statusCode:409});if(task.status==='RETRY_PENDING')task.attempts=0;this.change(task,'DISCOVERED',`下一阶段已进入执行队列：${stageInfo[task.nextStage].message}`);this.save(task);this.schedule(task,repository);return task;}
  events(id:string,after:number){return this.get(id).liveEvents.filter(e=>e.sequence>after);}terminal(id:string){return this.terminalStatus(this.get(id).status);}

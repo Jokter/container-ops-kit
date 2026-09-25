@@ -13,6 +13,8 @@ async function fixture(t,{route='tools',save,records=[],history=[]}={}){
   if(url==='/api/automation/group-mr/config'&&options?.method==='PUT'){const body=JSON.parse(options.body);writes.push(body);if(save)return save(body);Object.assign(config,body);return response({...config})}
   if(url.startsWith('/api/automation/group-mr/records/')){writes.push({url,...options});if(url.endsWith('/delete')){const ids=JSON.parse(options.body).ids;for(const list of [history,records])for(let i=list.length-1;i>=0;i--)if(ids.includes(list[i].id))list.splice(i,1);}else for(const r of history){r.writePending='';if(r.reply)r.reply.status='checked';}return response({ok:true})}
   if(url==='/api/automation/group-mr')return response(snapshot())
+  if(url==='/api/automation/knowledge')return response({items:[],reviews:[]})
+  if(url.startsWith('/api/automation/effectiveness'))return response({total:0,stages:{},reviews:0,merged:0,anomalies:0,rejected:0})
   return response([])
  }}})
  t.after(()=>dom.window.close());await flush();return {dom,doc:dom.window.document,writes,config}
@@ -47,7 +49,7 @@ test('监听配置独立页面，刷新保留草稿，保存后回到列表',asy
 test('列表选择、搜索与详情只展示真实状态，转义不可信内容',async t=>{
  const row={id:'r1',repo:'MAE-M/Access/Demo',iid:'444',sha:'a'.repeat(40),url:'https://codehub-y.huawei.com/MAE-M/Access/Demo/merge_requests/444',sender:'w00789509',phase:'NO_PERMISSION',stage:'APPROVE',status:'当前账号无审核权限，本次处理结束',events:[],updatedAt:'2026-09-23T08:00:00Z',reviewComments:[{id:'n',body:'<img src=x onerror=alert(1)>',resolved:true}],reply:{text:'无审核权限',mode:'reference',status:'unconfirmed'}}
  const {doc,dom}=await fixture(t,{route:'group-mr',records:[row,{...row,id:'r2',repo:'MAE-M/Access/Second',iid:'555',reply:undefined}]})
- assert.equal(doc.querySelectorAll('.group-mr-flow li').length,7);assert.match(doc.querySelector('.group-mr-flow .stop').textContent,/审核/)
+ assert.equal(doc.querySelectorAll('.group-mr-flow li').length,8);assert.match(doc.querySelector('.group-mr-flow .stop').textContent,/审核/)
  assert.match(doc.querySelector('.group-mr-reply').textContent,/发送结果待核对/);assert.match(doc.querySelector('.group-mr-note').textContent,/已标记 OK/);assert.equal(doc.querySelector('.group-mr-note img'),null)
  doc.querySelector('[data-group-mr-record-button="r2"]').click();assert.match(doc.querySelector('.group-mr-detail h3').textContent,/Second/);assert.match(doc.querySelector('.group-mr-reply').textContent,/暂无已记录的回复/)
  const search=doc.querySelector('#group-mr-search');search.value='missing';search.dispatchEvent(new dom.window.Event('input',{bubbles:true}));assert.match(doc.querySelector('.group-mr-empty').textContent,/没有匹配/);assert.equal(doc.querySelector('.group-mr-detail'),null)
@@ -114,7 +116,7 @@ test('流水线失败仍展示已完成的 Pi 检视，不显示流水线已通�
 test('Pi 阶段待处理不会将流水线误标为已通过',async t=>{
  const {doc}=await fixture(t,{route:'group-mr',records:[{id:'issues',repo:'MAE-M/Access/Demo',iid:'444',sha:'a'.repeat(40),phase:'ISSUES',stage:'PI',pipelinePassed:false,status:'发现问题',events:[]}]});
  const steps=[...doc.querySelectorAll('.group-mr-flow li')];
- assert.deepEqual(steps.map(s=>s.querySelector('b').textContent),['收到消息','Pi 检视','检视意见','流水线','检视','审核','合并']);
+ assert.deepEqual(steps.map(s=>s.querySelector('b').textContent),['收到消息','Pi 检视','检视意见','流水线','人工审核','检视','审核','合并']);
  assert.match(steps[1].textContent,/待处理/);assert.doesNotMatch(steps[1].textContent,/已停止/);assert.match(steps[3].textContent,/待处理/);assert.ok(!steps[3].classList.contains('done'));
 });
 
@@ -134,6 +136,8 @@ test('快捷合入显示意见闭环及无权限检视跳过',async t=>{
  assert.match(steps.find(s=>s.querySelector('b').textContent==='Pi 检视').textContent,/已跳过/);
  assert.match(steps.find(s=>s.querySelector('b').textContent==='检视意见').textContent,/已通过/);
  assert.match(steps.find(s=>s.querySelector('b').textContent==='检视').textContent,/已跳过/);
+ assert.match(steps.find(s=>s.querySelector('b').textContent==='人工审核').textContent,/已跳过/);
+ assert.equal(doc.querySelector('[data-human-review]'),null);assert.match(doc.querySelector('main').textContent,/无需页面人工审核/);
 });
 
 test('Pi 待核对详情显示最终回复和人工解除入口，不重新运行任务',async t=>{
@@ -143,4 +147,24 @@ test('Pi 待核对详情显示最终回复和人工解除入口，不重新运�
  assert.match(doc.querySelector('.group-mr-detail').textContent,/<b>检视完成<\/b>/);
  doc.querySelector('[data-group-mr-action="ack-pi"]').click();await flush();doc.querySelector('[data-studio-confirm]').click();await flush();
  assert.equal(writes[0].url,'/api/automation/group-mr/records/pi-unknown/acknowledge-pi');assert.deepEqual(JSON.parse(writes[0].body),{confirmed:true});
+});
+
+test('人工审核只在提交时写入，携带当前 SHA 和理由，草稿经刷新保留',async t=>{
+ const row={id:'human',repo:'MAE-M/Access/Demo',iid:'444',phase:'HUMAN',sha:'a'.repeat(40),status:'等待人工审核',events:[],writePending:'',updatedAt:new Date().toISOString()};
+ const {dom,doc,writes}=await fixture(t,{route:'group-mr',records:[row]});
+ doc.querySelector('[data-group-mr-record]').click();await flush();
+ let form=doc.querySelector('[data-human-review]');assert.ok(form);
+ form.querySelector('[value="reject"]').click();const reason=form.querySelector('textarea');reason.value='接口缺省行为改变';reason.dispatchEvent(new dom.window.Event('input',{bubbles:true}));
+ assert.equal(writes.length,0);doc.querySelector('[data-group-mr-refresh]').click();await flush();
+ form=doc.querySelector('[data-human-review]');assert.equal(form.querySelector('textarea').value,'接口缺省行为改变');
+ form.dispatchEvent(new dom.window.Event('submit',{bubbles:true,cancelable:true}));await flush();
+ assert.equal(writes.length,1);const body=JSON.parse(writes[0].body);assert.equal(body.sha,row.sha);assert.equal(body.decision,'reject');assert.equal(body.reason,'接口缺省行为改变');
+});
+test('后台提交变化后旧审核表单不能提交新 SHA，旧草稿不会套到新版本',async t=>{
+ const row={id:'human-sha',repo:'MAE-M/Access/Demo',iid:'1',phase:'HUMAN',sha:'a'.repeat(40),status:'等待人工审核',events:[],writePending:'',updatedAt:new Date().toISOString()};
+ const {dom,doc,writes}=await fixture(t,{route:'group-mr',records:[row]});
+ const form=doc.querySelector('[data-human-review]');form.querySelector('[value="pass"]').click();const reason=form.querySelector('textarea');reason.value='认可旧提交';reason.dispatchEvent(new dom.window.Event('input',{bubbles:true}));reason.focus();
+ row.sha='b'.repeat(40);doc.querySelector('[data-group-mr-refresh]').click();await flush();
+ assert.equal(form.dataset.reviewSha,'a'.repeat(40));form.dispatchEvent(new dom.window.Event('submit',{bubbles:true,cancelable:true}));await flush();
+ assert.equal(writes.length,0);assert.equal(doc.querySelector('[data-human-review]').dataset.reviewSha,row.sha);assert.equal(doc.querySelector('[data-human-review] textarea').value,'');
 });
