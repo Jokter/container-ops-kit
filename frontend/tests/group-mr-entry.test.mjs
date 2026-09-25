@@ -135,3 +135,12 @@ test('快捷合入显示意见闭环及无权限检视跳过',async t=>{
  assert.match(steps.find(s=>s.querySelector('b').textContent==='检视意见').textContent,/已通过/);
  assert.match(steps.find(s=>s.querySelector('b').textContent==='检视').textContent,/已跳过/);
 });
+
+test('Pi 待核对详情显示最终回复和人工解除入口，不重新运行任务',async t=>{
+ const row={id:'pi-unknown',repo:'MAE-M/Access/Demo',iid:'1',phase:'INTERRUPTED',stage:'PI',writePending:'Pi 提交检视意见',piOutput:'<b>检视完成</b>',events:[]};
+ const {doc,writes}=await fixture(t,{route:'group-mr',history:[row]});
+ doc.querySelector('[data-group-mr-tab="history"]').click();await flush();
+ assert.match(doc.querySelector('.group-mr-detail').textContent,/<b>检视完成<\/b>/);
+ doc.querySelector('[data-group-mr-action="ack-pi"]').click();await flush();doc.querySelector('[data-studio-confirm]').click();await flush();
+ assert.equal(writes[0].url,'/api/automation/group-mr/records/pi-unknown/acknowledge-pi');assert.deepEqual(JSON.parse(writes[0].body),{confirmed:true});
+});
