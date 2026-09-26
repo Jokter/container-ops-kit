@@ -322,6 +322,18 @@ test('resending MR reuses same SHA conclusions, archives prior task, and deletio
  }
 });
 
+test('superseded uncertain history does not block the current MR',async()=>{
+ const store=new TaskStore(':memory:');let runs=0;const service=new GroupMrService(store,async()=>({exitCode:0,output:'{}'}));
+ const base={repo:'MAE-M/Access/Demo',iid:'444',url:'https://codehub-y.huawei.com/MAE-M/Access/Demo/merge_requests/444',sha:'a'.repeat(40),previousSha:'',sender:'developer',shortcut:false,status:'',detail:'',createdAt:'2026-09-26T01:00:00Z',updatedAt:'2026-09-26T01:00:00Z',events:[]};
+ service['executeEntry']=async()=>{runs++;};
+ try{
+  store.putRecord('group-mr-entry','stale',{...base,id:'stale',messageId:'1',phase:'INTERRUPTED',writePending:'合并',supersededBy:'current'});
+  store.putRecord('group-mr-entry','current',{...base,id:'current',messageId:'2',phase:'FAILED',writePending:''});
+  await service['accept']({id:'3',sender:'developer',quoteId:'',content:base.url},{enabled:true,groupId:'123456789',authorizedSender:'owner',repositoryPrefix:'MAE-M/Access/',intervalSeconds:5});
+  assert.equal(runs,1);const current=service.list().find(e=>e.messageId==='3');assert.equal(current?.writePending,'');assert.notEqual(current?.phase,'INTERRUPTED');
+ }finally{await service.close();store.close();}
+});
+
 test('mobile links and quoted cards preserve long message IDs and authorize only the outer sender',async()=>{
  const url='https://codehub-y.huawei.com/MAE-M/Access/SWMExtFrontendService/merge_requests/434';
  assert.equal(mrLinkFromMessage(url+'?welink_open_uri=aDU6Ly85MjE2=','MAE-M/Access/')?.url,url);
