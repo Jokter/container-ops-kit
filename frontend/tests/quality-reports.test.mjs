@@ -25,9 +25,11 @@ test('UT 任务可手动删除记录与 clone 代码目录',async()=>{
  const task={id:'11111111-1111-4111-8111-111111111111',repository:'Demo',reportVersion:'R27C10',status:'RESOLVED',nextStage:'DONE',progress:100,workspaceRoot:'/tmp',repairBranch:'repair',message:'完成'};let tasks=[task],deleted='';const dom=page((path,o)=>{if(path==='/api/auto-ut/tasks')return tasks;if(path===`/api/auto-ut/tasks/${task.id}`&&o?.method==='DELETE'){deleted=path;tasks=[];return{id:task.id,workspace:'/tmp/R27C10/demo',workspaceDeleted:true};}});
  try{dom.window.studioConfirm=()=>true;const d=open(dom,'auto-ut');await pause();d.querySelector('[data-automation-nav="tasks"]').click();d.querySelector(`[data-governance-detail="${task.id}"]`).click();d.querySelector('[data-auto-ut-delete]').click();await pause();assert.equal(deleted,`/api/auto-ut/tasks/${task.id}`);assert.equal(d.querySelectorAll('[data-auto-ut-task]').length,0);assert.match(d.body.textContent,/暂无执行记录/);}finally{await pause();dom.window.close();}
 });
-test('UT 定时清理可配置保留天数并进入统一计划',async()=>{
- let saved;const dom=page((path,o)=>{if(path==='/api/automation/schedules'&&o?.method==='POST'){saved=JSON.parse(o.body);return{...saved,id:'cleanup',revision:1};}});
- try{const d=open(dom,'auto-ut');await pause();d.querySelector('[data-automation-nav="tasks"]').click();d.querySelector('[data-schedule-new="auto-ut-cleanup"]').click();const retention=d.querySelector('[data-sched-retention]');retention.value='45';retention.dispatchEvent(new dom.window.Event('input'));d.querySelector('[data-qw-save]').click();await pause();assert.equal(saved.task.kind,'auto-ut-cleanup');assert.equal(saved.task.retentionDays,45);assert.equal(saved.enabled,true);}finally{await pause();dom.window.close();}
+test('定时任务只提供现有工具，执行记录不再提供旧定时清理入口',async()=>{
+ const dom=page();try{const d=open(dom,'auto-ut');await pause();d.querySelector('[data-automation-nav="tasks"]').click();assert.equal(d.querySelector('[data-schedule-new="auto-ut-cleanup"]'),null);
+ d.querySelector('[data-automation-nav="schedules"]').click();assert.deepEqual([...d.querySelector('#schedule-kind').options].map(o=>o.value),['','quality','auto-ut']);
+ dom.window.newSchedule('csv');assert.equal(d.querySelector('.qw-drawer'),null);dom.window.newSchedule('auto-ut-cleanup');assert.equal(d.querySelector('.qw-drawer'),null);
+ }finally{await pause();dom.window.close();}
 });
 test('质量检查独立查询多版本三种类型，结果区区分空数据',async()=>{
  let body;const dom=page((path,o)=>{if(path==='/api/quality/jobs'&&o?.method==='POST'){body=JSON.parse(o.body);return{id:'q1',status:'SUCCEEDED',createdAt:'now',input:body,parts:body.versions.map(version=>({version,kind:'ut',status:'EMPTY',message:'没有有效报告数据，不执行修复',columns:[],rows:[]}))};}});
@@ -240,5 +242,13 @@ test('批量删除只提交勾选记录，切换工具清空选择并隔离质�
   d.querySelector('[data-record-select="quality:'+ids[0]+'"]').click();assert.equal(d.querySelector('[data-record-select-all]').indeterminate,true);
   d.querySelector('[data-cleanup-records]').click();await pause();assert.deepEqual(calls,[[{kind:'quality',id:ids[0]}]]);assert.equal(quality.length,1);assert.equal(d.querySelector('[data-cleanup-records]').disabled,true);
   d.querySelector('[data-studio-record-kind="ut"]').click();assert.ok(d.querySelector('[data-auto-ut-task="'+task.id+'"]'));
+ }finally{await pause();dom.window.close();}
+});
+
+test('已有旧定时计划仍可见且可以暂停删除，不再提供新建或立即执行',async()=>{
+ const old={id:'legacy-clean',name:'原清理计划',enabled:true,task:{kind:'auto-ut-cleanup',retentionDays:30},timing:{frequency:'daily',time:'02:00',weekday:1,timezone:'Asia/Shanghai'},revision:1,running:false};
+ const dom=page(path=>path==='/api/automation/schedules'?[old]:undefined);
+ try{const d=open(dom,'auto-ut');await pause();d.querySelector('[data-automation-nav="schedules"]').click();
+ assert.match(d.body.textContent,/历史计划 · 定期清理/);assert.equal(d.querySelector('[data-schedule-toggle="legacy-clean"]').textContent,'暂停');assert.equal(d.querySelector('[data-schedule-toggle="legacy-clean"]').disabled,false);assert.equal(d.querySelector('[data-schedule-run="legacy-clean"]').disabled,true);assert.equal(d.querySelector('[data-schedule-edit="legacy-clean"]'),null);assert.ok(d.querySelector('[data-schedule-delete="legacy-clean"]'));
  }finally{await pause();dom.window.close();}
 });
