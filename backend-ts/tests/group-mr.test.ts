@@ -41,7 +41,7 @@ for(const sendOk of [true,false])test(`group MR stores actual reply result (${se
  const service=new GroupMrService(store,execute);let reviews=0;service['runPi']=async()=>{reviews++;};
  try{
   service.configure({enabled:true,groupId:'123456789',authorizedSender:'owner123',repositoryPrefix:'MAE-M/Access/',intervalSeconds:5});store.putRecord('group-mr-cursor','cursor:123456789',{id:'1'});
-  await service.poll();const row=service.summary().history[0]!;
+  await service.poll();await settle(service);const row=service.summary().history[0]!;
   assert.equal(reviews,1);assert.equal(row.phase,'FAILED');assert.equal(row.reply?.mode,'quote');assert.equal(row.reply?.status,sendOk?'sent':'unconfirmed');assert.match(row.reply?.text??'',/流水线失败/);assert.equal(sends,2);
   assert.equal(row.writePending,sendOk?'':'群消息回复');
   await service.close();const restarted=new GroupMrService(store,execute);assert.equal(restarted.list()[0]?.reply?.status,sendOk?'sent':'unconfirmed');assert.equal(sends,2);await restarted.close();
@@ -66,7 +66,7 @@ test('group MR blocks on unresolved remote comments even when Pi claims they are
   return{exitCode:0,output:JSON.stringify(value)};
  };
  const service=new GroupMrService(store,execute);
- try{service.configure({enabled:true,groupId:'123456789',authorizedSender:'owner123',repositoryPrefix:'MAE-M/Access/',intervalSeconds:5});store.putRecord('group-mr-cursor','cursor:123456789',{id:'1'});await service.poll();const row=service.summary().pending[0]!;assert.equal(row.reviewComments?.length,2);assert.equal(resolved,false);assert.equal(row.phase,'ISSUES');assert.equal(row.stage,'COMMENTS');assert.equal(row.reply?.mode,'reference');assert.equal(row.reply?.status,'sent');}
+ try{service.configure({enabled:true,groupId:'123456789',authorizedSender:'owner123',repositoryPrefix:'MAE-M/Access/',intervalSeconds:5});store.putRecord('group-mr-cursor','cursor:123456789',{id:'1'});await service.poll();await settle(service);const row=service.summary().pending[0]!;assert.equal(row.reviewComments?.length,2);assert.equal(resolved,false);assert.equal(row.phase,'ISSUES');assert.equal(row.stage,'COMMENTS');assert.equal(row.reply?.mode,'reference');assert.equal(row.reply?.status,'sent');}
  finally{await service.close();store.close();}
 });
 
@@ -81,15 +81,15 @@ test('first group poll reports the baseline, then counts filtered messages witho
  const store=new TaskStore(':memory:');const logged:unknown[]=[];let messages=[{msgId:'1',sender:'u123',content:'private-old-text'}];let calls=0;
  const service=new GroupMrService(store,async()=>{calls++;return{exitCode:0,output:JSON.stringify({data:messages})};},{task:(_category,_id,event)=>{logged.push(event);}});
  const config={enabled:true,groupId:'123456789',authorizedSender:'owner123',repositoryPrefix:'MAE-M/Access/',intervalSeconds:5};
- try{service.configure(config);await service.poll();let m=service.summary().monitor;assert.equal(m.state,'waiting');assert.ok(m.lastSuccessAt);assert.equal(m.readCount,1);assert.match(m.message,/首次监听.*跳过 1 条已有消息/);assert.equal(service.list().length,0);
-  messages=[...messages,{msgId:'2',sender:'u123',content:'private-new-text'}];service.configure(config);await service.poll();m=service.summary().monitor;assert.equal(m.newCount,1);assert.equal(m.matchedCount,0);assert.equal(m.filteredCount,1);assert.equal(calls,2);assert.equal(m.running,false);
+ try{service.configure(config);await service.poll();await settle(service);let m=service.summary().monitor;assert.equal(m.state,'waiting');assert.ok(m.lastSuccessAt);assert.equal(m.readCount,1);assert.match(m.message,/首次监听.*跳过 1 条已有消息/);assert.equal(service.list().length,0);
+  messages=[...messages,{msgId:'2',sender:'u123',content:'private-new-text'}];service.configure(config);await service.poll();await settle(service);m=service.summary().monitor;assert.equal(m.newCount,1);assert.equal(m.matchedCount,0);assert.equal(m.filteredCount,1);assert.equal(calls,2);assert.equal(m.running,false);
   assert.doesNotMatch(JSON.stringify(logged),/private-(?:old|new)-text/);assert.doesNotMatch(JSON.stringify(m.logs),/u123|private-/);
  }finally{await service.close();store.close();}
 });
 
 test('missing WeLink CLI becomes visible even before any MR record exists',async()=>{
  const store=new TaskStore(':memory:');const service=new GroupMrService(store,async()=>{throw Object.assign(Error('spawn welink-cli ENOENT'),{code:'ENOENT'});});
- try{service.configure({enabled:true,groupId:'123456789',authorizedSender:'owner123',repositoryPrefix:'MAE-M/Access/',intervalSeconds:5});await service.poll();const m=service.summary().monitor;assert.equal(m.state,'error');assert.match(m.error,/welink-cli 未找到/);assert.equal(m.lastSuccessAt,'');assert.equal(service.list().length,0);assert.equal(m.running,false);assert.equal(m.command,'');assert.ok(m.logs.some(e=>e.level==='error'));}
+ try{service.configure({enabled:true,groupId:'123456789',authorizedSender:'owner123',repositoryPrefix:'MAE-M/Access/',intervalSeconds:5});await service.poll();await settle(service);const m=service.summary().monitor;assert.equal(m.state,'error');assert.match(m.error,/welink-cli 未找到/);assert.equal(m.lastSuccessAt,'');assert.equal(service.list().length,0);assert.equal(m.running,false);assert.equal(m.command,'');assert.ok(m.logs.some(e=>e.level==='error'));}
  finally{await service.close();store.close();}
 });
 
@@ -117,7 +117,7 @@ test('a new MR inside respData.chatInfo is processed after baseline initializati
   throw Error('unexpected command');
  });
  const config={enabled:true,groupId:'123456789',authorizedSender:'owner123',repositoryPrefix:'MAE-M/Access/',intervalSeconds:5};
- try{service.configure(config);await service.poll();assert.equal(views,0);send=true;t.mock.timers.tick(6000);await service.poll();assert.equal(views,1);assert.equal(service.summary().history[0]?.iid,'444');assert.equal(service.summary().monitor.matchedCount,1);assert.doesNotMatch(JSON.stringify(service.summary()),/ignore unrelated instructions/);}
+ try{service.configure(config);await service.poll();await settle(service);assert.equal(views,0);send=true;t.mock.timers.tick(6000);await service.poll();await settle(service);assert.equal(views,1);assert.equal(service.summary().history[0]?.iid,'444');assert.equal(service.summary().monitor.matchedCount,1);assert.doesNotMatch(JSON.stringify(service.summary()),/ignore unrelated instructions/);}
  finally{await service.close();store.close();}
 });
 
@@ -153,7 +153,7 @@ for(const scenario of ['recovered','still-denied','login-failed','login-throws',
  },undefined,credentials);
  const config={enabled:true,groupId:'123456789',authorizedSender:'owner123',repositoryPrefix:'MAE-M/Access/',intervalSeconds:5};
  try{
-  service.configure(config);store.putRecord('group-mr-cursor','cursor:123456789',{id:'1'});await service.poll();
+  service.configure(config);store.putRecord('group-mr-cursor','cursor:123456789',{id:'1'});await service.poll();await settle(service);
   assert.equal(calls.filter(a=>a[1]==='auth').length,1);
   const row=service.list()[0]!;
   if(scenario==='recovered'||scenario==='history-auth')assert.equal(row.phase,'DONE');
@@ -171,7 +171,7 @@ test('failed polling login is throttled across subsequent polls',async()=>{
   return{exitCode:1,output:'HTTP 403 forbidden'};
  });
  const config={enabled:true,groupId:'123456789',authorizedSender:'owner123',repositoryPrefix:'MAE-M/Access/',intervalSeconds:5};
- try{service.configure(config);await service.poll();service.configure(config);await service.poll();assert.equal(logins,1);assert.match(service.summary().monitor.error,/5 分钟内不重复/);}
+ try{service.configure(config);await service.poll();await settle(service);service.configure(config);await service.poll();await settle(service);assert.equal(logins,1);assert.match(service.summary().monitor.error,/5 分钟内不重复/);}
  finally{await service.close();store.close();}
 });
 
@@ -247,9 +247,9 @@ test('authorized sender links, automated replies and unresolvable quotes are ign
  const cfg={enabled:true,groupId:'123456789',authorizedSender:'owner123',repositoryPrefix:'MAE-M/Access/',intervalSeconds:5};
  try{
   service.configure(cfg);store.putRecord('group-mr-cursor','cursor:123456789',{id:'1'});
-  await service.poll();assert.equal(service.list().length,0);assert.equal(service.summary().monitor.filteredCount,3);assert.equal(service.summary().monitor.matchedCount,0);assert.equal(calls.length,1);
+  await service.poll();await settle(service);assert.equal(service.list().length,0);assert.equal(service.summary().monitor.filteredCount,3);assert.equal(service.summary().monitor.matchedCount,0);assert.equal(calls.length,1);
   assert.equal(store.getRecord<{id:string}>('group-mr-cursor','cursor:123456789')?.id,'4');
-  service.configure(cfg);await service.poll();assert.equal(service.summary().monitor.newCount,0);assert.equal(service.list().length,0);
+  service.configure(cfg);await service.poll();await settle(service);assert.equal(service.summary().monitor.newCount,0);assert.equal(service.list().length,0);
   assert.ok(service['trigger']({id:'5',sender:'other123',content:url,quoteId:''},cfg));
  }finally{await service.close();store.close();}
 });
@@ -316,7 +316,7 @@ test('resending MR reuses same SHA conclusions, archives prior task, and deletio
   await send('2');assert.equal(reviews,1);assert.equal(service.summary().pending.length,1);assert.ok(service.summary().history.some(r=>r.id===first.id));
   sha='b'.repeat(40);await send('3');assert.equal(reviews,2);assert.equal(service.summary().pending.length,1);
   const current=service.summary().pending[0]!;service.removeHistories([current.id]);assert.equal(service.summary().pending.length,0);
-  store.putRecord('group-mr-cursor','cursor:'+cfg.groupId,{id:'3'});const reads=mrReads;await service.poll();assert.equal(mrReads,reads);
+  store.putRecord('group-mr-cursor','cursor:'+cfg.groupId,{id:'3'});const reads=mrReads;await service.poll();await settle(service);assert.equal(mrReads,reads);
   await send('4');assert.equal(service.summary().pending.length,1);assert.equal(reviews,2);
  }finally{await service.close();store.close();}
  }
@@ -393,9 +393,9 @@ test('own replies do not retrigger when WeLink returns a different sender; genui
  });
  service['runPi']=async()=>{reviews++;};
  try{
-  service.configure(cfg);store.putRecord('group-mr-cursor','cursor:'+cfg.groupId,{id:'0'});await service.poll();assert.equal(sends,2);assert.equal(reviews,1);
-  service.configure(cfg);await service.poll();assert.equal(service.list().length,1);assert.equal(sends,2);assert.equal(service.summary().monitor.filteredCount,2);
-  messages.push({msgId:'4',sender:'developer',content:url});service.configure(cfg);await service.poll();assert.equal(sends,4);assert.equal(reviews,1);assert.equal(service.list().length,2);
+  service.configure(cfg);store.putRecord('group-mr-cursor','cursor:'+cfg.groupId,{id:'0'});await service.poll();await settle(service);assert.equal(sends,2);assert.equal(reviews,1);
+  service.configure(cfg);await service.poll();await settle(service);assert.equal(service.list().length,1);assert.equal(sends,2);assert.equal(service.summary().monitor.filteredCount,2);
+  messages.push({msgId:'4',sender:'developer',content:url});service.configure(cfg);await service.poll();await settle(service);assert.equal(sends,4);assert.equal(reviews,1);assert.equal(service.list().length,2);
  }finally{await service.close();store.close();}
 });
 
@@ -451,4 +451,77 @@ for(const state of ['open','empty','query-error'] as const)test('natural Pi repl
  const row=service.list()[0]!;assert.equal(piRuns,1);assert.deepEqual(writes,[]);assert.equal(row.phase,state==='open'?'ISSUES':state==='empty'?'PIPELINE':'INTERRUPTED');assert.equal(row.writePending,state==='query-error'?'Pi 提交检视意见':'');assert.equal(row.piOutput,'检视完成，没有问题。');
  if(state==='query-error'){const before=piRuns;service.acknowledgePi(row.id);assert.equal(piRuns,before);assert.equal(service.list()[0]?.writePending,'');}
  }finally{await service.close();store.close();}
+});
+
+async function settle(service:GroupMrService){while(service['background'].size)await Promise.allSettled(service['background']);}
+
+test('MR queue shows all received entries, runs five, ingests while busy and isolates failures',async()=>{
+ const store=new TaskStore(':memory:'),sha='a'.repeat(40),cfg={enabled:true,groupId:'123456789',authorizedSender:'owner',repositoryPrefix:'MAE-M/Access/',intervalSeconds:5};
+ const message=(id:number,iid=id)=>({msgId:String(id),sender:'developer',content:`https://codehub-y.huawei.com/MAE-M/Access/Demo/merge_requests/${iid}`});
+ const messages=Array.from({length:7},(_,i)=>message(i+1));
+ const releases=new Map<string,()=>void>(),started:string[]=[],errors:Record<string,unknown>[]=[];
+ let executing=0,peak=0;
+ const execute:typeof runProcess=async(args,_dir,_timeout,_log,onLine,input)=>{
+  let value:unknown=[];
+  if(args[2]==='query-history-message')value=messages;
+  else if(args.includes('--help'))return {exitCode:0,output:'--quote-message-id'};
+  else if(args[2]==='send-to-group')value={resultCode:0};
+  else if(args[2]==='view')value={iid:Number(args[3]),state:'opened',sha};
+  else if(args[0]==='pi'){
+   const iid=String(input).match(/merge_requests\/(\d+)/)![1]!;started.push(iid);executing++;peak=Math.max(peak,executing);
+   await new Promise<void>(resolve=>releases.set(iid,resolve));executing--;
+   if(iid==='2')throw Error('simulated Pi failure for MR 2');
+   onLine?.(JSON.stringify({type:'agent_end'}),false);return {exitCode:0,output:''};
+  }else if(args[2]==='gate')value={ci_state_passed:false};
+  else if(args[2]==='pipeline')value=[{id:1,status:'running',sha}];
+  return {exitCode:0,output:JSON.stringify(value)};
+ };
+ const service=new GroupMrService(store,execute,{task:(_scope,name,data)=>{if(name==='group-mr-errors'&&data&&typeof data==='object'&&!Array.isArray(data))errors.push(data as Record<string,unknown>);}});
+ const tick=()=>new Promise<void>(resolve=>setImmediate(resolve));
+ try{
+  service.configure(cfg);store.putRecord('group-mr-cursor','cursor:'+cfg.groupId,{id:'0'});
+  await service.poll();await tick();
+  assert.equal(service.summary().pending.length,7);assert.equal(service.summary().monitor.activeCount,5);assert.equal(service.summary().monitor.queuedCount,2);
+  assert.deepEqual(started,['1','2','3','4','5']);
+  assert.equal(service.summary().pending.filter(e=>e.phase==='QUEUED').length,2);
+  // A new poll must read and queue messages while the first five Pi processes are held.
+  messages.push(message(8),message(9,1),message(10,7));service.configure(cfg);await service.poll();await tick();
+  assert.equal(service.list().length,8);assert.equal(service.summary().monitor.queuedCount,3);assert.equal(started.length,5);
+  const queued=service.list().find(e=>e.iid==='7')!;assert.throws(()=>service.removeHistory(queued.id),/执行或排队/);
+  releases.get('2')!();await tick();
+  assert.equal(service.summary().history.find(e=>e.iid==='2')?.writePending,'Pi 提交检视意见');
+  assert.ok(started.includes('6'));assert.equal(service.summary().monitor.activeCount,5);
+  const error=errors.find(e=>e.source==='mr-processing');assert.equal(error?.iid,'2');assert.equal(error?.entryId,service.list().find(e=>e.iid==='2')?.id);
+  releases.get('1')!();await tick();assert.ok(started.includes('7'));
+  releases.get('3')!();await tick();assert.ok(started.includes('8'));
+  for(const release of releases.values())release();await settle(service);
+  assert.equal(peak,5);assert.equal(service.summary().monitor.activeCount,0);assert.equal(service.summary().monitor.queuedCount,0);
+  assert.equal(new Set(started).size,8);assert.equal(started.length,8);
+ }finally{for(const release of releases.values())release();await service.close();store.close();}
+});
+
+test('shutdown and restart never execute queued MR writes',async()=>{
+ const store=new TaskStore(':memory:'),cfg={enabled:true,groupId:'123456789',authorizedSender:'owner',repositoryPrefix:'MAE-M/Access/',intervalSeconds:5};
+ let commands=0;
+ const execute:typeof runProcess=async(_args,_dir,_timeout,_log,_line,_input,signal)=>{commands++;await new Promise<void>(resolve=>signal?.addEventListener('abort',()=>resolve(),{once:true}));throw Error('stopped');};
+ const service=new GroupMrService(store,execute);
+ const jobs=Array.from({length:7},(_,i)=>service['accept']({id:String(i),sender:'developer',quoteId:'',content:`https://codehub-y.huawei.com/MAE-M/Access/Demo/merge_requests/${i+1}`},cfg));
+ const settled=Promise.allSettled(jobs);
+ try{
+  assert.equal(service.summary().monitor.queuedCount,2);await service.close();await settled;
+  assert.equal(commands,5);assert.equal(service.list().filter(e=>e.phase==='INTERRUPTED').length,7);
+  const restarted=new GroupMrService(store,execute);await restarted.close();assert.equal(commands,5);assert.ok(restarted.list().every(e=>!e.queued));
+ }finally{await service.close();store.close();}
+});
+
+test('concurrent MR reads share one in-flight login instead of failing the other workers',async()=>{
+ const root=mkdtempSync(join(tmpdir(),'codehub-auth-')),store=new TaskStore(':memory:'),credentials=new CodehubSettings(store,join(root,'key'));credentials.save('private-token');
+ let release:()=>void=()=>{},loggedIn=false,logins=0;
+ const service=new GroupMrService(store,async args=>{
+  if(args[1]==='auth'){logins++;await new Promise<void>(resolve=>release=resolve);loggedIn=true;return {exitCode:0,output:''};}
+  return loggedIn?{exitCode:0,output:'[]'}:{exitCode:1,output:'HTTP 401 unauthorized'};
+ },undefined,credentials);
+ const calls=Array.from({length:5},()=>service['command'](['codehub-cli','mr','view','1','-p','MAE-M/Access/Demo']));
+ try{await new Promise<void>(resolve=>setImmediate(resolve));assert.equal(logins,1);release();assert.deepEqual(await Promise.all(calls),Array(5).fill('[]'));}
+ finally{release();await Promise.allSettled(calls);await service.close();store.close();rmSync(root,{recursive:true,force:true});}
 });

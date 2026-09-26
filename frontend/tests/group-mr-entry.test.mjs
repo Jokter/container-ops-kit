@@ -188,3 +188,18 @@ test('未到人工审核阶段不插入空审核面板，已审核历史仍可�
  dom.window.eval(`reviewUi.reviews=[{id:'review',repo:'MAE-M/Access/Demo',iid:'1',sha:'${'a'.repeat(40)}',decision:'reject',reason:'回归未通过',time:'2026-09-26T00:00:00Z',knowledgeStatus:'done'}];render(false)`);
  assert.match(doc.querySelector('.review-human').textContent,/回归未通过/);assert.equal(doc.querySelector('[data-human-review]'),null);
 });
+
+test('并发列表切换详情，刷新排序变化保留选中 MR，排队任务不误标为执行中',async t=>{
+ const base={repo:'MAE-M/Access/Demo',sha:'',events:[],phase:'PI',status:'正在检视',running:true};
+ const records=[{...base,id:'one',iid:'1'},{...base,id:'two',iid:'2'},{...base,id:'queued',iid:'6',phase:'QUEUED',status:'排队中',running:false,queued:true}];
+ const {dom,doc}=await fixture(t,{route:'group-mr',records});
+ assert.match(doc.querySelector('.group-mr-detail h3').textContent,/!1/);
+ records.reverse();await dom.window.eval('loadGroupMr()');assert.match(doc.querySelector('.group-mr-detail h3').textContent,/!1/);
+ doc.querySelector('[data-group-mr-record-button="two"]').click();assert.match(doc.querySelector('.group-mr-detail h3').textContent,/!2/);
+ await dom.window.eval('loadGroupMr()');assert.match(doc.querySelector('.group-mr-detail h3').textContent,/!2/);
+ doc.querySelector('[data-group-mr-record-button="queued"]').click();assert.match(doc.querySelector('.group-mr-detail h3').textContent,/!6/);
+ assert.match(doc.querySelector('.group-mr-detail .group-mr-status').textContent,/排队中/);
+ assert.equal(doc.querySelector('.group-mr-flow .now'),null);assert.equal(doc.querySelector('[data-group-mr-check="queued"]').disabled,true);
+ dom.window.eval('groupMrUi.monitor={activeCount:5,queuedCount:1,concurrency:5};render(false)');assert.match(doc.querySelector('.group-mr-overview').textContent,/执行中 5 \/ 5 · 排队中 1/);
+ const filter=doc.querySelector('#group-mr-phase');filter.value='stage:QUEUED';filter.dispatchEvent(new dom.window.Event('change',{bubbles:true}));assert.equal(doc.querySelectorAll('[data-group-mr-record]').length,1);
+});
