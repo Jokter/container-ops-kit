@@ -66,3 +66,17 @@ test('超长失败原因默认显示摘要，展开保留完整转义内容',asy
   detail.querySelector('summary').click();assert.equal(detail.open,true);
  }finally{dom.window.close();}
 });
+
+test('概览指标采用网格卡片，长错误限制在待处理表格内',async()=>{
+ const css=await readFile(new URL('../src/studio-workspace.css',import.meta.url),'utf8');
+ const metrics={total:2,merged:1,pending:1,anomalies:0,reviews:0,rejected:0,stages:{}};
+ const task={id:'long',repository:'Demo',reportVersion:'R27C10',status:'WAITING_EXTERNAL',message:'诊断'.repeat(3000),updatedAt:new Date().toISOString()};
+ const dom=new JSDOM(html,{url:'http://localhost/#/automation',runScripts:'dangerously',beforeParse(w){w.scrollTo=()=>{};w.fetch=async url=>({ok:true,status:200,json:async()=>url==='/api/auto-ut/tasks'?[task]:url.startsWith('/api/automation/effectiveness')?metrics:url==='/api/automation/knowledge'?{items:[],reviews:[]}:url.startsWith('/api/auto-ut/governance')?{metrics:{},records:[task]}:[]});}});
+ try{const style=dom.window.document.createElement('style');style.textContent=css;dom.window.document.head.append(style);await pause();const d=dom.window.document;
+  assert.equal(d.querySelectorAll('.review-metric').length,4);
+  assert.equal(dom.window.getComputedStyle(d.querySelector('.review-metrics')).display,'grid');
+  assert.equal(dom.window.getComputedStyle(d.querySelector('.review-todos')).tableLayout,'fixed');
+  const reason=d.querySelector('.review-todo-reason');assert.equal(reason.textContent,task.message);assert.equal(dom.window.getComputedStyle(reason).overflow,'hidden');
+  assert.equal(dom.window.getComputedStyle(d.querySelector('.review-todos-wrap')).overflow,'auto');
+ }finally{await pause();dom.window.close();}
+});

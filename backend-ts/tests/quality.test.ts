@@ -90,3 +90,17 @@ test('失败报告和正常指标不能建单或触发修复，分支变化要�
  failed=false;run=await ready(reports,reports.fetchReport().id);assert.equal(run.plan.length,0);assert.throws(()=>reports.assertCanCreate(run.id,'R27C10','tester'),/没有已确认/);assert.equal(auto.calls.length,0);
  }finally{await reports.close();await quality.close();await auto.close();store.close();}
 });
+
+for(const status of ['RESOLVED','NO_CHANGE','MR_CLOSED'] as const)test(status+'旧任务保留历史，新报告可再次治理且同报告不重放',async()=>{
+ const store=new TaskStore(':memory:'),quality=new QualityService(store,undefined,async()=>Response.json(payload([row]))),auto=new FakeAutoUt(store),reports=new AutoUtReports(store,quality,auto);
+ try{
+  reports.configure(config());const first=await reports.wait(reports.fetchReport('MANUAL',undefined,['R27C10']).id);
+  await reports.start(first.id,'MANUAL');const old=auto.records[0]!;old.status=status;old.nextStage='DONE';
+  assert.equal(reports.versionLocked('R27C10','release/27'),false);
+  const next=await reports.wait(reports.fetchReport('MANUAL',undefined,['R27C10']).id);
+  assert.notEqual(next.id,first.id);reports.assertCanCreate(next.id,'R27C10','tester');
+  await reports.start(next.id,'MANUAL');await reports.start(next.id,'MANUAL');
+  assert.equal(auto.calls.length,2);assert.equal(auto.records[0]!.status,status);assert.equal(auto.records[1]!.sourceReportId,next.id);
+  assert.equal(reports.versionLocked('R27C10','release/27'),true);
+ }finally{await reports.close();await quality.close();auto.close();store.close();}
+});

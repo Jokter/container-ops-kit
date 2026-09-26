@@ -149,7 +149,7 @@ test('WeLink MCP token can be saved and cleared without returning it to the page
 });
 
 
-function utFixture({cancelFirst=false,locked=false,failFlow=false}={}){
+function utFixture({cancelFirst=false,closedFirst=false,closeOnCheck=false,locked=false,failFlow=false}={}){
  const c=structuredClone(config);c.versions.forEach(v=>v.ticket='');c.ticket='';let tickets=[],tasks=locked?[{id:'old',repository:'Demo',reportVersion:'R27C00',baseBranch:'release/26',status:'BASELINE_RUNNING',progress:20,nextStage:'BASELINE'}]:[];
  const run={id:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',jobId:'q1',status:'READY',createdAt:'2026-09-23',config:structuredClone(c),trigger:'MANUAL',messages:[],claimed:[],taskIds:[],versionResults:{R27C10:'SUCCEEDED',R27C00:'EMPTY'},plan:[{version:'R27C10',repository:'Demo',baseBranch:'release/27',configured:true,failedTests:1,lineCoverage:.4,lineGoal:.8,branchCoverage:.4,branchGoal:.7}]};
  const creates=[],starts=[],fetches=[];let count=0;
@@ -157,9 +157,9 @@ function utFixture({cancelFirst=false,locked=false,failFlow=false}={}){
   if(path==='/api/auto-ut/report-settings'){if(o?.method==='PUT')Object.assign(c,JSON.parse(o.body));return{config:structuredClone(c),nextRunAt:null};}
   if(path==='/api/auto-ut/reports'){if(o?.method==='POST'){fetches.push(JSON.parse(o.body));return run;}return[run];}
   if(path==='/api/auto-ut/tasks')return tasks;
-  if(path==='/api/auto-ut/tickets'){if(o?.method!=='POST')return tickets;const body=JSON.parse(o.body);creates.push(body);count++;const result={...body,ticket:count===1&&cancelFirst?'DTS2609220015806':'DTS2609230012345',status:count===1&&cancelFirst?'CANCELLED':failFlow?'REVIEW':'READY',nodeStatus:failFlow?'DTS001':'DTS009',message:count===1&&cancelFirst?'旧单已撤销，请重新建单':failFlow?'单号已保留，流转待确认 '+('<long-error>'.repeat(1000)):'已到开发人员实施修改'};tickets=[result];return result;}
+  if(path==='/api/auto-ut/tickets'){if(o?.method!=='POST')return tickets;const body=JSON.parse(o.body);creates.push(body);count++;const result={...body,ticket:count===1&&(cancelFirst||closedFirst)?'DTS2609220015806':'DTS2609230012345',status:count===1&&(cancelFirst||closedFirst)?(closedFirst?'CLOSED':'CANCELLED'):failFlow?'REVIEW':'READY',nodeStatus:failFlow?'DTS001':'DTS009',message:count===1&&(cancelFirst||closedFirst)?(closedFirst?'旧单已关闭，请重新建单':'旧单已撤销，请重新建单'):failFlow?'单号已保留，流转待确认 '+('<long-error>'.repeat(1000)):'已到开发人员实施修改'};tickets=[result];return result;}
   if(path===`/api/auto-ut/reports/${run.id}/tasks`){const body=JSON.parse(o.body);starts.push(body);tasks.push({id:'new',repository:'Demo',reportVersion:'R27C10',baseBranch:'release/27',sourceReportId:run.id,status:'BASELINE_RUNNING',progress:25,nextStage:'BASELINE'});run.claimed.push('R27C10/Demo');run.taskIds.push('new');return run;}
-  if(path==='/api/auto-ut/tickets/control'){tickets[0]={...tickets[0],status:'READY',nodeStatus:'DTS009',message:'流转成功'};return tickets[0];}
+  if(path==='/api/auto-ut/tickets/control'){tickets[0]={...tickets[0],status:closeOnCheck?'CLOSED':'READY',nodeStatus:closeOnCheck?'CLOSED_CODE':'DTS009',message:closeOnCheck?'问题单已关闭，请重新建单':'流转成功'};return tickets[0];}
  });
  return{dom,c,creates,starts,fetches,run};
 }
@@ -174,6 +174,9 @@ test('已有版本任务禁止刷新且批量获取只请求未锁定版本',asy
 });
 test('撤销单退出当前版本，新请求重新建单且只展示当前单号',async()=>{
  const f=utFixture({cancelFirst:true});try{const d=open(f.dom,'auto-ut');await pause();d.querySelector('#ut-auto-start').click();d.querySelector('[data-ut-create="R27C10"]').click();await pause();assert.match(d.body.textContent,/已撤销/);assert.equal(d.querySelector('a[href$="DTS2609220015806"]'),null);d.querySelector('[data-ut-create="R27C10"]').click();await pause();assert.notEqual(f.creates[0].requestId,f.creates[1].requestId);assert.ok(d.querySelector('a[href$="DTS2609230012345"]'));assert.equal(d.querySelector('a[href$="DTS2609220015806"]'),null);assert.equal(f.starts.length,0);assert.equal(d.querySelector('[data-ut-start="R27C10"]').disabled,false);}finally{await pause();f.dom.window.close();}
+});
+test('关闭单退出当前版本，新请求重新建单且只展示当前单号',async()=>{
+ const f=utFixture({closedFirst:true});try{const d=open(f.dom,'auto-ut');await pause();d.querySelector('#ut-auto-start').click();d.querySelector('[data-ut-create="R27C10"]').click();await pause();assert.match(d.body.textContent,/已关闭/);assert.equal(d.querySelector('a[href$="DTS2609220015806"]'),null);d.querySelector('[data-ut-create="R27C10"]').click();await pause();assert.notEqual(f.creates[0].requestId,f.creates[1].requestId);assert.ok(d.querySelector('a[href$="DTS2609230012345"]'));assert.equal(d.querySelector('a[href$="DTS2609220015806"]'),null);assert.equal(f.starts.length,0);assert.equal(d.querySelector('[data-ut-start="R27C10"]').disabled,false);}finally{await pause();f.dom.window.close();}
 });
 test('流转未确认保留单号且不启动，长错误折叠详情，确认后可自动启动',async()=>{
  const f=utFixture({failFlow:true});try{const d=open(f.dom,'auto-ut');await pause();d.querySelector('[data-ut-create="R27C10"]').click();await pause();assert.equal(f.starts.length,0);assert.equal(d.querySelector('[data-ut-start="R27C10"]').disabled,true);assert.ok(d.querySelector('.ut-error-summary'));assert.equal(d.querySelector('long-error'),null);
@@ -201,4 +204,27 @@ test('Pi轮次仅附在进度文案后，并采用当前修复阶段的上限',a
   d=render({...task,status:'MR_REPAIRING',mr:{iid:'1',rounds:1,config:{maxRepairRounds:5}}});assert.equal(d.querySelector('.ut-pi-round').textContent,'第 1/5 轮');
   d=render({...task,status:'MR_PENDING',nextStage:'TRACK',mr:{iid:'1',rounds:1,config:{maxRepairRounds:5}}});assert.equal(d.querySelector('.ut-pi-round'),null);
  }finally{await pause();dom.window.close()}
+});
+
+for(const status of ['RESOLVED','NO_CHANGE','MR_CLOSED','WAITING_EXTERNAL','MR_PENDING'])test(status+'旧任务在新报告中的关联和选择状态',async()=>{
+ const completed=['RESOLVED','NO_CHANGE','MR_CLOSED'].includes(status);
+ const old={id:'old-run-task',repository:'Demo',reportVersion:'R27C10',baseBranch:'release/27',sourceReportId:'old-report',status,nextStage:completed?'DONE':'TRACK',progress:completed?100:92};
+ const run={id:'new-report',createdAt:new Date().toISOString(),status:'READY',config,trigger:'MANUAL',messages:[],claimed:[],taskIds:[],plan:[{version:'R27C10',repository:'Demo',baseBranch:'release/27',configured:true,failedTests:1}]};
+ const dom=page(path=>path==='/api/auto-ut/tasks'?[old]:path==='/api/auto-ut/reports'?[run]:undefined);
+ try{const d=open(dom,'auto-ut');await pause();const select=d.querySelector('[data-report-select="R27C10/Demo"]');
+  assert.equal(select.disabled,!completed);assert.equal(d.querySelector('[data-ut-fetch="R27C10"]').disabled,!completed);
+  assert.equal(!!d.querySelector('.studio-ut .qw-table [data-governance-detail="old-run-task"]'),!completed);
+  if(completed)assert.match(select.closest('tr').textContent,/未开始/);
+ }finally{await pause();dom.window.close();}
+});
+
+test('刷新已有单号确认关闭后解除绑定并允许新请求建单',async()=>{
+ const f=utFixture({closeOnCheck:true});try{const d=open(f.dom,'auto-ut');await pause();d.querySelector('#ut-auto-start').click();
+  d.querySelector('[data-ut-create="R27C10"]').click();await pause();
+  d.querySelector('[data-ut-check="R27C10"]').click();await pause();
+  assert.match(d.body.textContent,/已关闭/);assert.equal(f.c.versions.find(v=>v.version==='R27C10').ticket,'');
+  assert.equal(d.querySelector('[data-ut-create="R27C10"]').disabled,false);
+  d.querySelector('[data-ut-create="R27C10"]').click();await pause();
+  assert.equal(f.creates.length,2);assert.notEqual(f.creates[0].requestId,f.creates[1].requestId);assert.equal(f.starts.length,0);
+ }finally{await pause();f.dom.window.close();}
 });

@@ -173,3 +173,21 @@ test('已撤销旧单确认后退出恢复队列，新请求可以建单且保�
   await service.control('DTS123','tester','continue','R27C10');assert.equal(executes,1);
  }finally{store.close();}
 });
+
+for(const nodeName of ['关闭','已关闭'])test(nodeName+'旧单确认后允许重新建单且不重复流转',async()=>{
+ const store=testStore();let creates=0,executes=0;
+ store.putRecord('dts-ticket','old',{requestId:'old',username:'tester',version:'R27C10',ticket:'DTS123',status:'REVIEW',message:''});
+ const service=new DtsTickets(store,async()=>async(method,params)=>{
+  if(method==='initialize')return{};if(params.name==='queryPbiLikeName')return pbiReply(params);
+  if(params.name==='createTicket'){creates++;return reply('DTS456');}
+  if(params.name==='executeTicket'){executes++;return reply({});}
+  const args=params.arguments as {arg0:string[]};const old=args.arg0[0]==='DTS123';return reply({datas:[{dtsBizNo:args.arg0[0],dtsStatus:old?'UNKNOWN_CLOSED_CODE':'DTS009',dtsStatusName:old?nodeName:'开发人员实施修改',currentHandler:old?'wangyu 00789509':'tester'}]});
+ },async()=>{});
+ try{
+  assert.equal((await service.create('retry','tester','R27C10')).status,'CLOSED');assert.equal(creates,0);
+  assert.equal((await service.create('new','tester','R27C10')).ticket,'DTS456');assert.equal(creates,1);assert.equal(executes,1);
+  assert.equal(store.getRecord<{status:string}>('dts-ticket','old')?.status,'CLOSED');
+  assert.equal((await service.create('old','tester','R27C10')).status,'CLOSED');assert.equal(creates,1);
+  await service.control('DTS123','tester','continue','R27C10');assert.equal(executes,1);
+ }finally{store.close();}
+});
