@@ -191,7 +191,7 @@ export class GroupMrService {
   return {ok:true};
  }
  removeHistory(id:string){return this.removeHistories([id]);}
- removeHistories(ids:string[]){const entries=[...new Set(ids)].map(id=>this.editable(id));for(const e of entries){if(!['DONE','CLOSED','FAILED','NO_PERMISSION','INTERRUPTED','ISSUES','PIPELINE'].includes(e.phase))throw Object.assign(Error('只能删除待处理或已结束的记录'),{statusCode:409});if(e.writePending)throw Object.assign(Error('操作结果未确认，请先人工核对'),{statusCode:409});}for(const e of entries)this.store.putRecord('group-mr-hidden',e.id,{id:e.id,deletedAt:new Date().toISOString()});return {ok:true,deleted:entries.length};}
+ removeHistories(ids:string[]){const entries=[...new Set(ids)].map(id=>this.editable(id));for(const e of entries){if(!['DONE','CLOSED','FAILED','NO_PERMISSION','INTERRUPTED','ISSUES','PIPELINE'].includes(e.phase))throw Object.assign(Error('只能删除待处理或已结束的记录'),{statusCode:409});}for(const e of entries)this.store.putRecord('group-mr-hidden',e.id,{id:e.id,deletedAt:new Date().toISOString()});return {ok:true,deleted:entries.length};}
 
  async submitReview(id:string,value:unknown){
   const input=reviewInput.parse(value),e=this.editable(id);

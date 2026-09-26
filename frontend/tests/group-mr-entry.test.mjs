@@ -71,7 +71,7 @@ test('阶段过滤、人工核对和历史删除沿用当前列表布局',async 
  const filter=doc.querySelector('#group-mr-phase');filter.value='stage:APPROVE';filter.dispatchEvent(new dom.window.Event('change',{bubbles:true}));
  assert.equal(doc.querySelectorAll('[data-group-mr-record]').length,1);assert.ok(doc.querySelector('[data-group-mr-record="approve"]'));
  doc.querySelector('#group-mr-phase').value='FAILED';doc.querySelector('#group-mr-phase').dispatchEvent(new dom.window.Event('change',{bubbles:true}));
- assert.equal(doc.querySelector('[data-group-mr-action="delete"]').disabled,true);
+ assert.equal(doc.querySelector('[data-group-mr-action="delete"]').disabled,false);
  doc.querySelector('[data-group-mr-action="ack"]').click();doc.querySelector('[data-studio-confirm]').click();await flush();await flush();
  assert.equal(writes[0].url,'/api/automation/group-mr/records/failed/acknowledge-reply');assert.deepEqual(JSON.parse(writes[0].body),{confirmed:true});
  assert.match(doc.querySelector('.group-mr-reply').textContent,/已人工核对/);
@@ -87,12 +87,12 @@ test('批量删除只选中当前过滤下可删除的记录，取消不写入',
  doc.querySelector('[data-group-mr-tab="history"]').click();
  assert.equal(doc.querySelectorAll('.group-mr-table th').length,7);
  doc.querySelector('[data-group-mr-check-all]').click();
- assert.equal(doc.querySelectorAll('[data-group-mr-check]:checked').length,2);
- assert.equal(doc.querySelector('[data-group-mr-check="blocked"]').disabled,true);
+ assert.equal(doc.querySelectorAll('[data-group-mr-check]:checked').length,3);
+ assert.equal(doc.querySelector('[data-group-mr-check="blocked"]').disabled,false);
  doc.querySelector('[data-group-mr-action="batch"]').click();assert.equal(writes.length,0);
  doc.querySelector('[data-studio-cancel]').click();await flush();assert.equal(writes.length,0);
  doc.querySelector('[data-group-mr-action="batch"]').click();doc.querySelector('[data-studio-confirm]').click();await flush();await flush();
- assert.deepEqual(JSON.parse(writes[0].body),{ids:['a','b']});assert.equal(doc.querySelectorAll('[data-group-mr-record]').length,1);
+ assert.deepEqual(JSON.parse(writes[0].body),{ids:['a','b','blocked']});assert.equal(doc.querySelectorAll('[data-group-mr-record]').length,0);
 });
 
 test('居中确认和输入弹窗支持取消、键盘、焦点与安全文本',async t=>{
@@ -120,14 +120,14 @@ test('Pi 阶段待处理不会将流水线误标为已通过',async t=>{
  assert.match(steps[1].textContent,/待处理/);assert.doesNotMatch(steps[1].textContent,/已停止/);assert.match(steps[3].textContent,/待处理/);assert.ok(!steps[3].classList.contains('done'));
 });
 
-test('待处理支持批量删除，执行中和未确认操作不可选',async t=>{
+test('待处理支持批量删除已停止的待核对记录，执行中不可选',async t=>{
  const records=[{id:'waiting',phase:'PIPELINE'},{id:'issues',phase:'ISSUES'},{id:'busy',phase:'PIPELINE',running:true},{id:'blocked',phase:'ISSUES',writePending:'Pi 提交检视意见'}].map(r=>({repo:'MAE-M/Access/Demo',iid:r.id,events:[],...r}));
  const {doc,writes}=await fixture(t,{route:'group-mr',records});
  assert.equal(doc.querySelectorAll('[data-group-mr-action="delete"]').length,4);
- assert.equal(doc.querySelectorAll('[data-group-mr-check]:not(:disabled)').length,2);
+ assert.equal(doc.querySelectorAll('[data-group-mr-check]:not(:disabled)').length,3);
  doc.querySelector('[data-group-mr-check-all]').click();doc.querySelector('[data-group-mr-action="batch"]').click();
  await flush();doc.querySelector('[data-studio-confirm]').click();await flush();
- assert.deepEqual(JSON.parse(writes[0].body).ids,['waiting','issues']);assert.equal(records.length,2);
+ assert.deepEqual(JSON.parse(writes[0].body).ids,['waiting','issues','blocked']);assert.equal(records.length,1);
 });
 
 test('快捷合入显示意见闭环及无权限检视跳过',async t=>{

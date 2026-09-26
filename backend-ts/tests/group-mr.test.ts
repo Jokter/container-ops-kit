@@ -214,7 +214,7 @@ test('reply acknowledgement releases all related blocks without sending; history
  const row={id:'old',repo:'MAE-M/Access/Demo',iid:'444',url:'https://codehub-y.huawei.com/MAE-M/Access/Demo/merge_requests/444',sha:'a'.repeat(40),previousSha:'',messageId:'1',sender:'u123',shortcut:false,phase:'FAILED' as const,stage:'PIPELINE' as const,status:'流水线失败',detail:'',createdAt:'2026-09-24T00:00:00Z',updatedAt:'2026-09-24T00:00:00Z',writePending:'群消息回复',events:[],reply:{text:'失败',mode:'reference' as const,status:'unconfirmed' as const}};
  try{
   store.putRecord('group-mr-entry',row.id,row);
-  assert.throws(()=>service.removeHistory(row.id),/人工核对/);
+  service.removeHistory(row.id);assert.equal(service.visibleList().length,0);assert.equal(service.list()[0]?.writePending,'群消息回复');
   for(const id of ['2','3'])await service['accept']({id,content:row.url,sender:'u123',quoteId:''},cfg);
   assert.equal(calls,0);assert.equal(service.list().filter(r=>r.writePending==='群消息回复').length,3);
   service.acknowledgeReply(row.id);assert.equal(calls,0);assert.ok(service.list().every(r=>!r.writePending));
@@ -222,7 +222,7 @@ test('reply acknowledgement releases all related blocks without sending; history
   service.removeHistory(row.id);assert.ok(!service.summary().history.some(r=>r.id===row.id));assert.ok(store.getRecord('group-mr-entry',row.id));
   assert.throws(()=>service.acknowledgeReply(row.id),/没有待核对/);
   store.putRecord('group-mr-entry','review',{...row,id:'review',writePending:'审核'});
-  assert.throws(()=>service.acknowledgeReply('review'),/没有待核对/);assert.throws(()=>service.removeHistory('review'),/人工核对/);
+  assert.throws(()=>service.acknowledgeReply('review'),/没有待核对/);service.removeHistory('review');assert.equal(store.getRecord<{writePending:string}>('group-mr-entry','review')?.writePending,'审核');
   store.putRecord('group-mr-entry','running',{...row,id:'running',phase:'PI',writePending:''});assert.throws(()=>service.removeHistory('running'),/已结束/);
   service['active'].add(row.repo+':'+row.iid);assert.throws(()=>service.removeHistory(row.id),/正在执行/);
  }finally{await service.close();store.close();}
@@ -234,9 +234,9 @@ test('batch history removal validates every record before hiding any and never e
  try{
   for(const id of ['a','b'])store.putRecord('group-mr-entry',id,{...row,id});
   store.putRecord('group-mr-entry','blocked',{...row,id:'blocked',writePending:'审核'});
-  assert.throws(()=>service.removeHistories(['a','blocked']),/人工核对/);assert.equal(service.visibleList().length,3);
+  service['active'].add(row.repo+':'+row.iid);assert.throws(()=>service.removeHistories(['a','blocked']),/正在执行/);assert.equal(service.visibleList().length,3);service['active'].clear();
   assert.throws(()=>service.removeHistories(['a','missing']),/不存在/);assert.equal(service.visibleList().length,3);
-  assert.deepEqual(service.removeHistories(['a','a','b']),{ok:true,deleted:2});assert.equal(service.visibleList().length,1);assert.equal(service.list().length,3);assert.equal(calls,0);
+  assert.deepEqual(service.removeHistories(['a','a','b']),{ok:true,deleted:2});assert.equal(service.visibleList().length,1);assert.equal(service.list().length,3);service.removeHistory('blocked');assert.equal(service.visibleList().length,0);assert.equal(store.getRecord<{writePending:string}>('group-mr-entry','blocked')?.writePending,'审核');assert.equal(calls,0);
  }finally{await service.close();store.close();}
 });
 
