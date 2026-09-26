@@ -120,13 +120,13 @@ test('执行记录单条停止删除与按当前筛选批量清理，确认取�
  let quality=[{id:'22222222-2222-4222-8222-222222222222',status:'RUNNING',createdAt:new Date().toISOString(),input:{versions:['R27C10']}}];const requests=[];let confirmed=false,prompt='';
  const dom=page((path,o)=>{if(path==='/api/auto-ut/tasks')return tasks;if(path==='/api/quality/jobs')return quality;if(path==='/api/automation/records/cleanup'){const {entries}=JSON.parse(o.body);requests.push(entries);tasks=tasks.filter(t=>!entries.some(e=>e.kind==='ut'&&e.id===t.id));quality=quality.filter(t=>!entries.some(e=>e.kind==='quality'&&e.id===t.id));return{deleted:entries,failed:[]};}});
  try{dom.window.studioConfirm=text=>{prompt=text;return confirmed;};const d=open(dom,'auto-ut');await pause();d.querySelector('[data-automation-nav="tasks"]').click();await pause();assert.equal(d.querySelectorAll('[data-delete-record]').length,2);d.querySelector('[data-record-kind="ut"]').click();await pause();assert.equal(requests.length,0);confirmed=true;d.querySelector('[data-record-kind="ut"]').click();await pause();assert.match(prompt,/先停止/);assert.match(prompt,/clone 代码目录、任务明细日志和 Pi 会话将一起删除/);assert.equal(requests[0][0].kind,'ut');assert.equal(d.querySelectorAll('[data-record-kind="ut"]').length,0);
- d.querySelector('[data-studio-record-kind="quality"]').click();d.querySelector('[data-cleanup-records]').click();await pause();assert.deepEqual(requests[1],[{kind:'quality',id:'22222222-2222-4222-8222-222222222222'}]);assert.match(d.body.textContent,/暂无执行记录/);
+ d.querySelector('[data-studio-record-kind="quality"]').click();d.querySelector('[data-record-select-all]').click();d.querySelector('[data-cleanup-records]').click();await pause();assert.deepEqual(requests[1],[{kind:'quality',id:'22222222-2222-4222-8222-222222222222'}]);assert.match(d.body.textContent,/暂无执行记录/);
  }finally{dom.window.close();}
 });
 test('批量清理逐项失败显示原因，失败记录保留',async()=>{
  const task={id:'11111111-1111-4111-8111-111111111111',repository:'Demo',reportVersion:'R27C10',status:'WAITING_EXTERNAL',nextStage:'VERIFY',message:'待处理'};
  const dom=page(path=>path==='/api/auto-ut/tasks'?[task]:path==='/api/automation/records/cleanup'?{deleted:[],failed:[{kind:'ut',id:task.id,message:'进程停止失败'}]}:undefined);
- try{dom.window.studioConfirm=()=>true;const d=open(dom,'auto-ut');await pause();d.querySelector('[data-automation-nav="tasks"]').click();await pause();d.querySelector('[data-cleanup-records]').click();await pause();assert.match(d.querySelector('[role="alert"]').textContent,/进程停止失败/);assert.equal(d.querySelectorAll('[data-delete-record]').length,1);assert.equal(d.querySelector('[data-cleanup-records]').disabled,false);}finally{dom.window.close();}
+ try{dom.window.studioConfirm=()=>true;const d=open(dom,'auto-ut');await pause();d.querySelector('[data-automation-nav="tasks"]').click();await pause();d.querySelector('[data-record-select-all]').click();d.querySelector('[data-cleanup-records]').click();await pause();assert.match(d.querySelector('[role="alert"]').textContent,/进程停止失败/);assert.equal(d.querySelectorAll('[data-delete-record]').length,1);assert.equal(d.querySelector('[data-cleanup-records]').disabled,false);}finally{dom.window.close();}
 });
 
 test('历史 MR 阻塞展示原因，取消不写入，确认后只解除指定记录',async()=>{
@@ -227,4 +227,18 @@ test('刷新已有单号确认关闭后解除绑定并允许新请求建单',asy
   d.querySelector('[data-ut-create="R27C10"]').click();await pause();
   assert.equal(f.creates.length,2);assert.notEqual(f.creates[0].requestId,f.creates[1].requestId);assert.equal(f.starts.length,0);
  }finally{await pause();f.dom.window.close();}
+});
+
+test('批量删除只提交勾选记录，切换工具清空选择并隔离质量检查',async()=>{
+ const ids=['11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222222222222'];let quality=ids.map(id=>({id,status:'SUCCEEDED',createdAt:new Date().toISOString(),input:{versions:['R27C10']}}));const calls=[];
+ const task={id:'33333333-3333-4333-8333-333333333333',repository:'Demo',reportVersion:'R27C10',status:'RESOLVED',updatedAt:new Date().toISOString()};
+ const dom=page((path,o)=>{if(path==='/api/auto-ut/tasks')return [task];if(path==='/api/quality/jobs')return quality;if(path==='/api/automation/records/cleanup'){const {entries}=JSON.parse(o.body);calls.push(entries);quality=quality.filter(q=>!entries.some(e=>e.kind==='quality'&&e.id===q.id));return{deleted:entries,failed:[]}}});
+ try{dom.window.studioConfirm=()=>true;const d=open(dom,'auto-ut');await pause();d.querySelector('[data-automation-nav="tasks"]').click();
+  assert.equal(d.querySelector('[data-cleanup-records]').disabled,true);
+  d.querySelector('[data-record-select="ut:'+task.id+'"]').click();assert.match(d.querySelector('[data-cleanup-records]').textContent,/1/);
+  d.querySelector('[data-studio-record-kind="quality"]').click();assert.equal(d.querySelector('[data-cleanup-records]').disabled,true);
+  d.querySelector('[data-record-select="quality:'+ids[0]+'"]').click();assert.equal(d.querySelector('[data-record-select-all]').indeterminate,true);
+  d.querySelector('[data-cleanup-records]').click();await pause();assert.deepEqual(calls,[[{kind:'quality',id:ids[0]}]]);assert.equal(quality.length,1);assert.equal(d.querySelector('[data-cleanup-records]').disabled,true);
+  d.querySelector('[data-studio-record-kind="ut"]').click();assert.ok(d.querySelector('[data-auto-ut-task="'+task.id+'"]'));
+ }finally{await pause();dom.window.close();}
 });

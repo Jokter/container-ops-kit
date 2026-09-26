@@ -65,9 +65,7 @@ export class AutoUtReports{
   const run=this.list().find(r=>r.id===id);if(!run)return;
   this.deleting.add(id);
   try{await this.quality.stop(run.jobId);await this.completions.get(id);await this.starts.get(id);
-   const related=this.autoUt.tasks().filter(t=>t.sourceReportId===id).map(t=>t.id);
-   for(const taskId of new Set([...this.get(id).taskIds,...related]))await this.autoUt.removeExecutionRecord(taskId);
-   await this.quality.remove(run.jobId);this.store.deleteRecord('auto-ut-report-run',id);
+   this.store.deleteRecord('auto-ut-report-run',id);
   }finally{this.deleting.delete(id);}
  }
  async wait(id:string){await this.completions.get(id);return this.get(id);}

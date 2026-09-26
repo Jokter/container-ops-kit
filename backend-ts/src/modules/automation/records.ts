@@ -16,7 +16,7 @@ export class AutomationRecords {
    try{
     if(entry.kind==='ut')await this.autoUt.removeExecutionRecord(entry.id);
     else if(entry.kind==='report')await this.reports.remove(entry.id);
-    else{for(const run of this.reports.list().filter(r=>r.jobId===entry.id))await this.reports.remove(run.id);await this.quality.remove(entry.id);}
+    else await this.quality.remove(entry.id,this.reports.list().some(r=>r.jobId===entry.id));
     deleted.push(entry);
    }catch(error){failed.push({...entry,message:error instanceof Error?error.message:'停止或清理失败'});}
   }return{deleted,failed};}finally{this.busy=false;}
