@@ -356,8 +356,8 @@ for(const review of ['allowed','absent','forbidden','failed'] as const)test('aut
  assert.equal(service.list()[0]?.humanReview,undefined);assert.equal(service.list()[0]?.notification,undefined);assert.equal(service.knowledge.reviews().length,0);
  assert.match(sent[0]??'',/已收到合入指令/);assert.equal(calls[0],'welink');assert.deepEqual([...closed],['mine','others']);assert.equal(calls.includes('pi'),false);
  assert.equal(merged,review!=='failed');assert.equal(service.list()[0]?.phase,review==='failed'?'INTERRUPTED':'DONE');
- if(review==='failed')assert.equal(service.list()[0]?.writePending,'检视');else assert.equal(sent.length,2);
- if(review==='absent'||review==='forbidden')assert.equal(service.list()[0]?.reviewSkipped,true);
+ if(review==='failed')assert.equal(service.list()[0]?.writePending,'检视');else assert.equal(sent.length,review==='absent'||review==='forbidden'?3:2);
+ if(review==='absent'||review==='forbidden'){assert.equal(service.list()[0]?.reviewSkipped,true);assert.match(sent[1]??'',/无检视权限/);}if(review!=='failed')assert.match(sent.at(-1)??'',/完成审核并合入/);
  }finally{await service.close();store.close();}
 });
 
@@ -617,4 +617,17 @@ test('a message arriving during passive status lookup is processed after the loo
  store.putRecord('group-mr-entry','old',{id:'old',repo:'MAE-M/Access/Demo',iid:'1',url,sha,previousSha:'',messageId:'1',sender:'developer',shortcut:false,phase:'INTERRUPTED',status:'retry',detail:'',createdAt:'2026-09-26T01:00:00Z',updatedAt:'2026-09-26T01:00:00Z',writePending:'',events:[]});
  try{service.refreshRemoteStates();const accepted=service['accept']({id:'2',sender:'developer',quoteId:'',content:url},{enabled:true,groupId:'123456789',authorizedSender:'owner',repositoryPrefix:'MAE-M/Access/',intervalSeconds:5});release();await accepted;await settle(service);assert.equal(service.summary().pending.length,1);assert.equal(service.summary().pending[0]?.messageId,'2');assert.equal(service.summary().pending[0]?.phase,'PIPELINE');}
  finally{release();await service.close();store.close();}
+});
+
+for(const delivered of [true,false])test(`reconciled merge notifies once and does not resend an uncertain reply: ${delivered}`,async()=>{
+ const store=new TaskStore(':memory:'),sha='a'.repeat(40),sent:string[]=[];
+ const service=new GroupMrService(store,async args=>{
+  if(args[2]==='view')return {exitCode:0,output:JSON.stringify({iid:1,state:'merged',sha})};
+  if(args.includes('--help'))return {exitCode:0,output:''};
+  assert.equal(args[2],'send-to-group');sent.push(args[args.indexOf('--text')+1]!);return {exitCode:0,output:JSON.stringify({resultCode:delivered?0:1})};
+ });
+ const cfg={enabled:false,groupId:'123456789',authorizedSender:'owner',repositoryPrefix:'MAE-M/Access/',intervalSeconds:5};service.configure(cfg);
+ store.putRecord('group-mr-entry','old',{id:'old',repo:'MAE-M/Access/Demo',iid:'1',url:'https://codehub-y.huawei.com/MAE-M/Access/Demo/merge_requests/1',sha,previousSha:'',sender:'developer',messageId:'1',shortcut:false,phase:'INTERRUPTED',status:'merge unconfirmed',detail:'',createdAt:'2026-09-26T01:00:00Z',updatedAt:'2026-09-26T01:00:00Z',writePending:'合并',events:[]});
+ try{service.refreshRemoteStates();await settle(service);assert.equal(sent.length,1);assert.match(sent[0]??'',/MR 已合入/);const e=service.list()[0]!;assert.equal(e.phase,'DONE');assert.equal(e.reply?.status,delivered?'sent':'unconfirmed');await service['replyMerged'](e,cfg);assert.equal(sent.length,1);}
+ finally{await service.close();store.close();}
 });

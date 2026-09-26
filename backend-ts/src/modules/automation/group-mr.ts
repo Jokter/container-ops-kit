@@ -156,14 +156,14 @@ export class GroupMrService {
   });
  }
  summary(){const today=new Date().toISOString().slice(0,10),rows=this.grouped(),pending=rows.filter(e=>!['DONE','CLOSED'].includes(e.phase)),history=rows.filter(e=>['DONE','CLOSED'].includes(e.phase));return {config:this.configuration(),pending,history,monitor:{...this.monitor(),state:this.active.size?'processing':this.monitor().state,running:this.busy||this.active.size>0,activeCount:this.active.size,queuedCount:this.queue.length,concurrency:this.concurrency,command:[this.monitorContext.command,...[...this.workers.values()].map(c=>c.command)].filter(Boolean).join(' · '),logs:this.store.getRecord<MonitorEvent[]>('group-mr-log','main')??[]},metrics:{pending:pending.length,issues:pending.filter(e=>e.phase==='ISSUES').length,mergedToday:history.filter(e=>e.phase==='DONE'&&e.updatedAt.startsWith(today)).length}};}
- // Read-only reconciliation: never replay Pi, replies, approvals or merge writes.
+ // Reconcile by reading CodeHub; only the first confirmed merge result may notify the group.
  refreshRemoteStates(){
   if(this.closing)return;
   const candidates=this.summary().pending.filter(e=>!this.reserved.has(e.repo+':'+e.iid)&&Date.now()-(this.stateChecks.get(e.repo+':'+e.iid)??0)>=60000)
    .sort((a,b)=>(this.stateChecks.get(a.repo+':'+a.iid)??0)-(this.stateChecks.get(b.repo+':'+b.iid)??0)).slice(0,Math.max(0,this.concurrency-this.active.size));
   for(const row of candidates){
    const e=this.store.getRecord<Entry>('group-mr-entry',row.id)!;this.stateChecks.set(e.repo+':'+e.iid,Date.now());
-   const key=e.repo+':'+e.iid;const job=this.enqueue(e,async()=>{try{const remote=await this.view(e);this.archiveRemote(e,remote);}catch{this.recordLog('error','MR 远端状态查询失败，保留当前状态');}}).catch(()=>{});
+   const key=e.repo+':'+e.iid;const job=this.enqueue(e,async()=>{try{const remote=await this.view(e);if(this.archiveRemote(e,remote)&&remote.state==='merged'){try{await this.replyMerged(e,this.configuration(),'已核对 CodeHub，MR 已合入。');}catch{e.detail='MR 已合入，但群消息回复结果未确认，请核对 WeLink';this.save(e);}}}catch{this.recordLog('error','MR 远端状态查询失败，保留当前状态');}}).catch(()=>{});
    this.stateJobs.set(key,job);void job.then(()=>this.stateJobs.delete(key));
   }
  }
@@ -205,7 +205,7 @@ export class GroupMrService {
     this.knowledge.saveReview(record);e.humanReview=record;this.save(e);this.startKnowledge(record);
     if(input.decision==='reject'){this.mark(e,'HUMAN','人工审核不通过：'+input.reason);resolve(e);return;}
     this.mark(e,'REVIEW','人工审核已通过，正在重新核对提交和门禁');resolve(e);
-    try{await this.process(e,this.configuration());}catch{if(['DONE','CLOSED','FAILED','NO_PERMISSION'].includes(e.phase)){e.detail='后续消息或操作结果未确认，请核对远端状态';this.save(e);}else this.mark(e,'INTERRUPTED','人工审核已保存，后续检查或操作未完成，请核对远端状态');}
+    try{await this.process(e,this.configuration());}catch{if(e.phase==='DONE'){await this.replyMerged(e,this.configuration()).catch(()=>{});}if(['DONE','CLOSED','FAILED','NO_PERMISSION'].includes(e.phase)){e.detail='后续消息或操作结果未确认，请核对远端状态';this.save(e);}else this.mark(e,'INTERRUPTED','人工审核已保存，后续检查或操作未完成，请核对远端状态');}
    }).catch(reject);
   });
  }
@@ -315,7 +315,7 @@ export class GroupMrService {
   try{
    if(received){this.mark(entry,entry.shortcut?'PIPELINE':'PI',entry.shortcut?'准备按指令合入':'准备检视当前提交');await this.reply(entry,cfg,entry.shortcut?'已收到合入指令，正在处理。':'已收到 MR，正在检视中。');}
    await this.process(entry,cfg);
-  }catch(error){const reason=error instanceof Error?error.message:'处理失败';if(['DONE','CLOSED','FAILED','NO_PERMISSION'].includes(entry.phase)){entry.detail=reason;this.save(entry);}else{this.mark(entry,'INTERRUPTED',reason);if(!entry.writePending&&!this.closing)await this.reply(entry,cfg,reason).catch(()=>{});}}
+  }catch(error){const reason=error instanceof Error?error.message:'处理失败';if(entry.phase==='DONE')await this.replyMerged(entry,cfg).catch(()=>{});if(['DONE','CLOSED','FAILED','NO_PERMISSION'].includes(entry.phase)){entry.detail=reason;this.save(entry);}else{this.mark(entry,'INTERRUPTED',reason);if(!entry.writePending&&!this.closing)await this.reply(entry,cfg,reason).catch(()=>{});}}
  }
 
  private async view(e:Entry){return parseMr(await this.code(['mr','view',e.iid,'-p',e.repo],'iid,id,mr_url,state,sha,diff_refs,approval_merge_request_reviewers,approval_merge_request_approvers,merge_request_assignee_list'));}
@@ -337,6 +337,14 @@ export class GroupMrService {
    if(!jsonValues(result).some(v=>{const o=object(v);return o?.resultCode===0||o?.resultCode==='0';}))throw Error('WeLink 群消息发送结果未确认，请核对后再手动处理');
    e.reply.status='sent';e.writePending='';this.save(e);
   }catch(error){e.reply.status='unconfirmed';this.save(e);throw error;}
+ }
+ private async replyMerged(e:Entry,cfg:Configuration,message='MR 已合入。'){
+  const key=e.repo+':'+e.iid;
+  if(!cfg.groupId||e.writePending||this.store.getRecord('group-mr-merge-reply',key))return;
+  // Record the attempt before sending, so an uncertain result is never automatically resent.
+  this.store.putRecord('group-mr-merge-reply',key,{entryId:e.id,status:'sending'});
+  try{await this.reply(e,cfg,message);this.store.putRecord('group-mr-merge-reply',key,{entryId:e.id,status:'sent'});}
+  catch(error){this.store.putRecord('group-mr-merge-reply',key,{entryId:e.id,status:'unconfirmed'});throw error;}
  }
  private async permission(e:Entry,cfg:Configuration,role:string){const message=`当前账号无${role}权限，本次处理结束。`;this.mark(e,'NO_PERMISSION',message);await this.reply(e,cfg,message);}
  private async write(e:Entry,name:string,args:readonly string[],verify:()=>Promise<boolean>){
@@ -363,7 +371,7 @@ export class GroupMrService {
   try{await this.processEntry(e,cfg);}catch(error){const reason=error instanceof Error?error.message:'MR 处理失败';this.errorLog('mr-processing',reason,error);const command=this.diagnostic.command;throw Error(reason.includes('列表返回格式')?`${command}：${reason}；详见 group-mr-errors.jsonl`:reason);}
  }
  private async processEntry(e:Entry,cfg:Configuration){
-  const initial=await this.view(e);if(initial.state==='closed'){this.archiveRemote(e,initial);return;}if(initial.state==='merged'){this.mark(e,'DONE','MR 已合并');await this.reply(e,cfg,'MR 已合并，无需重复处理。');return;}if(initial.state!=='opened')throw Error('MR 不处于可处理状态');
+  const initial=await this.view(e);if(initial.state==='closed'){this.archiveRemote(e,initial);return;}if(initial.state==='merged'){this.mark(e,'DONE','MR 已合并');await this.replyMerged(e,cfg,'MR 已合并，无需重复处理。');return;}if(initial.state!=='opened')throw Error('MR 不处于可处理状态');
   if(e.sha&&e.sha!==this.head(initial))throw Error('MR 当前提交已变化，请重新发送 MR 链接');
   e.sha=this.head(initial);if(!/^[a-f0-9]{40}$/i.test(e.sha))throw Error('CodeHub 未返回完整的当前提交 SHA');this.save(e);
   if(!e.shortcut&&e.humanReview?.sha!==e.sha){
@@ -372,7 +380,7 @@ export class GroupMrService {
    const cached=e.piReview?.source==='codehub'&&e.piReview.sha===e.sha&&e.piReview.discussionKey===discussionKey;
    if(!cached){this.mark(e,'PI','Pi 正在检视当前提交');await this.runPi(e,'',notes);}
    else this.mark(e,'PI','当前提交未变化，复用已完成的 Pi 检视；重新查询 CodeHub 意见');
-   const afterPi=await this.view(e);if(this.archiveRemote(e,afterPi))return;if(afterPi.state!=='opened'||this.head(afterPi)!==e.sha)throw Error('MR 已关闭或提交已变化，本次检视结果不再适用；请重新发送 MR 链接');
+   const afterPi=await this.view(e);if(this.archiveRemote(e,afterPi)){if(afterPi.state==='merged')await this.replyMerged(e,cfg);return;}if(afterPi.state!=='opened'||this.head(afterPi)!==e.sha)throw Error('MR 已关闭或提交已变化，本次检视结果不再适用；请重新发送 MR 链接');
    this.mark(e,'COMMENTS','正在通过 codehub-cli 获取检视意见');
    const remote=parseDiscussions(await this.code(['mr','review','list',e.iid,'-p',e.repo]));
    const unresolved=remote.filter(n=>!n.resolved);
@@ -416,10 +424,10 @@ export class GroupMrService {
    const snapshot=await this.current(e,e.sha);if(passed(snapshot.gate))continue;
    const username=string(object(jsonValues(await this.code(['user','view'],'id,name,username'))[0])?.username);
    const members=Array.isArray(snapshot.view[role])?snapshot.view[role]:[];
-   if(!members.some(m=>m.username?.toLowerCase()===username.toLowerCase())){if(e.shortcut&&name==='检视'){e.reviewSkipped=true;this.mark(e,'REVIEW','当前账号无检视权限，按合入指令跳过检视');continue;}await this.permission(e,cfg,name);return;}
+   if(!members.some(m=>m.username?.toLowerCase()===username.toLowerCase())){if(e.shortcut&&name==='检视'){e.reviewSkipped=true;this.mark(e,'REVIEW','当前账号无检视权限，按合入指令跳过检视');await this.reply(e,cfg,'当前账号无检视权限，按合入指令跳过检视，继续检查审核与合并权限。');continue;}await this.permission(e,cfg,name);return;}
    this.mark(e,phase,`正在${name}`);
    const ownDone=async()=>{const state=await this.current(e,e.sha);if(passed(state.gate))return true;const member=state.view[role]?.find(m=>m.username?.toLowerCase()===username.toLowerCase());return member?.approved===true||member?.has_approved===true||member?.reviewed===true||['approved','passed','reviewed'].includes(String(member?.state||member?.status));};
-   try{await this.write(e,name,command,ownDone);}catch(error){if(object(error)?.noPermission){if(e.shortcut&&name==='检视'){e.writePending='';e.reviewSkipped=true;this.mark(e,'REVIEW','当前账号无检视权限，按合入指令跳过检视');continue;}await this.permission(e,cfg,name);return;}throw error;}
+   try{await this.write(e,name,command,ownDone);}catch(error){if(object(error)?.noPermission){if(e.shortcut&&name==='检视'){e.writePending='';e.reviewSkipped=true;this.mark(e,'REVIEW','当前账号无检视权限，按合入指令跳过检视');await this.reply(e,cfg,'当前账号无检视权限，按合入指令跳过检视，继续检查审核与合并权限。');continue;}await this.permission(e,cfg,name);return;}throw error;}
    if(e.shortcut&&name==='检视')continue;
    if(!passed((await this.current(e,e.sha)).gate)){this.mark(e,'ISSUES',`${name}已完成，等待其他人员满足门禁`);await this.reply(e,cfg,e.status);return;}
   }
@@ -427,7 +435,7 @@ export class GroupMrService {
   if(before.merge_gate_passed!==true){this.mark(e,'ISSUES','尚有合并门禁未通过，本次处理结束');await this.reply(e,cfg,e.status);return;}
   try{await this.write(e,'合并',['mr','merge',e.iid,'-p',e.repo],async()=>{const v=await this.view(e);return v.state==='merged';});}
   catch(error){if(object(error)?.noPermission){await this.permission(e,cfg,'合并');return;}throw error;}
-  this.mark(e,'DONE',e.reviewSkipped?'已跳过无权限的检视，审核与合并已完成':'检视、审核与合并已完成');await this.reply(e,cfg,e.shortcut?'已按指令完成审核并合入。':'检视、审核已通过，MR 已合入。');
+  this.mark(e,'DONE',e.reviewSkipped?'已跳过无权限的检视，审核与合并已完成':'检视、审核与合并已完成');await this.replyMerged(e,cfg,e.shortcut?'已按指令完成审核并合入。':'检视、审核已通过，MR 已合入。');
  }
 }
 export function groupMrRoutes(app:FastifyInstance,service:GroupMrService){

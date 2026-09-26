@@ -58,3 +58,24 @@ test('knowledge uses latest history and scope changes stay pending until old kno
  let pending=knowledge.list().find(k=>k.status==='pending')!;assert.ok(pending);targetId=pending.id;const again=review('again','2026-09-27T00:00:00Z');knowledge.saveReview(again);knowledge.queue(again,'diff');await Promise.allSettled(knowledge['jobs']);pending=knowledge.list().find(k=>k.id===targetId)!;assert.equal(pending.conflictsWith,base.id);assert.equal(knowledge.context('Demo')[0]?.scope,'北向接口');const input={title:pending.title,content:pending.content,scope:pending.scope,status:'active',revision:pending.revision};assert.throws(()=>knowledge.update(pending.id,input),/冲突/);knowledge.update(base.id,{title:base.title,content:base.content,scope:base.scope,status:'disabled',revision:base.revision});knowledge.update(pending.id,input);assert.equal(knowledge.context('Demo').length,1);assert.equal(knowledge.context('Demo')[0]?.scope,'全部接口');
  }finally{await knowledge.close();store.close();}
 });
+
+for(const scenario of ['review-denied','approve-denied','merge-denied','review-absent','approve-absent','merged'] as const)test('human-approved MR replies for each permission failure and merge success: '+scenario,async()=>{
+ const store=new TaskStore(':memory:'),sent:string[]=[],writes:string[]=[];let merged=false;
+ const role=scenario.startsWith('review')?'检视':scenario.startsWith('approve')?'审核':'合并';
+ const service=new GroupMrService(store,async args=>{
+  const action=args[2];let value:unknown={};
+  if(action==='view')value={iid:1,state:merged?'merged':'opened',sha,approval_merge_request_reviewers:scenario==='review-absent'?[]:[{username:'owner123'}],approval_merge_request_approvers:scenario==='approve-absent'?[]:[{username:'owner123'}]};
+  if(args[1]==='user')value={username:'owner123'};
+  if(action==='gate')value={ci_state_passed:true,quality_gate:{passed:true},conflict_passed:true,approval_reviewers_required_passed:!scenario.startsWith('review'),approval_approvers_required_passed:!scenario.startsWith('approve'),merge_gate_passed:true};
+  if(action==='pipeline')value=[{id:1,status:'success',sha}];if(action==='review')value=[];
+  if(['approve-review','approve','merge'].includes(action??'')){writes.push(action!);if(scenario.endsWith('denied'))return {exitCode:1,output:'HTTP 403 forbidden'};merged=true;}
+  if(action==='send-to-group'&&!args.includes('--help')){sent.push(args[args.indexOf('--text')+1]!);value={resultCode:0};}
+  return {exitCode:0,output:JSON.stringify(value)};
+ });
+ service.configure(cfg);const e=entry();e.phase='HUMAN';store.putRecord('group-mr-entry',e.id,e);
+ try{await service.submitReview(e.id,{sha,decision:'pass',reason:''});while(service['background'].size)await Promise.allSettled(service['background']);
+  assert.equal(sent.length,1);assert.ok(sent[0]?.includes(e.url));
+  if(scenario==='merged'){assert.equal(service.list()[0]?.phase,'DONE');assert.match(sent[0]??'',/MR 已合入/);}
+  else{assert.equal(service.list()[0]?.phase,'NO_PERMISSION');assert.ok(sent[0]?.includes('无'+role+'权限'));assert.equal(merged,false);assert.equal(writes.length,scenario.endsWith('absent')?0:1);}
+ }finally{await service.close();store.close();}
+});
