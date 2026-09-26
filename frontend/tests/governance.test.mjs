@@ -12,8 +12,8 @@ test('默认成果看板展示真实指标与失败原因，执行详情按需�
  try{
   await pause();const d=dom.window.document;
   assert.equal(d.querySelector('.page-head h1').textContent,'自动化概览');
-  assert.equal(d.querySelectorAll('.governance-stats .studio-stat').length,3);
-  assert.match(d.querySelector('.governance-dashboard').textContent,/连续执行 7 天/);
+  assert.equal(d.querySelectorAll('.governance-stats .studio-stat').length,6);
+  assert.match(d.querySelector('.governance-dashboard').textContent,/先看成果，再处理需要关注的任务。/);
   assert.match(d.querySelector('.governance-dashboard').textContent,/依赖下载失败/);
   assert.equal(d.querySelector('[data-auto-ut-live]'),null);
   const version=d.querySelector('#governance-version');version.value='R27C10';version.dispatchEvent(new dom.window.Event('change'));await pause();
@@ -26,7 +26,7 @@ test('默认成果看板展示真实指标与失败原因，执行详情按需�
 
 test('概览聚合三类任务，成果下钻沿用版本与时间范围，记录可按工具筛选',async()=>{
  const now=new Date().toISOString(),old=new Date(Date.now()-40*86400000).toISOString();
- const tasks=[{id:'new',repository:'NewService',reportVersion:'R27C10',status:'RESOLVED',updatedAt:now,governance:{fixedIds:['A#test']}},{id:'old',repository:'OldService',reportVersion:'R27C10',status:'RESOLVED',updatedAt:old,governance:{fixedIds:['B#test']}},{id:'partial',repository:'PartialService',reportVersion:'R27C10',status:'RESOLVED',updatedAt:now,governance:{classResults:[{target:'DemoTest',status:'FAILED',message:'回归失败'}]}}];
+ const tasks=[{id:'new',repository:'NewService',reportVersion:'R27C10',status:'RESOLVED',updatedAt:now,governance:{fixedIds:['A#test'],mrState:'MERGED'}},{id:'old',repository:'OldService',reportVersion:'R27C10',status:'RESOLVED',updatedAt:old,governance:{fixedIds:['B#test'],mrState:'MERGED'}},{id:'partial',repository:'PartialService',reportVersion:'R27C10',status:'RESOLVED',updatedAt:now,governance:{classResults:[{target:'DemoTest',status:'FAILED',message:'回归失败'}]}}];
  const config={versions:[{version:'R27C10',baseBranch:'master'}],username:'',ticket:'',workspaceRoot:''};
  const report={id:'report',status:'READY',createdAt:now,config,plan:[],claimed:[],messages:[]};
  const dom=new JSDOM(html,{url:'http://localhost/#/automation',runScripts:'dangerously',beforeParse(w){w.scrollTo=()=>{};w.fetch=async url=>({ok:true,status:200,json:async()=>url==='/api/auto-ut/tasks'?tasks:url.startsWith('/api/auto-ut/governance')?{metrics:{fixedCases:2},records:tasks}:url==='/api/auto-ut/report-settings'?{config}:url==='/api/auto-ut/reports'?[report]:url==='/api/quality/settings'?{url:'http://grafana/api/query'}:url==='/api/quality/jobs'?[{id:'quality',status:'FAILED',createdAt:now,input:{versions:['R27C10']}}]:[]});}});
@@ -36,10 +36,10 @@ test('概览聚合三类任务，成果下钻沿用版本与时间范围，记�
   assert.ok(d.querySelector('[data-studio-record="report"]'));
   assert.match(d.querySelector('.governance-dashboard').textContent,/DemoTest：回归失败/);
   const days=d.querySelector('#governance-days');days.value='7';days.dispatchEvent(new dom.window.Event('change'));await pause();
-  d.querySelector('[data-studio-outcome="fixed"]').click();await pause();
-  assert.equal(dom.window.location.hash,'#/automation/tasks');
-  assert.deepEqual([...d.querySelectorAll('[data-auto-ut-task]')].map(el=>el.dataset.autoUtTask),['new']);
-  d.querySelector('[data-studio-reset-outcome]').click();
+  d.querySelector('[data-overview-outcome="fixed"]').click();await pause();
+  assert.equal(dom.window.location.hash,'#/automation');
+  assert.deepEqual([...d.querySelectorAll('.overview-detail [data-auto-ut-task]')].map(el=>el.dataset.autoUtTask),['new']);
+  d.querySelector('[data-automation-nav="tasks"]').click();await pause();
   assert.equal(d.querySelectorAll('[data-auto-ut-task]').length,3);
   d.querySelector('[data-studio-record-kind="quality"]').click();
   assert.equal(d.querySelector('[data-studio-record-kind="quality"]').getAttribute('aria-pressed'),'true');
@@ -73,10 +73,31 @@ test('概览指标采用网格卡片，长错误限制在待处理表格内',asy
  const task={id:'long',repository:'Demo',reportVersion:'R27C10',status:'WAITING_EXTERNAL',message:'诊断'.repeat(3000),updatedAt:new Date().toISOString()};
  const dom=new JSDOM(html,{url:'http://localhost/#/automation',runScripts:'dangerously',beforeParse(w){w.scrollTo=()=>{};w.fetch=async url=>({ok:true,status:200,json:async()=>url==='/api/auto-ut/tasks'?[task]:url.startsWith('/api/automation/effectiveness')?metrics:url==='/api/automation/knowledge'?{items:[],reviews:[]}:url.startsWith('/api/auto-ut/governance')?{metrics:{},records:[task]}:[]});}});
  try{const style=dom.window.document.createElement('style');style.textContent=css;dom.window.document.head.append(style);await pause();const d=dom.window.document;
-  assert.equal(d.querySelectorAll('.review-metric').length,4);
-  assert.equal(dom.window.getComputedStyle(d.querySelector('.review-metrics')).display,'grid');
+  assert.equal(d.querySelectorAll('.review-metric').length,0);
+  assert.equal(dom.window.getComputedStyle(d.querySelector('.overview-outcomes')).display,'grid');
   assert.equal(dom.window.getComputedStyle(d.querySelector('.review-todos')).tableLayout,'fixed');
   const reason=d.querySelector('.review-todo-reason');assert.equal(reason.textContent,task.message);assert.equal(dom.window.getComputedStyle(reason).overflow,'hidden');
   assert.equal(dom.window.getComputedStyle(d.querySelector('.review-todos-wrap')).overflow,'auto');
  }finally{await pause();dom.window.close();}
+});
+
+test('概览只统计已合入 UT，MR 去重且排除外部合入，待处理不受成果周期影响',async()=>{
+ const now=new Date().toISOString(),old=new Date(Date.now()-60*86400000).toISOString();
+ const task=(id,mrState,version='R27C10')=>({id,repository:'Demo',reportVersion:version,status:'RESOLVED',createdAt:now,updatedAt:now,pullRequestUrl:'https://codehub-y.huawei.com/MAE-M/Access/Demo/merge_requests/'+id,governance:{mrState,fixedIds:['testA'],addedIds:['testB']}});
+ const tasks=[task('1','MERGED'),task('2','MERGED'),task('3','PENDING'),{id:'failed',repository:'OldFailure',reportVersion:'R27C10',status:'WAITING_EXTERNAL',message:'旧任务仍待处理',createdAt:old,updatedAt:old}];
+ const mr=(id,iid,extra={})=>({id,iid,repo:'MAE-M/Access/Demo',url:'https://codehub-y.huawei.com/MAE-M/Access/Demo/merge_requests/'+iid,createdAt:now,updatedAt:now,phase:'DONE',status:'已完成',events:[{phase:'DONE',message:'检视、审核与合并已完成'}],...extra});
+ const history=[mr('first','1',{piReview:{source:'codehub'}}),mr('retry','1',{piReview:{source:'codehub'},reviewComments:[{id:'others-comment',body:'其他人的意见'}]}),mr('shortcut','99',{shortcut:true}),mr('external','100',{events:[{phase:'DONE',message:'MR 已合并'}]})];
+ const pending=[mr('human','3',{phase:'HUMAN',createdAt:old,events:[],status:'等待人工审核'}),mr('superseded','3',{phase:'FAILED',supersededBy:'human',events:[]})];
+ const dom=new JSDOM(html,{url:'http://localhost/#/automation',runScripts:'dangerously',beforeParse(w){w.scrollTo=()=>{};w.fetch=async url=>({ok:true,status:200,json:async()=>url==='/api/auto-ut/tasks'?tasks:url.startsWith('/api/auto-ut/governance')?{metrics:{},records:tasks}:url==='/api/automation/group-mr'?{pending,history,config:{},monitor:{},metrics:{}}:[]});}});
+ try{await pause();const d=dom.window.document,metric=key=>d.querySelector('[data-overview-outcome="'+key+'"] strong').textContent;
+  assert.equal(metric('fixed'),'1');assert.equal(metric('added'),'1');assert.equal(metric('processed'),'2');assert.equal(metric('merged'),'2');assert.equal(metric('waiting'),'2');assert.equal(metric('comments'),'暂无数据');
+  assert.match(d.querySelector('.overview-pending').textContent,/1 个 UT 任务/);
+  d.querySelector('[data-overview-outcome="comments"]').click();assert.match(d.querySelector('.overview-detail').textContent,/未区分平台提交意见/);
+  d.querySelector('[data-overview-filter="mr"]').click();assert.equal(d.querySelectorAll('.review-todos tbody tr').length,1);
+  d.querySelector('[data-overview-outcome="waiting"]').click();assert.equal(d.activeElement.id,'overview-pending-heading');assert.equal(d.querySelector('[data-overview-filter="all"]').getAttribute('aria-pressed'),'true');
+  const days=d.querySelector('#governance-days');days.value='7';days.dispatchEvent(new dom.window.Event('change'));await pause();assert.equal(metric('waiting'),'2');
+  const version=d.querySelector('#governance-version');version.value='R27C10';version.dispatchEvent(new dom.window.Event('change'));await pause();assert.equal(metric('processed'),'1');assert.equal(metric('merged'),'1');
+  d.querySelector('[data-overview-outcome="merged"]').click();assert.equal(d.querySelectorAll('.overview-mr-detail').length,1);
+  d.querySelector('.overview-mr-detail [data-review-open]').click();await pause();assert.equal(dom.window.location.hash,'#/automation/group-mr');
+ }finally{dom.window.close();}
 });

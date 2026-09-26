@@ -172,3 +172,23 @@
 @media(max-width:600px){.group-mr-flow{grid-template-columns:repeat(2,minmax(0,1fr))}.group-mr-flow li:nth-child(2n):after{display:none}.group-mr-overview{grid-template-columns:minmax(0,1fr)}.review-human .studio-section-head{align-items:flex-start}.review-human .head-actions{margin-top:0}}
 
 .studio-record-selectable th:nth-child(1){width:48px}.studio-record-selectable th:nth-child(2){width:24%}.studio-record-selectable th:nth-child(3){width:40%}.studio-record-selectable th:nth-child(4){width:18%}.studio-record-selectable th:nth-child(5){width:auto}.studio-record-selectable .studio-record-check{padding:12px;text-align:center}.studio-record-selectable td:nth-child(2){max-width:none}
+
+/* Automation overview: unified UT and MR outcomes. */
+.governance-dashboard .overview-outcomes{gap:14px;padding:0;border:0;background:none;border-radius:0}
+.governance-dashboard .overview-outcomes .studio-stat{padding:22px;border:1px solid var(--line);border-radius:9px;background:#fff;display:flex;flex-direction:column;align-items:stretch}
+.governance-dashboard .overview-outcomes .studio-stat>strong{display:block;font-size:34px;margin:6px 0;font-weight:600}
+.governance-dashboard .overview-outcomes .studio-stat>small{display:block;line-height:1.7;min-height:38px}
+.governance-dashboard .overview-outcomes .studio-stat:hover{border-color:#a5b9e0}
+.governance-dashboard .overview-outcomes .studio-stat:focus-visible,.overview-filters button:focus-visible{outline:2px solid var(--brand);outline-offset:3px}
+.governance-dashboard [data-overview-outcome="waiting"]>strong{color:#a77c31}
+.governance-dashboard [data-overview-outcome="comments"]>strong{font-size:25px;line-height:2.04;color:#7b8797}
+.governance-dashboard .overview-card-link{border-top:1px solid var(--line);padding-top:12px;margin-top:16px;color:#60779a}
+.governance-dashboard .overview-pending{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:13px 17px;border:1px solid #e9e3d7;border-radius:8px;background:#fffcf6;margin-top:14px;font-size:12px;color:#8d733d}
+.governance-dashboard .overview-pending button{margin-left:auto}
+.governance-dashboard .studio-section-head>.qw-muted,.governance-dashboard .studio-section-head>div>.qw-muted{font-size:12px}
+.governance-dashboard .studio-section-head>div:first-child{flex-wrap:wrap}
+.overview-filters{display:flex;gap:5px;flex-wrap:wrap}.overview-filters button{background:none;border:1px solid transparent;border-radius:6px;color:var(--muted);padding:6px 11px;font-size:12px}.overview-filters .active{background:var(--brand-soft);border-color:#dae3f6;color:var(--brand)}
+.governance-dashboard .overview-detail{padding:0 20px 20px;margin-top:20px;overflow:auto}.overview-mr-detail{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:15px 0;border-top:1px solid var(--line);font-size:12px;overflow-wrap:anywhere}.overview-mr-detail button{margin-left:auto}
+#overview-pending-heading,#overview-detail-heading{scroll-margin-top:90px}
+@media(max-width:800px){.governance-dashboard .overview-outcomes{gap:10px}.governance-dashboard .overview-outcomes .studio-stat{padding:17px}.governance-dashboard .overview-outcomes .studio-stat>strong{font-size:28px}}
+@media(max-width:600px){.governance-dashboard .overview-outcomes{grid-template-columns:1fr}.governance-dashboard .overview-outcomes .studio-stat>strong{font-size:32px}.governance-dashboard .overview-pending button{margin-left:0}}
