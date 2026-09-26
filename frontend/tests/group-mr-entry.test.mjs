@@ -168,3 +168,23 @@ test('后台提交变化后旧审核表单不能提交新 SHA，旧草稿不会�
  assert.equal(form.dataset.reviewSha,'a'.repeat(40));form.dispatchEvent(new dom.window.Event('submit',{bubbles:true,cancelable:true}));await flush();
  assert.equal(writes.length,0);assert.equal(doc.querySelector('[data-human-review]').dataset.reviewSha,row.sha);assert.equal(doc.querySelector('[data-human-review] textarea').value,'');
 });
+
+test('MR 完整样式加载后筛选可换行、进度网格、审核单选框保留原生尺寸',async t=>{
+ const row={id:'layout',repo:'MAE-M/Access/'+ 'LongService'.repeat(20),iid:'444',phase:'HUMAN',sha:'a'.repeat(40),status:'等待人工审核',sender:'w00789509',events:[],updatedAt:new Date().toISOString(),piOutput:'日志'.repeat(2000)};
+ const {doc,dom}=await fixture(t,{route:'group-mr',records:[row]});
+ for(const file of ['quality-workspace.css','studio-workspace.css','home-workbench.css']){const style=doc.createElement('style');style.textContent=await readFile(new URL('../src/'+file,import.meta.url),'utf8');doc.head.append(style)}
+ const css=el=>dom.window.getComputedStyle(el);
+ assert.equal(css(doc.querySelector('.group-mr-toolbar')).flexWrap,'wrap');
+ assert.equal(css(doc.querySelector('.group-mr-flow')).display,'grid');
+ const radio=doc.querySelector('input[type=radio]');assert.equal(css(radio).width,'16px');assert.equal(css(radio).paddingTop,'0px');assert.equal(css(radio.closest('label')).display,'inline-flex');
+ assert.equal(css(doc.querySelector('.group-mr-trigger')).overflow,'hidden');
+ assert.equal(css(doc.querySelector('.group-mr-events pre')).maxHeight,'360px');
+ assert.ok(doc.querySelector('.group-mr-notice').compareDocumentPosition(doc.querySelector('.review-human'))&dom.window.Node.DOCUMENT_POSITION_FOLLOWING);
+ assert.equal(doc.querySelectorAll('.group-mr-flow li').length,8);
+});
+test('未到人工审核阶段不插入空审核面板，已审核历史仍可查阅',async t=>{
+ const row={id:'layout-pi',repo:'MAE-M/Access/Demo',iid:'1',phase:'PI',sha:'a'.repeat(40),status:'正在检视',events:[],updatedAt:new Date().toISOString()};
+ const {doc,dom}=await fixture(t,{route:'group-mr',records:[row]});assert.equal(doc.querySelector('.review-human'),null);
+ dom.window.eval(`reviewUi.reviews=[{id:'review',repo:'MAE-M/Access/Demo',iid:'1',sha:'${'a'.repeat(40)}',decision:'reject',reason:'回归未通过',time:'2026-09-26T00:00:00Z',knowledgeStatus:'done'}];render(false)`);
+ assert.match(doc.querySelector('.review-human').textContent,/回归未通过/);assert.equal(doc.querySelector('[data-human-review]'),null);
+});

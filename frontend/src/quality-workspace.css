@@ -1,7 +1,7 @@
 /* Quality and Auto-UT share a compact workbench; container pages keep their theme. */
 .quality-workspace{--brand:#3566e8;--brand-soft:#edf2ff;--line:#e5e9ef;--muted:#798594;--ink:#253342;--surface-soft:#f7f9fc;max-width:1550px;margin:0 auto}
 .quality-workspace .panel{border-radius:10px;box-shadow:0 2px 3px #26374803}
-.quality-workspace input:not([type=checkbox]),.quality-workspace select{min-width:0;max-width:100%;border:1px solid var(--line);background:#fff;border-radius:7px;padding:9px 11px;color:var(--ink);font:inherit}
+.quality-workspace input:not([type=checkbox]):not([type=radio]),.quality-workspace select{min-width:0;max-width:100%;border:1px solid var(--line);background:#fff;border-radius:7px;padding:9px 11px;color:var(--ink);font:inherit}
 .quality-workspace input[type=checkbox]{accent-color:var(--brand);width:15px;height:15px;cursor:pointer;flex:0 0 auto}
 .quality-workspace button:focus-visible,.quality-workspace input:focus-visible,.quality-workspace select:focus-visible,.quality-workspace summary:focus-visible{outline:2px solid #9bb8ff;outline-offset:2px}
 .quality-workspace .button{padding:8px 12px;white-space:nowrap}.quality-workspace .button.small{padding:5px 9px}.quality-workspace .badge{border-radius:4px;font-size:11px}
