@@ -200,12 +200,12 @@ export class GroupMrService {
   if(e.humanReview?.decision===input.decision&&e.humanReview.reason===input.reason&&e.humanReview.category===input.category)throw Object.assign(Error('相同审核已提交，请刷新'),{statusCode:409});
   return new Promise<Entry>((resolve,reject)=>{
    void this.enqueue(e,async()=>{
-    const remote=await this.view(e);if(remote.state!=='opened'||this.head(remote)!==input.sha)throw Object.assign(Error('提交已变化或 MR 已关闭，请重新发送链接'),{statusCode:409});
+    try{const remote=await this.view(e);if(remote.state!=='opened'||this.head(remote)!==input.sha)throw Object.assign(Error('提交已变化或 MR 已关闭，请重新发送链接'),{statusCode:409});}catch(error){await this.replyFailure(e,this.configuration(),error instanceof Error?error.message:'无法核对当前提交').catch(()=>{});throw error;}
     const record:HumanReview={...input,id:randomUUID(),entryId:e.id,repo:e.repo,iid:e.iid,url:e.url,time:new Date().toISOString(),waitMs:Math.max(0,Date.now()-Date.parse(e.humanReview?.time||e.humanStartedAt||e.updatedAt)),actor:'平台人工审核',knowledgeStatus:input.reason?'pending':'skipped'};
     this.knowledge.saveReview(record);e.humanReview=record;this.save(e);this.startKnowledge(record);
     if(input.decision==='reject'){this.mark(e,'HUMAN','人工审核不通过：'+input.reason);resolve(e);return;}
     this.mark(e,'REVIEW','人工审核已通过，正在重新核对提交和门禁');resolve(e);
-    try{await this.process(e,this.configuration());}catch{if(e.phase==='DONE'){await this.replyMerged(e,this.configuration()).catch(()=>{});}if(['DONE','CLOSED','FAILED','NO_PERMISSION'].includes(e.phase)){e.detail='后续消息或操作结果未确认，请核对远端状态';this.save(e);}else this.mark(e,'INTERRUPTED','人工审核已保存，后续检查或操作未完成，请核对远端状态');}
+    try{await this.process(e,this.configuration());}catch(error){const reason=error instanceof Error?error.message:'操作未完成';if(e.phase==='DONE'){await this.replyMerged(e,this.configuration()).catch(()=>{});}if(['DONE','CLOSED','FAILED','NO_PERMISSION'].includes(e.phase)){e.detail='后续消息或操作结果未确认，请核对远端状态';this.save(e);}else{this.mark(e,'INTERRUPTED','人工审核已保存，后续检查或操作未完成：'+reason);await this.replyFailure(e,this.configuration(),reason).catch(()=>{});}}
    }).catch(reject);
   });
  }
@@ -315,7 +315,7 @@ export class GroupMrService {
   try{
    if(received){this.mark(entry,entry.shortcut?'PIPELINE':'PI',entry.shortcut?'准备按指令合入':'准备检视当前提交');await this.reply(entry,cfg,entry.shortcut?'已收到合入指令，正在处理。':'已收到 MR，正在检视中。');}
    await this.process(entry,cfg);
-  }catch(error){const reason=error instanceof Error?error.message:'处理失败';if(entry.phase==='DONE')await this.replyMerged(entry,cfg).catch(()=>{});if(['DONE','CLOSED','FAILED','NO_PERMISSION'].includes(entry.phase)){entry.detail=reason;this.save(entry);}else{this.mark(entry,'INTERRUPTED',reason);if(!entry.writePending&&!this.closing)await this.reply(entry,cfg,reason).catch(()=>{});}}
+  }catch(error){const reason=error instanceof Error?error.message:'处理失败';if(entry.phase==='DONE')await this.replyMerged(entry,cfg).catch(()=>{});if(['DONE','CLOSED','FAILED','NO_PERMISSION'].includes(entry.phase)){entry.detail=reason;this.save(entry);}else{this.mark(entry,'INTERRUPTED',reason);if(!this.closing){if(['APPROVE','MERGE'].includes(entry.stage??''))await this.replyFailure(entry,cfg,reason).catch(()=>{});else if(!entry.writePending)await this.reply(entry,cfg,reason).catch(()=>{});}}}
  }
 
  private async view(e:Entry){return parseMr(await this.code(['mr','view',e.iid,'-p',e.repo],'iid,id,mr_url,state,sha,diff_refs,approval_merge_request_reviewers,approval_merge_request_approvers,merge_request_assignee_list'));}
@@ -328,7 +328,8 @@ export class GroupMrService {
   const flag=['--quote-message-id','--reply-to-message-id','--quote-msg-id'].find(option=>help.includes(option));
   if(!flag)e.events.push({time:new Date().toISOString(),phase:e.phase,message:'当前 WeLink CLI 未提供原生引用回复参数，群消息将使用原 MR 链接标识来源'});
   // Keep --text single-line for Windows welink-cli.cmd; never weaken batch argument validation.
-  const text=`${e.url} —— ${message.replace(/[\r\n\0\u2028\u2029]+/g,'；')}`.slice(0,1800);
+  const sender=e.sender.replace(/[\r\n\0\u2028\u2029]+/g,' ').trim().slice(0,100)||'未知发送人';
+  const text=`发送人：${sender}；${e.url} —— ${message.replace(/[\r\n\0\u2028\u2029]+/g,'；')}`.slice(0,1800);
   e.reply={text,mode:flag?'quote':'reference',status:'sending'};e.writePending='群消息回复';this.save(e);
   // Persist before sending: even an unconfirmed send can later appear in group history.
   this.store.putRecord('group-mr-outgoing',replyTextKey(cfg.groupId,text),{entryId:e.id,createdAt:new Date().toISOString()});
@@ -346,7 +347,13 @@ export class GroupMrService {
   try{await this.reply(e,cfg,message);this.store.putRecord('group-mr-merge-reply',key,{entryId:e.id,status:'sent'});}
   catch(error){this.store.putRecord('group-mr-merge-reply',key,{entryId:e.id,status:'unconfirmed'});throw error;}
  }
- private async permission(e:Entry,cfg:Configuration,role:string){const message=`当前账号无${role}权限，本次处理结束。`;this.mark(e,'NO_PERMISSION',message);await this.reply(e,cfg,message);}
+ private async replyFailure(e:Entry,cfg:Configuration,reason:string){
+  if(e.writePending==='群消息回复'||e.reply?.status==='unconfirmed'||e.reply?.status==='sending')return;
+  const pending=e.writePending;
+  try{await this.reply(e,cfg,`无法${e.stage==='MERGE'?'合入':'审核'}：${reason}`);}
+  finally{if(pending){e.writePending=pending;this.save(e);}}
+ }
+ private async permission(e:Entry,cfg:Configuration,role:string){const message=`无法${role==='合并'?'合入':role}：当前账号无${role}权限，本次处理结束。`;this.mark(e,'NO_PERMISSION',message);await this.reply(e,cfg,message);}
  private async write(e:Entry,name:string,args:readonly string[],verify:()=>Promise<boolean>){
   if(e.writePending){if(await verify()){e.writePending='';this.save(e);return;}throw Error(`上次${name}操作结果待确认，请核对 CodeHub`);}
   if(await verify())return;
@@ -424,10 +431,10 @@ export class GroupMrService {
    const snapshot=await this.current(e,e.sha);if(passed(snapshot.gate))continue;
    const username=string(object(jsonValues(await this.code(['user','view'],'id,name,username'))[0])?.username);
    const members=Array.isArray(snapshot.view[role])?snapshot.view[role]:[];
-   if(!members.some(m=>m.username?.toLowerCase()===username.toLowerCase())){if(e.shortcut&&name==='检视'){e.reviewSkipped=true;this.mark(e,'REVIEW','当前账号无检视权限，按合入指令跳过检视');await this.reply(e,cfg,'当前账号无检视权限，按合入指令跳过检视，继续检查审核与合并权限。');continue;}await this.permission(e,cfg,name);return;}
+   if(!members.some(m=>m.username?.toLowerCase()===username.toLowerCase())){if(name==='检视'){e.reviewSkipped=true;this.mark(e,'REVIEW','当前账号无检视权限，跳过检视');continue;}await this.permission(e,cfg,name);return;}
    this.mark(e,phase,`正在${name}`);
    const ownDone=async()=>{const state=await this.current(e,e.sha);if(passed(state.gate))return true;const member=state.view[role]?.find(m=>m.username?.toLowerCase()===username.toLowerCase());return member?.approved===true||member?.has_approved===true||member?.reviewed===true||['approved','passed','reviewed'].includes(String(member?.state||member?.status));};
-   try{await this.write(e,name,command,ownDone);}catch(error){if(object(error)?.noPermission){if(e.shortcut&&name==='检视'){e.writePending='';e.reviewSkipped=true;this.mark(e,'REVIEW','当前账号无检视权限，按合入指令跳过检视');await this.reply(e,cfg,'当前账号无检视权限，按合入指令跳过检视，继续检查审核与合并权限。');continue;}await this.permission(e,cfg,name);return;}throw error;}
+   try{await this.write(e,name,command,ownDone);}catch(error){if(object(error)?.noPermission){if(name==='检视'){e.writePending='';e.reviewSkipped=true;this.mark(e,'REVIEW','当前账号无检视权限，跳过检视');continue;}await this.permission(e,cfg,name);return;}throw error;}
    if(e.shortcut&&name==='检视')continue;
    if(!passed((await this.current(e,e.sha)).gate)){this.mark(e,'ISSUES',`${name}已完成，等待其他人员满足门禁`);await this.reply(e,cfg,e.status);return;}
   }
@@ -435,7 +442,7 @@ export class GroupMrService {
   if(before.merge_gate_passed!==true){this.mark(e,'ISSUES','尚有合并门禁未通过，本次处理结束');await this.reply(e,cfg,e.status);return;}
   try{await this.write(e,'合并',['mr','merge',e.iid,'-p',e.repo],async()=>{const v=await this.view(e);return v.state==='merged';});}
   catch(error){if(object(error)?.noPermission){await this.permission(e,cfg,'合并');return;}throw error;}
-  this.mark(e,'DONE',e.reviewSkipped?'已跳过无权限的检视，审核与合并已完成':'检视、审核与合并已完成');await this.replyMerged(e,cfg,e.shortcut?'已按指令完成审核并合入。':'检视、审核已通过，MR 已合入。');
+  this.mark(e,'DONE',e.reviewSkipped?'已跳过无权限的检视，审核与合并已完成':'检视、审核与合并已完成');await this.replyMerged(e,cfg,e.shortcut?'已按指令完成审核并合入。':e.reviewSkipped?'审核已通过，MR 已合入。':'检视、审核已通过，MR 已合入。');
  }
 }
 export function groupMrRoutes(app:FastifyInstance,service:GroupMrService){

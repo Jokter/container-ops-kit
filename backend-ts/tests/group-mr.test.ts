@@ -197,11 +197,11 @@ test('MR replies use original link and dash with Windows-safe arguments and nati
   try{const cfg={enabled:true,groupId:'123456789',authorizedSender:'owner123',repositoryPrefix:'MAE-M/Access/',intervalSeconds:5};
    const entry={id:'reply-format',repo:'MAE-M/Access/Demo',iid:'444',url:'https://codehub-y.huawei.com/MAE-M/Access/Demo/merge_requests/444',sha:'',previousSha:'',messageId:'12345',sender:'u123',shortcut:false,phase:'DONE' as const,status:'',detail:'',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),writePending:'',events:[]};
    await service['reply'](entry,cfg,'检视、审核已通过，MR 已合入。');
-   assert.equal(sent[sent.indexOf('--text')+1],entry.url+' —— 检视、审核已通过，MR 已合入。');
+   assert.equal(sent[sent.indexOf('--text')+1],'发送人：u123；'+entry.url+' —— 检视、审核已通过，MR 已合入。');
    if(flag)assert.deepEqual(sent.slice(-2),[flag,'12345']);else assert.equal(sent.length,7);
    assert.doesNotThrow(()=>batchCommand('C:\\tools\\welink-cli.cmd',sent.slice(1)));
    await service['reply'](entry,cfg,'流水线失败\r\n请检查\0详情\u2028结束\u2029。');
-   assert.equal(sent[sent.indexOf('--text')+1],entry.url+' —— 流水线失败；请检查；详情；结束；。');
+   assert.equal(sent[sent.indexOf('--text')+1],'发送人：u123；'+entry.url+' —— 流水线失败；请检查；详情；结束；。');
    assert.doesNotThrow(()=>batchCommand('C:\\tools\\welink-cli.cmd',sent.slice(1)));
   }finally{await service.close();store.close();}
  }
@@ -356,8 +356,8 @@ for(const review of ['allowed','absent','forbidden','failed'] as const)test('aut
  assert.equal(service.list()[0]?.humanReview,undefined);assert.equal(service.list()[0]?.notification,undefined);assert.equal(service.knowledge.reviews().length,0);
  assert.match(sent[0]??'',/已收到合入指令/);assert.equal(calls[0],'welink');assert.deepEqual([...closed],['mine','others']);assert.equal(calls.includes('pi'),false);
  assert.equal(merged,review!=='failed');assert.equal(service.list()[0]?.phase,review==='failed'?'INTERRUPTED':'DONE');
- if(review==='failed')assert.equal(service.list()[0]?.writePending,'检视');else assert.equal(sent.length,review==='absent'||review==='forbidden'?3:2);
- if(review==='absent'||review==='forbidden'){assert.equal(service.list()[0]?.reviewSkipped,true);assert.match(sent[1]??'',/无检视权限/);}if(review!=='failed')assert.match(sent.at(-1)??'',/完成审核并合入/);
+ if(review==='failed')assert.equal(service.list()[0]?.writePending,'检视');else assert.equal(sent.length,2);
+ if(review==='absent'||review==='forbidden'){assert.equal(service.list()[0]?.reviewSkipped,true);assert.ok(sent.every(text=>!text.includes('无检视权限')));}if(review!=='failed')assert.match(sent.at(-1)??'',/完成审核并合入/);
  }finally{await service.close();store.close();}
 });
 
@@ -416,7 +416,7 @@ test('arbitrary outgoing replies remain filtered after restart even when sending
  const service=new GroupMrService(store,async args=>args.includes('--help')?{exitCode:0,output:''}:{exitCode:0,output:'{}'});
  const entry={id:'outgoing',repo:'MAE-M/Access/Demo',iid:'1',url:'https://codehub-y.huawei.com/MAE-M/Access/Demo/merge_requests/1',sha:'',previousSha:'',messageId:'1',sender:'developer',shortcut:false,phase:'FAILED' as const,status:'',detail:'',createdAt:new Date().toISOString(),updatedAt:'',writePending:'',events:[]};
  try{await assert.rejects(service['reply'](entry,cfg,'一个自定义处理结果'),/未确认/);await service.close();
-  const restarted=new GroupMrService(store);try{const msg={id:'2',sender:'different-alias',content:entry.url+'   ——   一个自定义处理结果',quoteId:''};assert.equal(restarted['trigger'](msg,cfg),undefined);assert.ok(store.records('group-mr-outgoing').length);}
+  const restarted=new GroupMrService(store);try{const msg={id:'2',sender:'different-alias',content:'发送人：developer；'+entry.url+'   ——   一个自定义处理结果',quoteId:''};assert.equal(restarted['trigger'](msg,cfg),undefined);assert.ok(store.records('group-mr-outgoing').length);}
   finally{await restarted.close();}
  }finally{await service.close();store.close();}
 });

@@ -59,7 +59,7 @@ test('knowledge uses latest history and scope changes stay pending until old kno
  }finally{await knowledge.close();store.close();}
 });
 
-for(const scenario of ['review-denied','approve-denied','merge-denied','review-absent','approve-absent','merged'] as const)test('human-approved MR replies for each permission failure and merge success: '+scenario,async()=>{
+for(const scenario of ['review-denied','approve-denied','merge-denied','review-absent','approve-absent','approve-timeout','merge-timeout','merged'] as const)test('human-approved MR replies for each permission failure and merge success: '+scenario,async()=>{
  const store=new TaskStore(':memory:'),sent:string[]=[],writes:string[]=[];let merged=false;
  const role=scenario.startsWith('review')?'检视':scenario.startsWith('approve')?'审核':'合并';
  const service=new GroupMrService(store,async args=>{
@@ -68,14 +68,15 @@ for(const scenario of ['review-denied','approve-denied','merge-denied','review-a
   if(args[1]==='user')value={username:'owner123'};
   if(action==='gate')value={ci_state_passed:true,quality_gate:{passed:true},conflict_passed:true,approval_reviewers_required_passed:!scenario.startsWith('review'),approval_approvers_required_passed:!scenario.startsWith('approve'),merge_gate_passed:true};
   if(action==='pipeline')value=[{id:1,status:'success',sha}];if(action==='review')value=[];
-  if(['approve-review','approve','merge'].includes(action??'')){writes.push(action!);if(scenario.endsWith('denied'))return {exitCode:1,output:'HTTP 403 forbidden'};merged=true;}
+  if(['approve-review','approve','merge'].includes(action??'')){writes.push(action!);if(scenario.endsWith('timeout'))return {exitCode:124,output:'timeout'};if(scenario.endsWith('denied')&&action!=='merge'||scenario==='merge-denied')return {exitCode:1,output:'HTTP 403 forbidden'};merged=true;}
   if(action==='send-to-group'&&!args.includes('--help')){sent.push(args[args.indexOf('--text')+1]!);value={resultCode:0};}
   return {exitCode:0,output:JSON.stringify(value)};
  });
  service.configure(cfg);const e=entry();e.phase='HUMAN';store.putRecord('group-mr-entry',e.id,e);
  try{await service.submitReview(e.id,{sha,decision:'pass',reason:''});while(service['background'].size)await Promise.allSettled(service['background']);
-  assert.equal(sent.length,1);assert.ok(sent[0]?.includes(e.url));
-  if(scenario==='merged'){assert.equal(service.list()[0]?.phase,'DONE');assert.match(sent[0]??'',/MR 已合入/);}
+  assert.equal(sent.length,1);assert.ok(sent[0]?.includes(e.url));assert.ok(sent[0]?.includes('发送人：developer'));assert.ok(!sent[0]?.includes('无检视权限'));
+  if(scenario==='merged'||scenario.startsWith('review')){assert.equal(service.list()[0]?.phase,'DONE');assert.match(sent[0]??'',/MR 已合入/);}
+  else if(scenario.endsWith('timeout')){assert.equal(service.list()[0]?.phase,'INTERRUPTED');assert.equal(service.list()[0]?.writePending,role);assert.ok(sent[0]?.includes(role==='合并'?'无法合入':'无法审核'));assert.equal(writes.length,1);}
   else{assert.equal(service.list()[0]?.phase,'NO_PERMISSION');assert.ok(sent[0]?.includes('无'+role+'权限'));assert.equal(merged,false);assert.equal(writes.length,scenario.endsWith('absent')?0:1);}
  }finally{await service.close();store.close();}
 });
