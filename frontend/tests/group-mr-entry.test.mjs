@@ -203,3 +203,12 @@ test('并发列表切换详情，刷新排序变化保留选中 MR，排队任�
  dom.window.eval('groupMrUi.monitor={activeCount:5,queuedCount:1,concurrency:5};render(false)');assert.match(doc.querySelector('.group-mr-overview').textContent,/执行中 5 \/ 5 · 排队中 1/);
  const filter=doc.querySelector('#group-mr-phase');filter.value='stage:QUEUED';filter.dispatchEvent(new dom.window.Event('change',{bubbles:true}));assert.equal(doc.querySelectorAll('[data-group-mr-record]').length,1);
 });
+
+test('MR 历史展示已关闭状态，重试明细只出现在选中 MR 内',async t=>{
+ const base={repo:'MAE-M/Access/Demo',iid:'1856',sha:'a'.repeat(40),events:[],status:'等待处理'};
+ const current={...base,id:'current',phase:'INTERRUPTED',attempts:[{...base,id:'old',phase:'INTERRUPTED',status:'上次执行中断'},{...base,id:'current',phase:'INTERRUPTED',status:'本次等待核对'}]};
+ const records=[current];const {doc,dom}=await fixture(t,{route:'group-mr',records,history:[{...base,id:'closed',iid:'447',phase:'CLOSED',status:'远端 MR 已关闭'}]});
+ assert.equal(doc.querySelectorAll('[data-group-mr-record]').length,1);assert.match(doc.querySelector('.group-mr-detail').textContent,/历次处理（2 次）/);assert.match(doc.querySelector('.group-mr-detail').textContent,/上次执行中断/);
+ records[0]={...current,id:'retry'};await dom.window.eval('loadGroupMr()');assert.equal(doc.querySelector('[data-group-mr-record-button="retry"]').getAttribute('aria-current'),'true');
+ doc.querySelector('[data-group-mr-tab="history"]').click();assert.equal(doc.querySelectorAll('[data-group-mr-record]').length,1);assert.match(doc.querySelector('.group-mr-detail .group-mr-status').textContent,/已关闭/);assert.match(doc.querySelector('.group-mr-toolbar').textContent,/已合入 \/ 已关闭/);
+});

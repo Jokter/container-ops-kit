@@ -41,7 +41,7 @@ for(const sendOk of [true,false])test(`group MR stores actual reply result (${se
  const service=new GroupMrService(store,execute);let reviews=0;service['runPi']=async()=>{reviews++;};
  try{
   service.configure({enabled:true,groupId:'123456789',authorizedSender:'owner123',repositoryPrefix:'MAE-M/Access/',intervalSeconds:5});store.putRecord('group-mr-cursor','cursor:123456789',{id:'1'});
-  await service.poll();await settle(service);const row=service.summary().history[0]!;
+  await service.poll();await settle(service);const row=service.summary().pending[0]!;
   assert.equal(reviews,1);assert.equal(row.phase,'FAILED');assert.equal(row.reply?.mode,'quote');assert.equal(row.reply?.status,sendOk?'sent':'unconfirmed');assert.match(row.reply?.text??'',/流水线失败/);assert.equal(sends,2);
   assert.equal(row.writePending,sendOk?'':'群消息回复');
   await service.close();const restarted=new GroupMrService(store,execute);assert.equal(restarted.list()[0]?.reply?.status,sendOk?'sent':'unconfirmed');assert.equal(sends,2);await restarted.close();
@@ -313,7 +313,7 @@ test('resending MR reuses same SHA conclusions, archives prior task, and deletio
  const send=(id:string)=>service['accept']({id,sender:'developer',content:'https://codehub-y.huawei.com/MAE-M/Access/Demo/merge_requests/444',quoteId:''},cfg);
  try{
   service.configure(cfg);await send('1');const first=service.summary().pending[0]!;
-  await send('2');assert.equal(reviews,1);assert.equal(service.summary().pending.length,1);assert.ok(service.summary().history.some(r=>r.id===first.id));
+  await send('2');assert.equal(reviews,1);assert.equal(service.summary().pending.length,1);assert.equal(service.summary().history.length,0);assert.ok(service.summary().pending[0]?.attempts.some(r=>r.id===first.id));
   sha='b'.repeat(40);await send('3');assert.equal(reviews,2);assert.equal(service.summary().pending.length,1);
   const current=service.summary().pending[0]!;service.removeHistories([current.id]);assert.equal(service.summary().pending.length,0);
   store.putRecord('group-mr-cursor','cursor:'+cfg.groupId,{id:'3'});const reads=mrReads;await service.poll();await settle(service);assert.equal(mrReads,reads);
@@ -489,7 +489,7 @@ test('MR queue shows all received entries, runs five, ingests while busy and iso
   assert.equal(service.list().length,8);assert.equal(service.summary().monitor.queuedCount,3);assert.equal(started.length,5);
   const queued=service.list().find(e=>e.iid==='7')!;assert.throws(()=>service.removeHistory(queued.id),/执行或排队/);
   releases.get('2')!();await tick();
-  assert.equal(service.summary().history.find(e=>e.iid==='2')?.writePending,'Pi 提交检视意见');
+  assert.equal(service.summary().pending.find(e=>e.iid==='2')?.writePending,'Pi 提交检视意见');
   assert.ok(started.includes('6'));assert.equal(service.summary().monitor.activeCount,5);
   const error=errors.find(e=>e.source==='mr-processing');assert.equal(error?.iid,'2');assert.equal(error?.entryId,service.list().find(e=>e.iid==='2')?.id);
   releases.get('1')!();await tick();assert.ok(started.includes('7'));
@@ -573,4 +573,48 @@ for(const scenario of ['report-only','same-author-issue','mixed-thread','missing
   assert.equal(row.reviewComments?.length,1);assert.equal(row.reviewComments?.[0]?.resolved,clear);
   if(clear)assert.equal(row.reviewComments?.[0]?.id,'closed');else assert.match(row.status,/仍有 1 条未闭环/);
  }finally{await service.close();store.close();}
+});
+
+test('MR lists group legacy retries and only merged or closed MRs enter history',async()=>{
+ const store=new TaskStore(':memory:'),service=new GroupMrService(store,async()=>{throw Error('no remote calls expected');});
+ const entry=(id:string,iid:string,phase:'INTERRUPTED'|'DONE'|'CLOSED'|'FAILED',time:string)=>({id,repo:'MAE-M/Access/Demo',iid,url:'',sha:'a'.repeat(40),previousSha:'',messageId:id,sender:'developer',shortcut:false,phase,status:'attempt '+id,detail:'',createdAt:time,updatedAt:time,writePending:'',events:[]});
+ try{
+  store.putRecord('group-mr-entry','old',{...entry('old','1','INTERRUPTED','2026-09-26T01:00:00Z'),updatedAt:'2026-09-26T03:00:00Z'});
+  store.putRecord('group-mr-entry','new',entry('new','1','INTERRUPTED','2026-09-26T02:00:00Z'));
+  store.putRecord('group-mr-entry','merged-old',{...entry('merged-old','2','INTERRUPTED','2026-09-26T01:00:00Z'),supersededBy:'merged'});
+  store.putRecord('group-mr-entry','merged',entry('merged','2','DONE','2026-09-26T02:00:00Z'));
+  store.putRecord('group-mr-entry','closed',entry('closed','3','CLOSED','2026-09-26T02:00:00Z'));
+  store.putRecord('group-mr-entry','failed',entry('failed','4','FAILED','2026-09-26T02:00:00Z'));
+  const {pending,history}=service.summary();assert.deepEqual(new Set(pending.map(r=>r.id)),new Set(['new','failed']));assert.deepEqual(new Set(history.map(r=>r.id)),new Set(['merged','closed']));assert.equal(pending.find(r=>r.id==='new')?.attempts.length,2);
+  service.removeHistory('new');assert.ok(!service.summary().pending.some(r=>r.iid==='1'));assert.equal(service.list().length,6);
+ }finally{await service.close();store.close();}
+});
+
+for(const remoteState of ['merged','closed','opened','error'])test(`read-only status refresh archives ${remoteState} without replaying blocked writes`,async()=>{
+ const store=new TaskStore(':memory:'),commands:string[][]=[],sha='a'.repeat(40);
+ const service=new GroupMrService(store,async args=>{commands.push([...args]);assert.equal(args[2],'view');if(remoteState==='error')throw Error('unavailable');return {exitCode:0,output:JSON.stringify({iid:1,state:remoteState,sha})};});
+ const base={repo:'MAE-M/Access/Demo',iid:'1',url:'https://codehub-y.huawei.com/MAE-M/Access/Demo/merge_requests/1',sha,previousSha:'',sender:'developer',shortcut:false,phase:'INTERRUPTED',status:'merge result unconfirmed',detail:'',createdAt:'2026-09-26T01:00:00Z',updatedAt:'2026-09-26T01:00:00Z',writePending:'合并',events:[]};
+ try{
+  store.putRecord('group-mr-entry','old',{...base,id:'old',messageId:'1'});
+  await service['accept']({id:'2',sender:'developer',quoteId:'',content:base.url},{enabled:true,groupId:'123456789',authorizedSender:'owner',repositoryPrefix:'MAE-M/Access/',intervalSeconds:5});
+  assert.equal(service.summary().pending.length,1);assert.equal(service.summary().pending[0]?.sha,sha);assert.equal(service.summary().pending[0]?.attempts.length,2);
+  service.refreshRemoteStates();await settle(service);service.refreshRemoteStates();await settle(service);
+  assert.equal(commands.length,1);
+  if(remoteState==='merged'||remoteState==='closed'){assert.equal(service.summary().pending.length,0);const row=service.summary().history[0]!;assert.equal(row.phase,remoteState==='merged'?'DONE':'CLOSED');assert.equal(row.attempts.length,2);if(remoteState==='merged')assert.ok(service.list().every(e=>!e.writePending));}
+  else{assert.equal(service.summary().history.length,0);assert.equal(service.summary().pending[0]?.writePending,'合并');}
+ }finally{await service.close();store.close();}
+});
+
+test('a message arriving during passive status lookup is processed after the lookup',async()=>{
+ const store=new TaskStore(':memory:'),sha='a'.repeat(40);let release:()=>void=()=>{},views=0;
+ const service=new GroupMrService(store,async args=>{
+  let value:unknown={};if(args[2]==='view'){if(++views===1)await new Promise<void>(resolve=>release=resolve);value={iid:1,state:'opened',sha};}
+  if(args[2]==='review')value=[];if(args[2]==='gate')value={ci_state_passed:false};if(args[2]==='pipeline')value=[];if(args[2]==='send-to-group')value={resultCode:0};
+  return {exitCode:0,output:JSON.stringify(value)};
+ });
+ service['runPi']=async()=>{};
+ const url='https://codehub-y.huawei.com/MAE-M/Access/Demo/merge_requests/1';
+ store.putRecord('group-mr-entry','old',{id:'old',repo:'MAE-M/Access/Demo',iid:'1',url,sha,previousSha:'',messageId:'1',sender:'developer',shortcut:false,phase:'INTERRUPTED',status:'retry',detail:'',createdAt:'2026-09-26T01:00:00Z',updatedAt:'2026-09-26T01:00:00Z',writePending:'',events:[]});
+ try{service.refreshRemoteStates();const accepted=service['accept']({id:'2',sender:'developer',quoteId:'',content:url},{enabled:true,groupId:'123456789',authorizedSender:'owner',repositoryPrefix:'MAE-M/Access/',intervalSeconds:5});release();await accepted;await settle(service);assert.equal(service.summary().pending.length,1);assert.equal(service.summary().pending[0]?.messageId,'2');assert.equal(service.summary().pending[0]?.phase,'PIPELINE');}
+ finally{release();await service.close();store.close();}
 });

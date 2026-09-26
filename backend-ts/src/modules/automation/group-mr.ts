@@ -16,7 +16,7 @@ import {jsonValues,parseMr,parseObject,gateSchema,listObjects,pipelineSchema,typ
 const configSchema=z.object({enabled:z.boolean(),groupId:z.string().regex(/^\d{5,30}$/),authorizedSender:z.string().regex(/^[A-Za-z][A-Za-z0-9._-]{1,79}$/),repositoryPrefix:z.string().regex(/^[A-Za-z0-9._/-]+$/).refine(v=>v.endsWith('/')&&!v.includes('..')&&!v.includes('//')),intervalSeconds:z.number().int().min(5).max(300).default(10)});
 type Configuration=z.infer<typeof configSchema>;
 const defaults:Configuration={enabled:false,groupId:'',authorizedSender:'',repositoryPrefix:'MAE-M/Access/',intervalSeconds:10};
-const phase=z.enum(['QUEUED','HUMAN','PIPELINE','PI','COMMENTS','REVIEW','APPROVE','MERGE','DONE','ISSUES','FAILED','NO_PERMISSION','INTERRUPTED']);
+const phase=z.enum(['QUEUED','HUMAN','PIPELINE','PI','COMMENTS','REVIEW','APPROVE','MERGE','DONE','CLOSED','ISSUES','FAILED','NO_PERMISSION','INTERRUPTED']);
 type Phase=z.infer<typeof phase>;
 export interface Entry{queued?:boolean;humanStartedAt?:string;humanReview?:HumanReview;notification?:{sha:string;receiver:string;status:string};knowledgeIds?:string[];piOutput?:string;reviewSkipped?:boolean;supersededBy?:string;pipelinePassed?:boolean;piReview?:{source?:'codehub';ok?:boolean;findings?:Array<{path:string;line:number;body:string}>;sha:string;discussionKey:string;summary:string;resolvedDiscussionIds:string[]};id:string;repo:string;iid:string;url:string;sha:string;previousSha:string;messageId:string;sender:string;shortcut:boolean;phase:Phase;stage?:Phase;status:string;detail:string;createdAt:string;updatedAt:string;writePending:string;events:Array<{time:string;phase:Phase;message:string}>;reviewComments?:Array<{id:string;body:string;resolved:boolean}>;reply?:{text:string;mode:'quote'|'reference';status:'sending'|'sent'|'unconfirmed'|'checked'}}
 interface GroupMessage{id:string;content:string;sender:string;quoteId:string;quotedContent?:string}
@@ -99,7 +99,7 @@ interface ExecutionContext {entry:Entry|undefined;command:string;diagnostic:Reco
 interface QueuedJob {entry:Entry;run:()=>Promise<void>;resolve:()=>void;reject:(error:unknown)=>void}
 export class GroupMrService {
  readonly knowledge:ReviewKnowledge;private background=new Set<Promise<void>>();
- private timer:NodeJS.Timeout;private busy=false;private closing=false;private active=new Set<string>();private initialised=false;private lastPoll=0;private controller=new AbortController();private pollPromise:Promise<void>|undefined;private contexts=new AsyncLocalStorage<ExecutionContext>();private monitorContext:ExecutionContext={entry:undefined,command:'',diagnostic:{},trace:[]};private workers=new Map<string,ExecutionContext>();private queue:QueuedJob[]=[];private reserved=new Set<string>();readonly concurrency=5;private lastLoginAt=new Map<string,number>();private logins=new Map<string,Promise<void>>();
+ private timer:NodeJS.Timeout;private busy=false;private closing=false;private active=new Set<string>();private initialised=false;private lastPoll=0;private controller=new AbortController();private pollPromise:Promise<void>|undefined;private contexts=new AsyncLocalStorage<ExecutionContext>();private monitorContext:ExecutionContext={entry:undefined,command:'',diagnostic:{},trace:[]};private workers=new Map<string,ExecutionContext>();private queue:QueuedJob[]=[];private reserved=new Set<string>();readonly concurrency=5;private stateChecks=new Map<string,number>();private stateJobs=new Map<string,Promise<void>>();private lastLoginAt=new Map<string,number>();private logins=new Map<string,Promise<void>>();
  private get context(){return this.contexts.getStore()??this.monitorContext;}
  private get activeCommand(){return this.context.command;} private set activeCommand(value:string){this.context.command=value;}
  private get diagnostic(){return this.context.diagnostic;} private set diagnostic(value:Record<string,unknown>){this.context.diagnostic=value;}
@@ -132,7 +132,7 @@ export class GroupMrService {
  constructor(private store:TaskStore,private readonly execute:typeof runProcess=runProcess,private readonly logs:LogSink=noFileLogs,private readonly codehubSettings=new CodehubSettings(store),private readonly notifier?:Pick<WelinkMcp,'send'>){
   this.knowledge=new ReviewKnowledge(store,execute);
   for(const entry of this.list()){if(entry.notification?.status==='sending'){entry.notification.status='unconfirmed';this.save(entry);}if(entry.reply?.status==='sending'){entry.reply.status='unconfirmed';this.save(entry);}}
-  for(const entry of this.list().filter(e=>e.queued||!['HUMAN','DONE','ISSUES','FAILED','NO_PERMISSION','INTERRUPTED'].includes(e.phase))){const queued=entry.queued;entry.queued=false;entry.phase='INTERRUPTED';entry.status='服务重启，原执行中断，请重新发送 MR 链接';if(!queued)entry.writePending=entry.writePending||'需核对远端';this.save(entry);}
+  for(const entry of this.list().filter(e=>e.queued||!['HUMAN','DONE','CLOSED','ISSUES','FAILED','NO_PERMISSION','INTERRUPTED'].includes(e.phase))){const queued=entry.queued;entry.queued=false;entry.phase='INTERRUPTED';entry.status='服务重启，原执行中断，请重新发送 MR 链接';if(!queued)entry.writePending=entry.writePending||'需核对远端';this.save(entry);}
   this.updateMonitor({state:'waiting',error:'',message:this.configuration().enabled?'服务已启动，等待轮询':'监听已暂停'});
   this.timer=setInterval(()=>{if(!this.busy)this.pollPromise=this.poll().catch(()=>{});},5000);this.timer.unref();
  }
@@ -144,7 +144,36 @@ export class GroupMrService {
  private recordLog(level:MonitorEvent['level'],message:string){this.trace.push({time:new Date().toISOString(),level,message,phase:this.currentEntry?.phase,diagnostic:{...this.diagnostic}});this.trace=this.trace.slice(-80);const event:MonitorEvent={time:new Date().toISOString(),level,message};const events=this.store.getRecord<MonitorEvent[]>('group-mr-log','main')??[];this.store.putRecord('group-mr-log','main',[...events,event].slice(-100));this.logs.task('automation','group-mr-monitor',event);if(level==='error')this.errorLog('command-or-monitor',message);}
 
  list(){return this.store.records<Entry>('group-mr-entry').sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt));}
- summary(){const entries=this.list(),today=new Date().toISOString().slice(0,10),latest=[...new Map(entries.filter(e=>!e.supersededBy).reverse().map(e=>[e.repo+':'+e.iid,e])).values()].reverse(),pending=latest.filter(e=>!['DONE','FAILED','NO_PERMISSION','INTERRUPTED'].includes(e.phase)&&!this.store.getRecord('group-mr-hidden',e.id)).map(e=>({...e,running:this.active.has(e.repo+':'+e.iid)}));return {config:this.configuration(),pending,history:entries.filter(e=>['DONE','FAILED','NO_PERMISSION','INTERRUPTED'].includes(e.phase)&&!this.store.getRecord('group-mr-hidden',e.id)),monitor:{...this.monitor(),state:this.active.size?'processing':this.monitor().state,running:this.busy||this.active.size>0,activeCount:this.active.size,queuedCount:this.queue.length,concurrency:this.concurrency,command:[this.monitorContext.command,...[...this.workers.values()].map(c=>c.command)].filter(Boolean).join(' · '),logs:this.store.getRecord<MonitorEvent[]>('group-mr-log','main')??[]},metrics:{pending:pending.length,issues:pending.filter(e=>e.phase==='ISSUES').length,mergedToday:entries.filter(e=>e.phase==='DONE'&&e.updatedAt.startsWith(today)).length}};}
+ private grouped(){
+  const groups=new Map<string,Entry[]>();
+  for(const e of this.list()){const key=e.repo+':'+e.iid;const group=groups.get(key)??[];group.push(e);groups.set(key,group);}
+  return [...groups.values()].flatMap(group=>{
+   group.sort((a,b)=>b.createdAt.localeCompare(a.createdAt)||b.updatedAt.localeCompare(a.updatedAt));
+   const e=group.find(r=>!r.supersededBy)??group[0]!;
+   // Hiding the current MR must not resurrect an older attempt as a new row.
+   if(this.store.getRecord('group-mr-hidden',e.id))return [];
+   return [{...e,running:this.active.has(e.repo+':'+e.iid),attempts:group.map(r=>({id:r.id,phase:r.phase,stage:r.stage,status:r.status,detail:r.detail,sha:r.sha,createdAt:r.createdAt,updatedAt:r.updatedAt,events:r.events}))}];
+  });
+ }
+ summary(){const today=new Date().toISOString().slice(0,10),rows=this.grouped(),pending=rows.filter(e=>!['DONE','CLOSED'].includes(e.phase)),history=rows.filter(e=>['DONE','CLOSED'].includes(e.phase));return {config:this.configuration(),pending,history,monitor:{...this.monitor(),state:this.active.size?'processing':this.monitor().state,running:this.busy||this.active.size>0,activeCount:this.active.size,queuedCount:this.queue.length,concurrency:this.concurrency,command:[this.monitorContext.command,...[...this.workers.values()].map(c=>c.command)].filter(Boolean).join(' · '),logs:this.store.getRecord<MonitorEvent[]>('group-mr-log','main')??[]},metrics:{pending:pending.length,issues:pending.filter(e=>e.phase==='ISSUES').length,mergedToday:history.filter(e=>e.phase==='DONE'&&e.updatedAt.startsWith(today)).length}};}
+ // Read-only reconciliation: never replay Pi, replies, approvals or merge writes.
+ refreshRemoteStates(){
+  if(this.closing)return;
+  const candidates=this.summary().pending.filter(e=>!this.reserved.has(e.repo+':'+e.iid)&&Date.now()-(this.stateChecks.get(e.repo+':'+e.iid)??0)>=60000)
+   .sort((a,b)=>(this.stateChecks.get(a.repo+':'+a.iid)??0)-(this.stateChecks.get(b.repo+':'+b.iid)??0)).slice(0,Math.max(0,this.concurrency-this.active.size));
+  for(const row of candidates){
+   const e=this.store.getRecord<Entry>('group-mr-entry',row.id)!;this.stateChecks.set(e.repo+':'+e.iid,Date.now());
+   const key=e.repo+':'+e.iid;const job=this.enqueue(e,async()=>{try{const remote=await this.view(e);this.archiveRemote(e,remote);}catch{this.recordLog('error','MR 远端状态查询失败，保留当前状态');}}).catch(()=>{});
+   this.stateJobs.set(key,job);void job.then(()=>this.stateJobs.delete(key));
+  }
+ }
+ private archiveRemote(e:Entry,remote:MrView){
+  if(remote.state!=='merged'&&remote.state!=='closed')return false;
+  e.sha=this.head(remote)||e.sha;
+  if(remote.state==='merged'&&e.writePending==='合并'){e.writePending='';for(const old of this.list().filter(r=>r.id!==e.id&&r.repo===e.repo&&r.iid===e.iid&&r.writePending==='合并')){old.writePending='';this.store.putRecord('group-mr-entry',old.id,old,old.createdAt);}}
+  this.mark(e,remote.state==='merged'?'DONE':'CLOSED',remote.state==='merged'?'已确认远端 MR 已合入':'已确认远端 MR 已关闭');return true;
+ }
+
  visibleList(){return this.list().filter(e=>!this.store.getRecord('group-mr-hidden',e.id));}
  private editable(id:string){const e=this.store.getRecord<Entry>('group-mr-entry',id);if(!e)throw Object.assign(Error('MR 记录不存在'),{statusCode:404});if(this.reserved.has(e.repo+':'+e.iid)||this.active.has(e.repo+':'+e.iid))throw Object.assign(Error('MR 正在执行或排队，请结束后再操作'),{statusCode:409});return e;}
  acknowledgeReply(id:string){
@@ -162,7 +191,7 @@ export class GroupMrService {
   return {ok:true};
  }
  removeHistory(id:string){return this.removeHistories([id]);}
- removeHistories(ids:string[]){const entries=[...new Set(ids)].map(id=>this.editable(id));for(const e of entries){if(!['DONE','FAILED','NO_PERMISSION','INTERRUPTED','ISSUES','PIPELINE'].includes(e.phase))throw Object.assign(Error('只能删除待处理或已结束的记录'),{statusCode:409});if(e.writePending)throw Object.assign(Error('操作结果未确认，请先人工核对'),{statusCode:409});}for(const e of entries)this.store.putRecord('group-mr-hidden',e.id,{id:e.id,deletedAt:new Date().toISOString()});return {ok:true,deleted:entries.length};}
+ removeHistories(ids:string[]){const entries=[...new Set(ids)].map(id=>this.editable(id));for(const e of entries){if(!['DONE','CLOSED','FAILED','NO_PERMISSION','INTERRUPTED','ISSUES','PIPELINE'].includes(e.phase))throw Object.assign(Error('只能删除待处理或已结束的记录'),{statusCode:409});if(e.writePending)throw Object.assign(Error('操作结果未确认，请先人工核对'),{statusCode:409});}for(const e of entries)this.store.putRecord('group-mr-hidden',e.id,{id:e.id,deletedAt:new Date().toISOString()});return {ok:true,deleted:entries.length};}
 
  async submitReview(id:string,value:unknown){
   const input=reviewInput.parse(value),e=this.editable(id);
@@ -176,7 +205,7 @@ export class GroupMrService {
     this.knowledge.saveReview(record);e.humanReview=record;this.save(e);this.startKnowledge(record);
     if(input.decision==='reject'){this.mark(e,'HUMAN','人工审核不通过：'+input.reason);resolve(e);return;}
     this.mark(e,'REVIEW','人工审核已通过，正在重新核对提交和门禁');resolve(e);
-    try{await this.process(e,this.configuration());}catch{if(['DONE','FAILED','NO_PERMISSION'].includes(e.phase)){e.detail='后续消息或操作结果未确认，请核对远端状态';this.save(e);}else this.mark(e,'INTERRUPTED','人工审核已保存，后续检查或操作未完成，请核对远端状态');}
+    try{await this.process(e,this.configuration());}catch{if(['DONE','CLOSED','FAILED','NO_PERMISSION'].includes(e.phase)){e.detail='后续消息或操作结果未确认，请核对远端状态';this.save(e);}else this.mark(e,'INTERRUPTED','人工审核已保存，后续检查或操作未完成，请核对远端状态');}
    }).catch(reject);
   });
  }
@@ -272,12 +301,12 @@ export class GroupMrService {
   const trigger=this.trigger(msg,cfg);if(!trigger)return;const {link,direct,shortcut}=trigger;
   this.updateMonitor({state:'processing',message:`处理 MR ${link.repo} !${link.iid}`});this.recordLog('info',`识别 MR ${link.repo} !${link.iid}，开始处理`);
   if(direct)this.store.putRecord('group-mr-message',cfg.groupId+':'+msg.id,link);
-  const key=link.repo+':'+link.iid;if(this.reserved.has(key)||this.closing)return;
+  const key=link.repo+':'+link.iid;const stateJob=this.stateJobs.get(key);if(stateJob)await stateJob;if(this.reserved.has(key)||this.closing)return;
   const now=new Date().toISOString();const old=this.list().find(e=>e.repo===link.repo&&e.iid===link.iid&&e.phase!=='DONE'&&!e.supersededBy);
   const entry:Entry={id:randomUUID(),repo:link.repo,iid:link.iid,url:link.url,sha:'',previousSha:old?.sha??'',messageId:msg.id,sender:msg.sender,shortcut:!!shortcut,pipelinePassed:false,phase:'QUEUED',stage:shortcut?'PIPELINE':'PI',status:'排队中，等待执行（最多同时处理 5 个 MR）',detail:'',createdAt:now,updatedAt:now,writePending:'',events:[]};this.save(entry);
   const blocked=this.list().find(e=>e.repo===link.repo&&e.iid===link.iid&&e.writePending);
-  if(blocked){entry.writePending=blocked.writePending;this.mark(entry,'INTERRUPTED',`上一次${blocked.writePending}结果未确认，需人工核对后再处理`);return;}
-  for(const previous of this.list().filter(r=>r.id!==entry.id&&r.repo===entry.repo&&r.iid===entry.iid&&!r.supersededBy)){previous.supersededBy=entry.id;if(!['DONE','FAILED','NO_PERMISSION','INTERRUPTED'].includes(previous.phase))this.mark(previous,'INTERRUPTED','收到新的 MR 消息，本记录停止跟进，后续处理见最新记录');else this.store.putRecord('group-mr-entry',previous.id,previous,previous.createdAt);}
+  if(blocked){entry.sha=blocked.sha||old?.sha||'';entry.writePending=blocked.writePending;this.mark(entry,'INTERRUPTED',`上一次${blocked.writePending}结果未确认，需人工核对后再处理`);for(const previous of this.list().filter(r=>r.id!==entry.id&&r.repo===entry.repo&&r.iid===entry.iid&&!r.supersededBy)){previous.supersededBy=entry.id;this.store.putRecord('group-mr-entry',previous.id,previous,previous.createdAt);}return;}
+  for(const previous of this.list().filter(r=>r.id!==entry.id&&r.repo===entry.repo&&r.iid===entry.iid&&!r.supersededBy)){previous.supersededBy=entry.id;if(!['DONE','CLOSED','FAILED','NO_PERMISSION','INTERRUPTED'].includes(previous.phase))this.mark(previous,'INTERRUPTED','收到新的 MR 消息，本记录停止跟进，后续处理见最新记录');else this.store.putRecord('group-mr-entry',previous.id,previous,previous.createdAt);}
   if(old?.piReview)entry.piReview=old.piReview;const notified=this.list().find(r=>r.repo===entry.repo&&r.iid===entry.iid&&r.notification);if(notified?.notification)entry.notification={...notified.notification};
   this.save(entry);
   await this.enqueue(entry,()=>this.executeEntry(entry,cfg,true));
@@ -286,13 +315,13 @@ export class GroupMrService {
   try{
    if(received){this.mark(entry,entry.shortcut?'PIPELINE':'PI',entry.shortcut?'准备按指令合入':'准备检视当前提交');await this.reply(entry,cfg,entry.shortcut?'已收到合入指令，正在处理。':'已收到 MR，正在检视中。');}
    await this.process(entry,cfg);
-  }catch(error){const reason=error instanceof Error?error.message:'处理失败';if(['DONE','FAILED','NO_PERMISSION'].includes(entry.phase)){entry.detail=reason;this.save(entry);}else{this.mark(entry,'INTERRUPTED',reason);if(!entry.writePending&&!this.closing)await this.reply(entry,cfg,reason).catch(()=>{});}}
+  }catch(error){const reason=error instanceof Error?error.message:'处理失败';if(['DONE','CLOSED','FAILED','NO_PERMISSION'].includes(entry.phase)){entry.detail=reason;this.save(entry);}else{this.mark(entry,'INTERRUPTED',reason);if(!entry.writePending&&!this.closing)await this.reply(entry,cfg,reason).catch(()=>{});}}
  }
 
  private async view(e:Entry){return parseMr(await this.code(['mr','view',e.iid,'-p',e.repo],'iid,id,mr_url,state,sha,diff_refs,approval_merge_request_reviewers,approval_merge_request_approvers,merge_request_assignee_list'));}
  private head(v:MrView){return v.diff_refs?.head_sha||v.sha||'';}
  private async gate(e:Entry){return parseObject(gateSchema,await this.code(['mr','gate',e.iid,'-p',e.repo],'ci_state_passed,quality_gate,conflict_passed,approval_reviewers_required_passed,approval_approvers_required_passed,merge_gate_passed,pipeline'),g=>g.ci_state_passed!==undefined);}
- private async current(e:Entry,sha:string,allowUnresolved=false){const view=await this.view(e);if(view.state!=='opened'||this.head(view)!==sha)throw Error('MR 已关闭或提交已变化，本次处理已停止；请重新发送链接');const gate=await this.gate(e);if(gate.ci_state_passed!==true||gate.quality_gate?.passed===false||gate.conflict_passed===false)throw Error('当前提交质量门禁或冲突检查未通过');const notes=parseDiscussions(await this.code(['mr','review','list',e.iid,'-p',e.repo]));if(!allowUnresolved&&notes.some(n=>!n.resolved))throw Error('仍有未闭环检视意见，禁止审核与合入');return {view,gate};}
+ private async current(e:Entry,sha:string,allowUnresolved=false){const view=await this.view(e);if(this.archiveRemote(e,view))throw Error('MR 已合入或关闭，本次处理结束');if(view.state!=='opened'||this.head(view)!==sha)throw Error('MR 已关闭或提交已变化，本次处理已停止；请重新发送链接');const gate=await this.gate(e);if(gate.ci_state_passed!==true||gate.quality_gate?.passed===false||gate.conflict_passed===false)throw Error('当前提交质量门禁或冲突检查未通过');const notes=parseDiscussions(await this.code(['mr','review','list',e.iid,'-p',e.repo]));if(!allowUnresolved&&notes.some(n=>!n.resolved))throw Error('仍有未闭环检视意见，禁止审核与合入');return {view,gate};}
  private async reply(e:Entry,cfg:Configuration,message:string){
   // Use a native quote flag only when this installed CLI advertises one. Otherwise identify the source explicitly.
   const help=await this.command(['welink-cli','im','send-to-group','--help'],10000);
@@ -334,7 +363,7 @@ export class GroupMrService {
   try{await this.processEntry(e,cfg);}catch(error){const reason=error instanceof Error?error.message:'MR 处理失败';this.errorLog('mr-processing',reason,error);const command=this.diagnostic.command;throw Error(reason.includes('列表返回格式')?`${command}：${reason}；详见 group-mr-errors.jsonl`:reason);}
  }
  private async processEntry(e:Entry,cfg:Configuration){
-  const initial=await this.view(e);if(initial.state==='merged'){this.mark(e,'DONE','MR 已合并');await this.reply(e,cfg,'MR 已合并，无需重复处理。');return;}if(initial.state!=='opened')throw Error('MR 不处于可处理状态');
+  const initial=await this.view(e);if(initial.state==='closed'){this.archiveRemote(e,initial);return;}if(initial.state==='merged'){this.mark(e,'DONE','MR 已合并');await this.reply(e,cfg,'MR 已合并，无需重复处理。');return;}if(initial.state!=='opened')throw Error('MR 不处于可处理状态');
   if(e.sha&&e.sha!==this.head(initial))throw Error('MR 当前提交已变化，请重新发送 MR 链接');
   e.sha=this.head(initial);if(!/^[a-f0-9]{40}$/i.test(e.sha))throw Error('CodeHub 未返回完整的当前提交 SHA');this.save(e);
   if(!e.shortcut&&e.humanReview?.sha!==e.sha){
@@ -343,7 +372,7 @@ export class GroupMrService {
    const cached=e.piReview?.source==='codehub'&&e.piReview.sha===e.sha&&e.piReview.discussionKey===discussionKey;
    if(!cached){this.mark(e,'PI','Pi 正在检视当前提交');await this.runPi(e,'',notes);}
    else this.mark(e,'PI','当前提交未变化，复用已完成的 Pi 检视；重新查询 CodeHub 意见');
-   const afterPi=await this.view(e);if(afterPi.state!=='opened'||this.head(afterPi)!==e.sha)throw Error('MR 已关闭或提交已变化，本次检视结果不再适用；请重新发送 MR 链接');
+   const afterPi=await this.view(e);if(this.archiveRemote(e,afterPi))return;if(afterPi.state!=='opened'||this.head(afterPi)!==e.sha)throw Error('MR 已关闭或提交已变化，本次检视结果不再适用；请重新发送 MR 链接');
    this.mark(e,'COMMENTS','正在通过 codehub-cli 获取检视意见');
    const remote=parseDiscussions(await this.code(['mr','review','list',e.iid,'-p',e.repo]));
    const unresolved=remote.filter(n=>!n.resolved);
@@ -404,7 +433,7 @@ export class GroupMrService {
 export function groupMrRoutes(app:FastifyInstance,service:GroupMrService){
  app.post('/api/automation/group-mr/records/:id/human-review',async request=>service.submitReview(z.object({id:z.uuid()}).parse(request.params).id,request.body));
  app.post('/api/automation/knowledge/reviews/:id/retry',async request=>service.retryKnowledge(z.object({id:z.uuid()}).parse(request.params).id));
- app.get('/api/automation/group-mr',async()=>service.summary());
+ app.get('/api/automation/group-mr',async()=>{service.refreshRemoteStates();return service.summary();});
  app.get('/api/automation/group-mr/config',async()=>service.configuration());
  app.put('/api/automation/group-mr/config',async request=>service.configure(request.body));
  app.get('/api/automation/group-mr/records',async()=>service.visibleList());
