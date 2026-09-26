@@ -1010,7 +1010,7 @@
         : state.platformDomain === 'automation'
           ? automationContent()
           : `<section class="panel platform-placeholder"><div class="platform-placeholder-content"><div class="platform-placeholder-symbol">${placeholder[0]}</div><h1>${placeholder[1]}</h1><p>${placeholder[2]}</p><span class="platform-boundary">平台边界已预留</span></div></section>`;
-      return `<div class="variant-a-shell studio-shell"><header class="studio-topbar"><div class="studio-brand">${taiji}<strong>运维平台</strong><span class="studio-divider">/</span></div>${platformSwitch}<span class="studio-product">统一基础设施工作台</span></header><aside class="variant-a-sidebar">${state.platformDomain==='container'?nav:state.platformDomain==='automation'?automationNav():''}<div class="studio-sidebar-bottom">${state.platformDomain==='automation'?'<button class="studio-settings-link" data-automation-nav="settings">连接与设置</button>':''}<div class="variant-a-user">V0.2.94</div></div></aside><main class="variant-a-main">${content}</main></div>`;
+      return `<div class="variant-a-shell studio-shell"><header class="studio-topbar"><div class="studio-brand">${taiji}<strong>运维平台</strong><span class="studio-divider">/</span></div>${platformSwitch}<span class="studio-product">统一基础设施工作台</span></header><aside class="variant-a-sidebar">${state.platformDomain==='container'?nav:state.platformDomain==='automation'?automationNav():''}<div class="studio-sidebar-bottom">${state.platformDomain==='automation'?'<button class="studio-settings-link" data-automation-nav="settings">连接与设置</button>':''}<div class="variant-a-user">V0.2.95</div></div></aside><main class="variant-a-main">${content}</main></div>`;
 
     }
 

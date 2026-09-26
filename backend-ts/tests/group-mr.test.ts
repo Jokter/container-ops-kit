@@ -545,3 +545,32 @@ for(const resolved of [true,null,false,undefined,'true'] as const)test(`MR comme
   if(!closed)assert.match(row.status,/仍有 1 条未闭环/);
  }finally{await service.close();store.close();}
 });
+
+for(const scenario of ['report-only','same-author-issue','mixed-thread','missing-metadata'] as const)test(`non-resolvable reports do not block MR processing: ${scenario}`,async()=>{
+ const store=new TaskStore(':memory:'),sha='a'.repeat(40),author={username:'report_account'};
+ const report={id:'report',individual_note:true,resolved:false,notes:[{author,body:'Review summary',resolvable:false,resolved:null}]};
+ const closed={id:'closed',individual_note:false,resolved:true,notes:[{author,body:'Closed finding',resolvable:true,resolved:true}]};
+ const issue={id:'issue',resolved:false,notes:[{author,body:'Open finding',resolvable:true,resolved:false}]};
+ const mixed={...report,notes:[...report.notes,...issue.notes]};
+ const missing={id:'unknown',resolved:false,notes:[{author,body:'Unknown state'}]};
+ const discussions=scenario==='report-only'?[report,closed]:scenario==='same-author-issue'?[report,issue]:scenario==='mixed-thread'?[mixed]:[missing];
+ let pipelineReads=0;const writes:string[]=[];
+ const service=new GroupMrService(store,async args=>{
+  let value:unknown={};
+  if(args[2]==='view')value={iid:1,state:'opened',sha};
+  if(args[2]==='review'&&args[3]==='list')value=discussions;
+  if(args[2]==='gate')value={ci_state_passed:false};
+  if(args[2]==='pipeline'){pipelineReads++;value=[{id:1,status:'running',sha}];}
+  if(args[2]==='send-to-group')value={resultCode:0};
+  if(args[3]==='resolve'||['approve','approve-review','merge'].includes(args[2]??''))writes.push(args.join(' '));
+  return {exitCode:0,output:JSON.stringify(value)};
+ });
+ service['runPi']=async()=>{};
+ try{
+  await service['accept']({id:'1',sender:'developer',quoteId:'',content:'https://codehub-y.huawei.com/MAE-M/Access/Demo/merge_requests/1'},{enabled:true,groupId:'123456789',authorizedSender:'owner',repositoryPrefix:'MAE-M/Access/',intervalSeconds:5});
+  const row=service.list()[0]!,clear=scenario==='report-only';
+  assert.equal(row.phase,clear?'PIPELINE':'ISSUES');assert.equal(pipelineReads,clear?1:0);assert.deepEqual(writes,[]);
+  assert.equal(row.reviewComments?.length,1);assert.equal(row.reviewComments?.[0]?.resolved,clear);
+  if(clear)assert.equal(row.reviewComments?.[0]?.id,'closed');else assert.match(row.status,/仍有 1 条未闭环/);
+ }finally{await service.close();store.close();}
+});
