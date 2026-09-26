@@ -9,12 +9,12 @@ const sha='a'.repeat(40),cfg={enabled:false,groupId:'123456789',authorizedSender
 function entry():Entry{return{id:randomUUID(),repo:'MAE-M/Access/Demo',iid:'1',url:'https://codehub-y.huawei.com/MAE-M/Access/Demo/merge_requests/1',sha,previousSha:'',messageId:'1',sender:'developer',shortcut:false,piReview:{source:'codehub',sha,discussionKey:'[]',summary:'检视完成',ok:true,resolvedDiscussionIds:[]},phase:'PIPELINE',status:'',detail:'',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),writePending:'',events:[]};}
 for(const scenario of ['pass','reject','changed','comments','pipeline','duplicate','reply-failed'] as const)test('human review gate: '+scenario,async()=>{
  const store=new TaskStore(':memory:');let head=sha,merged=false,blocked=false;const writes:string[]=[];
- const execute:typeof runProcess=async args=>{const action=args[2];let data:unknown={};
+ const execute:typeof runProcess=async(args,_dir,_timeout,_log,_line,input)=>{const action=args[2];let data:unknown={};
   if(action==='view')data={iid:1,state:merged?'merged':'opened',sha:head};
   if(action==='gate')data={ci_state_passed:!(blocked&&scenario==='pipeline'),approval_reviewers_required_passed:true,approval_approvers_required_passed:true,merge_gate_passed:true};
   if(action==='pipeline')data=[{id:1,sha:head,status:blocked&&scenario==='pipeline'?'failed':'success'}];
   if(action==='review')data=blocked&&scenario==='comments'?[{id:'new',resolved:false,notes:[{body:'new issue'}]}]:[];
-  if(action==='merge'){writes.push('merge');merged=true;}
+  if(action==='merge'){assert.equal(input,'y\n');writes.push('merge');merged=true;}
   if(action==='send-to-group')data={resultCode:scenario==='reply-failed'?1:0};
   return{exitCode:0,output:JSON.stringify(data)};
  };

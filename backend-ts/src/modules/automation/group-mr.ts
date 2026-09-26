@@ -218,11 +218,11 @@ export class GroupMrService {
  private save(e:Entry){e.updatedAt=new Date().toISOString();this.store.putRecord('group-mr-entry',e.id,e,e.createdAt);}
  private mark(e:Entry,p:Phase,message:string){this.trace.push({time:new Date().toISOString(),event:'phase-change',from:e.phase,to:p});this.trace=this.trace.slice(-80);e.phase=p;if(['HUMAN','PIPELINE','PI','COMMENTS','REVIEW','APPROVE','MERGE'].includes(p))e.stage=p;e.status=message;e.events.push({time:new Date().toISOString(),phase:p,message});this.save(e);}
  private errorLog(source:string,message:string,error?:unknown){const e=this.currentEntry;this.logs.task('automation','group-mr-errors',{time:new Date().toISOString(),source,message,entryId:e?.id,repo:e?.repo,iid:e?.iid,sha:e?.sha,phase:e?.phase,stage:e?.stage,writePending:e?.writePending,pipelinePassed:e?.pipelinePassed,platform:process.platform,node:process.version,diagnostic:this.diagnostic,trace:this.trace,stack:error instanceof Error?error.stack?.split('\n').filter(line=>/^\s+at /.test(line)).slice(0,15):undefined});}
- private async command(args:string[],timeout=120000){
+ private async command(args:string[],timeout=120000,input?:string){
   // Log only fixed command names and outcomes, never arguments or raw CLI output.
   const captureLimitChars=8*1024*1024;const action=args.slice(0,args[0]==='codehub-cli'&&args[2]==='review'?4:3).join(' '),start=Date.now();this.diagnostic={command:action,captureLimitChars,timeoutMs:timeout,attempt:1,flags:args.filter(a=>/^--[a-z-]+$/.test(a))};this.activeCommand=action;this.recordLog('info',`开始 ${action}`);
   try{
-   let r=await this.execute(args,process.cwd(),timeout,undefined,undefined,undefined,this.controller.signal,captureLimitChars);
+   let r=await this.execute(args,process.cwd(),timeout,undefined,undefined,input,this.controller.signal,captureLimitChars);
    this.diagnostic={...this.diagnostic,elapsedMs:Date.now()-start,exitCode:r.exitCode,outputTruncated:r.outputTruncated??false,outputChars:r.outputChars??r.output.length,response:responseDiagnostic(r.output)};this.recordLog('info',`${action} 返回，退出码 ${r.exitCode}`);
    if(r.outputTruncated)throw Error(`${action} 输出超过 ${captureLimitChars} 字符，已截断，不能确认远端状态；详见 group-mr-errors.jsonl`);
    if(groupMrAccessFailure(r)){
@@ -249,7 +249,7 @@ export class GroupMrService {
     this.activeCommand=cli+' auth login';await login;this.activeCommand=action;
     if(!retryableRead(args))throw Error(`${action} 遇到权限问题，已执行登录；该写操作不自动重试，请核对远端结果后手动处理`);
     this.diagnostic={command:action,captureLimitChars,timeoutMs:timeout,attempt:2};this.recordLog('info',`登录后重新读取 ${action}`);
-    r=await this.execute(args,process.cwd(),timeout,undefined,undefined,undefined,this.controller.signal,captureLimitChars);
+    r=await this.execute(args,process.cwd(),timeout,undefined,undefined,input,this.controller.signal,captureLimitChars);
     this.diagnostic={...this.diagnostic,elapsedMs:Date.now()-start,exitCode:r.exitCode,outputTruncated:r.outputTruncated??false,outputChars:r.outputChars??r.output.length,response:responseDiagnostic(r.output)};this.recordLog('info',`${action} 返回，退出码 ${r.exitCode}`);
    if(r.outputTruncated)throw Error(`${action} 输出超过 ${captureLimitChars} 字符，已截断，不能确认远端状态；详见 group-mr-errors.jsonl`);
     if(groupMrAccessFailure(r))throw Error(`${action} 登录后仍存在认证或访问权限问题，请检查 ${args[0]} 登录状态及仓库/群组权限`);
@@ -260,7 +260,7 @@ export class GroupMrService {
   catch(error){const code=object(error)?.code;const message=code==='ENOENT'?`${args[0]} 未找到，请安装并确认启动服务的 PATH 中可用`:code==='EACCES'?`${args[0]} 无法执行，请检查文件权限`:error instanceof Error?error.message:'命令执行失败';this.diagnostic={...this.diagnostic,elapsedMs:Date.now()-start};this.errorLog('command-exception',message,error);this.recordLog('error',message);throw Error(message,{cause:error});}
   finally{this.activeCommand='';}
  }
- private async code(args:string[],columns?:string){return this.command(['codehub-cli',...args,'--format','json',...(columns?['--columns',columns]:[])]);}
+ private async code(args:string[],columns?:string,input?:string){return this.command(['codehub-cli',...args,'--format','json',...(columns?['--columns',columns]:[])],120000,input);}
  async poll(){const cfg=this.configuration();if(this.closing||this.busy||!cfg.enabled||!cfg.groupId||!cfg.authorizedSender||Date.now()-this.lastPoll<cfg.intervalSeconds*1000)return;this.busy=true;this.lastPoll=Date.now();this.updateMonitor({state:'polling',error:'',message:'正在读取 WeLink 群消息'});
   try{const history=parseGroupMessages(await this.command(['welink-cli','im','query-history-message','--group-id',cfg.groupId,'--query-count','100'],30000));
    const cursorKey='cursor:'+cfg.groupId;const cursor=this.store.getRecord<{id:string}>('group-mr-cursor',cursorKey)?.id;
@@ -354,11 +354,11 @@ export class GroupMrService {
   finally{if(pending){e.writePending=pending;this.save(e);}}
  }
  private async permission(e:Entry,cfg:Configuration,role:string){const message=`无法${role==='合并'?'合入':role}：当前账号无${role}权限，本次处理结束。`;this.mark(e,'NO_PERMISSION',message);await this.reply(e,cfg,message);}
- private async write(e:Entry,name:string,args:readonly string[],verify:()=>Promise<boolean>){
+ private async write(e:Entry,name:string,args:readonly string[],verify:()=>Promise<boolean>,input?:string){
   if(e.writePending){if(await verify()){e.writePending='';this.save(e);return;}throw Error(`上次${name}操作结果待确认，请核对 CodeHub`);}
   if(await verify())return;
   e.writePending=name;this.save(e);
-  try{await this.code([...args]);if(!await verify())throw Error(`${name}未在 CodeHub 得到确认`);e.writePending='';this.save(e);}
+  try{await this.code([...args],undefined,input);if(!await verify())throw Error(`${name}未在 CodeHub 得到确认`);e.writePending='';this.save(e);}
   catch(error){const text=error instanceof Error?error.message:'';if(/403|permission|无权限|无权|not.*(?:approver|reviewer)/i.test(text))throw Object.assign(Error(name+'权限不足'),{noPermission:true});throw error;}
  }
  private async runPi(e:Entry,_diff:string,_notes:Discussion[]){
@@ -440,7 +440,7 @@ export class GroupMrService {
   }
   await this.current(e,e.sha);this.mark(e,'MERGE','正在核对合并门禁');const before=await this.gate(e);
   if(before.merge_gate_passed!==true){this.mark(e,'ISSUES','尚有合并门禁未通过，本次处理结束');await this.reply(e,cfg,e.status);return;}
-  try{await this.write(e,'合并',['mr','merge',e.iid,'-p',e.repo],async()=>{const v=await this.view(e);return v.state==='merged';});}
+  try{await this.write(e,'合并',['mr','merge',e.iid,'-p',e.repo],async()=>{const v=await this.view(e);return v.state==='merged';},'y\n');}
   catch(error){if(object(error)?.noPermission){await this.permission(e,cfg,'合并');return;}throw error;}
   this.mark(e,'DONE',e.reviewSkipped?'已跳过无权限的检视，审核与合并已完成':'检视、审核与合并已完成');await this.replyMerged(e,cfg,e.shortcut?'已按指令完成审核并合入。':e.reviewSkipped?'审核已通过，MR 已合入。':'检视、审核已通过，MR 已合入。');
  }
