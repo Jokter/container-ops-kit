@@ -525,3 +525,23 @@ test('concurrent MR reads share one in-flight login instead of failing the other
  try{await new Promise<void>(resolve=>setImmediate(resolve));assert.equal(logins,1);release();assert.deepEqual(await Promise.all(calls),Array(5).fill('[]'));}
  finally{release();await Promise.allSettled(calls);await service.close();store.close();rmSync(root,{recursive:true,force:true});}
 });
+
+for(const resolved of [true,null,false,undefined,'true'] as const)test(`MR comments treat explicit null as closed, without accepting missing or invalid states: ${String(resolved)}`,async()=>{
+ const store=new TaskStore(':memory:'),sha='a'.repeat(40);let pipelineReads=0;
+ const service=new GroupMrService(store,async args=>{
+  let value:unknown={};
+  if(args[2]==='view')value={iid:1856,state:'opened',sha};
+  if(args[2]==='review'&&args[3]==='list')value=[{id:'note',resolved,notes:[{body:'历史意见'}]}];
+  if(args[2]==='gate')value={ci_state_passed:false};
+  if(args[2]==='pipeline'){pipelineReads++;value=[{id:1,status:'running',sha}];}
+  if(args[2]==='send-to-group')value={resultCode:0};
+  return {exitCode:0,output:JSON.stringify(value)};
+ });
+ service['runPi']=async()=>{};
+ try{
+  await service['accept']({id:'1',sender:'developer',quoteId:'',content:'https://codehub-y.huawei.com/MAE-M/Access/SWMFrontendService/merge_requests/1856'},{enabled:true,groupId:'123456789',authorizedSender:'owner',repositoryPrefix:'MAE-M/Access/',intervalSeconds:5});
+  const row=service.list()[0]!,closed=resolved===true||resolved===null;
+  assert.equal(row.reviewComments?.[0]?.resolved,closed);assert.equal(row.phase,closed?'PIPELINE':'ISSUES');assert.equal(pipelineReads,closed?1:0);
+  if(!closed)assert.match(row.status,/仍有 1 条未闭环/);
+ }finally{await service.close();store.close();}
+});

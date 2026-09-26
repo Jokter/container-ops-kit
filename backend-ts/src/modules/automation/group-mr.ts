@@ -53,7 +53,7 @@ export function parseGroupMessages(output:string):GroupMessage[]{
   }
   return [{id,content,sender,quoteId}];}).sort((a,b)=>/^\d+$/.test(a.id)&&/^\d+$/.test(b.id)?BigInt(a.id)<BigInt(b.id)?-1:BigInt(a.id)>BigInt(b.id)?1:0:a.id.localeCompare(b.id));
 }
-function parseDiscussions(output:string):Discussion[]{return listObjects(output).flatMap(v=>{const o=object(v);if(!o)return [];const notes=Array.isArray(o.notes)?o.notes:[];const first=object(notes[0]);const author=object(first?.author);const id=string(o.discussion_id??o.discussionId??o.id);return id?[{id,body:string(first?.body),author:string(author?.username??first?.author),resolved:o.resolved===true}]:[];});}
+function parseDiscussions(output:string):Discussion[]{return listObjects(output).flatMap(v=>{const o=object(v);if(!o)return [];const notes=Array.isArray(o.notes)?o.notes:[];const first=object(notes[0]);const author=object(first?.author);const id=string(o.discussion_id??o.discussionId??o.id);return id?[{id,body:string(first?.body),author:string(author?.username??first?.author),resolved:o.resolved===true||o.resolved===null}]:[];});}
 export function piReplyStream(){
  let answer='',failed=false,completed=false;
  const take=(value:unknown)=>{const message=object(value);if(message?.role!=='assistant')return;const parts=Array.isArray(message.content)?message.content:[];answer=parts.map(object).filter(p=>p?.type==='text').map(p=>string(p?.text)).join('\n');failed=['error','aborted'].includes(string(message.stopReason));};
