@@ -347,19 +347,20 @@ test('mobile links and quoted cards preserve long message IDs and authorize only
 });
 
 for(const review of ['allowed','absent','forbidden','failed'] as const)test('authorized quoted merge closes all comments and handles review permission: '+review,async()=>{
- const store=new TaskStore(':memory:'),sha='a'.repeat(40),closed=new Set<string>(),calls:string[]=[],sent:string[]=[];let approved=false,reviewed=false,merged=false;
+ const store=new TaskStore(':memory:'),sha='a'.repeat(40),closed=new Set<string>(),calls:string[]=[],sent:string[]=[];let approved=false,reviewed=false,merged=false,reviewerAdded=false;
  const service=new GroupMrService(store,async args=>{
   const action=args[0]==='welink-cli'?'welink':args[0]==='pi'?'pi':args[2]??'';calls.push(action);let value:unknown={};
   if(args.includes('--help'))return {exitCode:0,output:'--quote-message-id'};
   if(args[2]==='send-to-group'){sent.push(args[args.indexOf('--text')+1]!);value={resultCode:0};}
   if(args[1]==='user')value={username:'owner123'};
-  if(args[1]==='mr'&&action==='view')value={iid:1,state:merged?'merged':'opened',sha,approval_merge_request_reviewers:review==='absent'?[]:[{username:'owner123',state:reviewed?'reviewed':'pending'}],approval_merge_request_approvers:[{username:'owner123',state:approved?'approved':'pending'}]};
+  if(args[1]==='mr'&&action==='view')value={iid:1,state:merged?'merged':'opened',sha,merge_request_assignee_list:[{username:'owner123'}],approval_merge_request_reviewers:review==='absent'&&!reviewerAdded?[]:[{username:'owner123',state:reviewed?'reviewed':'pending'}],approval_merge_request_approvers:[{username:'owner123',state:approved?'approved':'pending'}]};
   if(action==='gate')value={ci_state_passed:true,quality_gate:{passed:true},conflict_passed:true,approval_reviewers_required_passed:reviewed,approval_approvers_required_passed:approved,merge_gate_passed:approved};
   if(action==='pipeline')value=[{id:1,status:'success',sha}];
   if(action==='review'&&args[3]==='resolve')closed.add(args[5]!);
   if(action==='review'&&args[3]==='list')value=['mine','others'].map(id=>({id,resolved:closed.has(id),notes:[{body:id,author:{username:id==='mine'?'owner123':'developer'}}]}));
   if(action==='approve-review'){if(review==='forbidden')return {exitCode:1,output:'HTTP 403 forbidden'};if(review==='failed')return {exitCode:124,output:'timeout'};reviewed=true;}
   if(action==='approve')approved=true;
+  if(action==='update'){assert.ok(args.includes('--approval-reviewers'));assert.ok(args.includes('owner123'));reviewerAdded=true;}
   if(action==='merge')merged=true;
   return {exitCode:0,output:JSON.stringify(value)};
  });
@@ -369,7 +370,7 @@ for(const review of ['allowed','absent','forbidden','failed'] as const)test('aut
  assert.match(sent[0]??'',/已收到合入指令/);assert.equal(calls[0],'welink');assert.deepEqual([...closed],['mine','others']);assert.equal(calls.includes('pi'),false);
  assert.equal(merged,review!=='failed');assert.equal(service.list()[0]?.phase,review==='failed'?'INTERRUPTED':'DONE');
  if(review==='failed')assert.equal(service.list()[0]?.writePending,'检视');else assert.equal(sent.length,2);
- if(review==='absent'||review==='forbidden'){assert.equal(service.list()[0]?.reviewSkipped,true);assert.ok(sent.every(text=>!text.includes('无检视权限')));}if(review!=='failed')assert.match(sent.at(-1)??'',/完成审核并合入/);
+ if(review==='absent'){assert.equal(reviewerAdded,true);assert.equal(reviewed,true);assert.notEqual(service.list()[0]?.reviewSkipped,true);}if(review==='forbidden'){assert.equal(service.list()[0]?.reviewSkipped,true);assert.ok(sent.every(text=>!text.includes('无检视权限')));}if(review!=='failed')assert.match(sent.at(-1)??'',/完成审核并合入/);
  }finally{await service.close();store.close();}
 });
 
@@ -729,5 +730,80 @@ test('one failed reply does not prevent other MRs in the same message from proce
   await service['accept']({id:'multi',sender:'developer',quoteId:'',content:urls.join('\n\n')},{enabled:true,groupId:'123456789',authorizedSender:'owner',repositoryPrefix:'MAE-M/Access/',intervalSeconds:5});
   assert.deepEqual(processed,['2']);assert.equal(service.list().length,2);
   assert.equal(service.list().find(entry=>entry.iid==='1')?.reply?.status,'unconfirmed');
+ }finally{await service.close();store.close();}
+});
+
+for(const shortcut of [false,true])test('authorized account is added to each role before its action, preserving existing members: '+shortcut,async()=>{
+ const store=new TaskStore(':memory:'),sha='a'.repeat(40),calls:string[]=[];
+ const people:Record<string,string[]>={'--approval-reviewers':['existing-reviewer'],'--approval-approvers':['existing-approver'],'--assignees':['existing-assignee']};
+ let reviewed=false,approved=false,merged=false;
+ const service=new GroupMrService(store,async args=>{
+  let value:unknown={};const action=args[2];
+  if(args.includes('--help'))return{exitCode:0,output:''};
+  if(args[0]==='welink-cli')value={resultCode:0};
+  else if(args[1]==='user')value={username:'owner'};
+  else if(action==='view')value={iid:1,state:merged?'merged':'opened',sha,approval_merge_request_reviewers:people['--approval-reviewers']!.map(username=>({username})),approval_merge_request_approvers:people['--approval-approvers']!.map(username=>({username})),merge_request_assignee_list:people['--assignees']!.map(username=>({username}))};
+  else if(action==='gate')value={ci_state_passed:true,approval_reviewers_required_passed:reviewed,approval_approvers_required_passed:approved,merge_gate_passed:reviewed&&approved&&people['--assignees']!.includes('owner')};
+  else if(action==='pipeline')value=[{id:1,status:'success',sha}];
+  else if(action==='review')value=[];
+  else if(action==='update'){
+   const flag=Object.keys(people).find(flag=>args.includes(flag))!;
+   assert.ok(flag);calls.push(flag);assert.equal(args[args.indexOf('-p')+1],'MAE-M/Access/Demo');
+   const next=args[args.indexOf(flag)+1]!.split(',');assert.deepEqual(next,[...people[flag]!,'owner']);people[flag]=next;
+  }else if(action==='approve-review'){assert.ok(people['--approval-reviewers']!.includes('owner'));calls.push(action);reviewed=true;}
+  else if(action==='approve'){assert.ok(people['--approval-approvers']!.includes('owner'));calls.push(action);approved=true;}
+  else if(action==='merge'){assert.ok(people['--assignees']!.includes('owner'));calls.push(action);merged=true;}
+  return{exitCode:0,output:JSON.stringify(value)};
+ });
+ service['runPi']=async()=>{};
+ const cfg={humanReviewEnabled:false,enabled:true,groupId:'123456789',authorizedSender:'owner',repositoryPrefix:'MAE-M/Access/',intervalSeconds:5},url='https://codehub-y.huawei.com/MAE-M/Access/Demo/merge_requests/1';
+ try{
+  await service['accept'](shortcut?{id:'1',sender:'owner',content:'合入',quoteId:'original',quotedContent:url}:{id:'1',sender:'developer',content:url,quoteId:''},cfg);
+  assert.equal(service.list()[0]?.phase,'DONE');assert.equal(merged,true);
+  assert.deepEqual(calls,['--approval-reviewers','--approval-approvers','--assignees','approve-review','approve','merge']);
+ }finally{await service.close();store.close();}
+});
+
+for(const scenario of ['present','missing-list','missing-name','denied','unconfirmed','changed'] as const)test('authorized role configuration verifies results and does not replay uncertain updates: '+scenario,async()=>{
+ const store=new TaskStore(':memory:'),sha='a'.repeat(40);let updates=0;
+ const service=new GroupMrService(store,async args=>{
+  if(args[2]==='update'){updates++;if(scenario==='denied')return{exitCode:1,output:'HTTP 403 forbidden'};return{exitCode:0,output:'{}'};}
+  if(args[2]==='view')return{exitCode:0,output:JSON.stringify({iid:1,state:'opened',sha:scenario==='changed'&&updates?'b'.repeat(40):sha,approval_merge_request_reviewers:scenario==='missing-list'?undefined:scenario==='missing-name'?[{name_cn:'existing'}]:[{username:scenario==='present'?'OWNER':'existing'}]})};
+  if(args[2]==='gate')return{exitCode:0,output:'{"ci_state_passed":true}'};
+  if(args[2]==='review')return{exitCode:0,output:'[]'};
+  throw Error('Unexpected action');
+ });
+ const cfg={enabled:true,groupId:'123456789',authorizedSender:'owner',repositoryPrefix:'MAE-M/Access/',intervalSeconds:5};
+ const entry={id:'roles',repo:'MAE-M/Access/Demo',iid:'1',url:'https://codehub-y.huawei.com/MAE-M/Access/Demo/merge_requests/1',sha,previousSha:'',messageId:'1',sender:'developer',shortcut:false,phase:'REVIEW' as const,status:'',detail:'',createdAt:new Date().toISOString(),updatedAt:'',writePending:'',events:[]};
+ try{
+  if(scenario==='present')await service['ensureAuthorizedPerson'](entry,cfg,'reviewers');
+  else await assert.rejects(service['ensureAuthorizedPerson'](entry,cfg,'reviewers'),scenario.startsWith('missing')?/完整检视人名单/:scenario==='denied'?/权限不足/:scenario==='changed'?/提交已变化/:/未在 CodeHub 得到确认/);
+  assert.equal(updates,['denied','unconfirmed','changed'].includes(scenario)?1:0);
+  if(updates){assert.equal(entry.writePending,'添加授权账号为检视人');await assert.rejects(service['ensureAuthorizedPerson'](entry,cfg,'reviewers'));assert.equal(updates,1);}
+ }finally{await service.close();store.close();}
+});
+
+test('role setup errors are skipped before the final three steps, without retrying or bypassing actual permissions',async()=>{
+ const store=new TaskStore(':memory:'),sha='a'.repeat(40),actions:string[]=[];let reviewed=false,approved=false,merged=false;
+ const service=new GroupMrService(store,async args=>{
+  const action=args[2];let value:unknown={};
+  if(args.includes('--help'))return{exitCode:0,output:''};
+  if(args[0]==='welink-cli')value={resultCode:0};
+  else if(args[1]==='user')value={username:'operator'};
+  else if(action==='view')value={iid:1,state:merged?'merged':'opened',sha,approval_merge_request_reviewers:[{username:'operator'}],approval_merge_request_approvers:[{username:'operator'}],merge_request_assignee_list:[{username:'operator'}]};
+  else if(action==='gate')value={ci_state_passed:true,approval_reviewers_required_passed:reviewed,approval_approvers_required_passed:approved,merge_gate_passed:reviewed&&approved};
+  else if(action==='pipeline')value=[{id:1,status:'success',sha}];
+  else if(action==='review')value=[];
+  else if(action==='update'){actions.push(args.find(arg=>['--approval-reviewers','--approval-approvers','--assignees'].includes(arg))!);return{exitCode:1,output:'HTTP 403 forbidden'};}
+  else if(action==='approve-review'){actions.push(action);reviewed=true;}
+  else if(action==='approve'){actions.push(action);approved=true;}
+  else if(action==='merge'){actions.push(action);merged=true;}
+  return{exitCode:0,output:JSON.stringify(value)};
+ });
+ const cfg={enabled:true,groupId:'123456789',authorizedSender:'owner',repositoryPrefix:'MAE-M/Access/',intervalSeconds:5};
+ try{
+  await service['accept']({id:'1',sender:'owner',content:'合入',quoteId:'original',quotedContent:'https://codehub-y.huawei.com/MAE-M/Access/Demo/merge_requests/1'},cfg);
+  assert.deepEqual(actions,['--approval-reviewers','--approval-approvers','--assignees','approve-review','approve','merge']);
+  assert.equal(service.list()[0]?.phase,'DONE');assert.equal(service.list()[0]?.writePending,'');assert.equal(service.list()[0]?.rolesPrepared,true);
  }finally{await service.close();store.close();}
 });

@@ -18,7 +18,7 @@ type Configuration=Omit<z.infer<typeof configSchema>,'humanReviewEnabled'> & {hu
 const defaults:Configuration={humanReviewEnabled:true,enabled:false,groupId:'',authorizedSender:'',repositoryPrefix:'MAE-M/Access/',intervalSeconds:10};
 const phase=z.enum(['QUEUED','HUMAN','PIPELINE','PI','COMMENTS','REVIEW','APPROVE','MERGE','DONE','CLOSED','ISSUES','FAILED','NO_PERMISSION','INTERRUPTED']);
 type Phase=z.infer<typeof phase>;
-export interface Entry{humanReviewRequired?:boolean;humanReviewSkipped?:boolean;queued?:boolean;humanStartedAt?:string;humanReview?:HumanReview;notification?:{sha:string;receiver:string;status:string};knowledgeIds?:string[];piOutput?:string;reviewSkipped?:boolean;supersededBy?:string;pipelinePassed?:boolean;piReview?:{source?:'codehub';ok?:boolean;findings?:Array<{path:string;line:number;body:string}>;sha:string;discussionKey:string;summary:string;resolvedDiscussionIds:string[]};id:string;repo:string;iid:string;url:string;sha:string;previousSha:string;messageId:string;sender:string;shortcut:boolean;phase:Phase;stage?:Phase;status:string;detail:string;createdAt:string;updatedAt:string;writePending:string;events:Array<{time:string;phase:Phase;message:string}>;reviewComments?:Array<{id:string;body:string;resolved:boolean}>;reply?:{text:string;mode:'quote'|'reference';status:'sending'|'sent'|'unconfirmed'|'checked'}}
+export interface Entry{rolesPrepared?:boolean;humanReviewRequired?:boolean;humanReviewSkipped?:boolean;queued?:boolean;humanStartedAt?:string;humanReview?:HumanReview;notification?:{sha:string;receiver:string;status:string};knowledgeIds?:string[];piOutput?:string;reviewSkipped?:boolean;supersededBy?:string;pipelinePassed?:boolean;piReview?:{source?:'codehub';ok?:boolean;findings?:Array<{path:string;line:number;body:string}>;sha:string;discussionKey:string;summary:string;resolvedDiscussionIds:string[]};id:string;repo:string;iid:string;url:string;sha:string;previousSha:string;messageId:string;sender:string;shortcut:boolean;phase:Phase;stage?:Phase;status:string;detail:string;createdAt:string;updatedAt:string;writePending:string;events:Array<{time:string;phase:Phase;message:string}>;reviewComments?:Array<{id:string;body:string;resolved:boolean}>;reply?:{text:string;mode:'quote'|'reference';status:'sending'|'sent'|'unconfirmed'|'checked'}}
 interface ReviewCheckpoint {sha:string;review:NonNullable<Entry['piReview']>;completedAt:string}
 interface GroupMessage{id:string;content:string;sender:string;quoteId:string;quotedContent?:string}
 interface Discussion{id:string;body:string;author:string;resolved:boolean}
@@ -372,6 +372,20 @@ export class GroupMrService {
   try{await this.code([...args]);if(!await verify())throw Error(`${name}未在 CodeHub 得到确认`);e.writePending='';this.save(e);}
   catch(error){const text=error instanceof Error?error.message:'';if(/403|permission|无权限|无权|not.*(?:approver|reviewer)/i.test(text))throw Object.assign(Error(name+'权限不足'),{noPermission:true});throw error;}
  }
+ private async ensureAuthorizedPerson(e:Entry,cfg:Configuration,role:'reviewers'|'approvers'|'assignees'){
+  const [field,flag,label]=role==='reviewers'?['approval_merge_request_reviewers','--approval-reviewers','检视人'] as const:role==='approvers'?['approval_merge_request_approvers','--approval-approvers','审核人'] as const:['merge_request_assignee_list','--assignees','合并人'] as const;
+  const snapshot=await this.current(e,e.sha),members=snapshot.view[field];
+  // mr update replaces the role list. Never overwrite existing people with an incomplete snapshot.
+  if(!members||members.some(member=>!member.username?.trim()))throw Error(`CodeHub 未返回完整${label}名单，无法安全添加授权账号`);
+  const account=cfg.authorizedSender.trim();
+  if(members.some(member=>member.username?.toLowerCase()===account.toLowerCase()))return;
+  const people=[...new Map([...members.map(member=>member.username!.trim()),account].map(name=>[name.toLowerCase(),name])).values()];
+  await this.write(e,'添加授权账号为'+label,['mr','update',e.iid,'-p',e.repo,flag,people.join(',')],async()=>{
+   const current=await this.current(e,e.sha);
+   return people.every(name=>current.view[field]?.some(member=>member.username?.toLowerCase()===name.toLowerCase()));
+  });
+  this.recordLog('info',`已将授权账号添加为${label}`);
+ }
  private async runPi(e:Entry,baseSha:string,notes:Discussion[]){
   const knowledge=this.knowledge.use(e.repo,e.id,e.sha);e.knowledgeIds=knowledge.map(k=>k.id);this.save(e);
   const scope=baseSha?`本次为增量复检。上次成功检视的提交为 ${baseSha}，当前提交为 ${e.sha}。使用可用的只读 CodeHub CLI 能力获取这两个提交之间的完整差异，先查看工具帮助确认参数，不要将整个 MR 的 changes 当成两次提交间的差异。只检视新增修改及相关影响，必要时读取周边代码；同时复核历史意见对应的修复。若强推、旧提交不存在或工具不支持比较，回退为当前 MR 全量检视，最终回复明确说明回退原因。若连当前完整改动也无法读取，停止并报错，不得宣称检视完成。`:'本次为首次全量检视，读取当前 MR 完整改动及必要的相关代码。';
@@ -451,6 +465,17 @@ ${scope}
   }
   if(!e.shortcut&&e.humanReviewRequired===false&&!e.humanReviewSkipped){
    e.humanReviewSkipped=true;this.mark(e,'HUMAN','人工审核已关闭，跳过平台人工审核；继续核验 CodeHub 权限与合并门禁');
+  }
+  if(!e.rolesPrepared){
+   if(e.writePending)throw Error('存在未确认的写操作，请核对 CodeHub 后再继续');
+   e.rolesPrepared=true;this.save(e);
+   for(const role of ['reviewers','approvers','assignees'] as const){
+    try{await this.ensureAuthorizedPerson(e,cfg,role);}
+    catch{
+     // Personnel setup is best-effort and is never replayed. Actual actions still enforce permissions and gates.
+     e.writePending='';this.save(e);this.recordLog('info',`授权账号 ${role} 配置未确认，跳过添加并继续原流程`);
+    }
+   }
   }
   for(const [name,phase,role,command,passed] of [
    ['检视','REVIEW','approval_merge_request_reviewers',['mr','approve-review',e.iid,'-p',e.repo,'--action-type','complete'],(g:{approval_reviewers_required_passed?:boolean|undefined})=>g.approval_reviewers_required_passed===true],
