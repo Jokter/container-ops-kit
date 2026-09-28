@@ -50,7 +50,7 @@ test('列表选择、搜索与详情只展示真实状态，转义不可信内�
  const row={id:'r1',repo:'MAE-M/Access/Demo',iid:'444',sha:'a'.repeat(40),url:'https://codehub-y.huawei.com/MAE-M/Access/Demo/merge_requests/444',sender:'w00789509',phase:'NO_PERMISSION',stage:'APPROVE',status:'当前账号无审核权限，本次处理结束',events:[],updatedAt:'2026-09-23T08:00:00Z',reviewComments:[{id:'n',body:'<img src=x onerror=alert(1)>',resolved:true}],reply:{text:'无审核权限',mode:'reference',status:'unconfirmed'}}
  const {doc,dom}=await fixture(t,{route:'group-mr',records:[row,{...row,id:'r2',repo:'MAE-M/Access/Second',iid:'555',reply:undefined}]})
  assert.equal(doc.querySelectorAll('.group-mr-flow li').length,8);assert.match(doc.querySelector('.group-mr-flow .stop').textContent,/审核/)
- assert.match(doc.querySelector('.group-mr-reply').textContent,/发送结果待核对/);assert.match(doc.querySelector('.group-mr-note').textContent,/已标记 OK/);assert.equal(doc.querySelector('.group-mr-note img'),null)
+ assert.match(doc.querySelector('.group-mr-reply').textContent,/发送结果待核对/);assert.match(doc.querySelector('.group-mr-note').textContent,/已闭环/);assert.equal(doc.querySelector('.group-mr-note img'),null)
  doc.querySelector('[data-group-mr-record-button="r2"]').click();assert.match(doc.querySelector('.group-mr-detail h3').textContent,/Second/);assert.match(doc.querySelector('.group-mr-reply').textContent,/暂无已记录的回复/)
  const search=doc.querySelector('#group-mr-search');search.value='missing';search.dispatchEvent(new dom.window.Event('input',{bubbles:true}));assert.match(doc.querySelector('.group-mr-empty').textContent,/没有匹配/);assert.equal(doc.querySelector('.group-mr-detail'),null)
 })

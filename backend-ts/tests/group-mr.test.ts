@@ -643,3 +643,42 @@ for(const delivered of [true,false])test(`reconciled merge notifies once and doe
  try{service.refreshRemoteStates();await settle(service);assert.equal(sent.length,1);assert.match(sent[0]??'',/MR 已合入/);const e=service.list()[0]!;assert.equal(e.phase,'DONE');assert.equal(e.reply?.status,delivered?'sent':'unconfirmed');await service['replyMerged'](e,cfg);assert.equal(sent.length,1);}
  finally{await service.close();store.close();}
 });
+
+for(const failure of ['none','pi','comments','changed'] as const)test('review checkpoint survives closure, deletion and failed incremental review: '+failure,async()=>{
+ const store=new TaskStore(':memory:'),repo='MAE-M/Access/Demo',url='https://codehub-y.huawei.com/MAE-M/Access/Demo/merge_requests/444';
+ const a='a'.repeat(40),b='b'.repeat(40);let sha=a,resolved=false,fail=false,afterPi=false;
+ const scopes:string[]=[];
+ const service=new GroupMrService(store,async args=>{
+  let value:unknown={};
+  if(args[2]==='view')value={iid:444,state:'opened',sha:fail&&afterPi&&failure==='changed'?'c'.repeat(40):sha};
+  if(args[2]==='review'){if(fail&&afterPi&&failure==='comments')throw Error('read failed');value=[{id:'old-issue',resolved,notes:[{body:'existing issue'}]}];}
+  if(args[2]==='gate')value={ci_state_passed:false};
+  if(args[2]==='pipeline')value=[{id:1,status:'running',sha}];
+  if(args[2]==='send-to-group')value={resultCode:0};
+  return {exitCode:0,output:JSON.stringify(value)};
+ });
+ service['runPi']=async(_e,base,notes)=>{scopes.push(base);assert.equal(notes[0]?.resolved,resolved);afterPi=true;if(fail&&failure==='pi')throw Error('Pi interrupted');};
+ const cfg={enabled:false,groupId:'123456789',authorizedSender:'owner',repositoryPrefix:'MAE-M/Access/',intervalSeconds:5};
+ const send=(id:string)=>service['accept']({id,sender:'developer',quoteId:'',content:url},cfg);
+ const checkpoint=()=>store.getRecord<{sha:string}>('group-mr-review-checkpoint',repo+':444')?.sha;
+ try{
+  await send('1');assert.deepEqual(scopes,['']);assert.equal(checkpoint(),a);
+  resolved=true;await send('2');assert.equal(scopes.length,1);assert.equal(service.summary().pending[0]?.reviewComments?.[0]?.resolved,true);
+  for(const e of service.list())store.deleteRecord('group-mr-entry',e.id);
+  await send('3');assert.equal(scopes.length,1);assert.equal(checkpoint(),a);
+  sha=b;fail=true;afterPi=false;await send('4');assert.deepEqual(scopes,['',a]);assert.equal(checkpoint(),failure==='none'?b:a);
+ }finally{await service.close();store.close();}
+});
+
+test('incremental Pi prompt includes baseline and closed discussion IDs without instructing duplicate submissions',async()=>{
+ const store=new TaskStore(':memory:');let prompt='';
+ const service=new GroupMrService(store,async(_args,_dir,_timeout,_log,onLine,input)=>{
+  prompt=JSON.parse(input!).message;
+  onLine?.(JSON.stringify({type:'message_update',assistantMessageEvent:{type:'text_delta',delta:'增量复检完成'}}),false);
+  onLine?.(JSON.stringify({type:'agent_end'}),false);return {exitCode:0,output:''};
+ });
+ const e={id:'prompt-test',repo:'MAE-M/Access/Demo',iid:'1',url:'https://codehub-y.huawei.com/MAE-M/Access/Demo/merge_requests/1',sha:'b'.repeat(40),previousSha:'',messageId:'1',sender:'developer',shortcut:false,phase:'PI' as const,status:'',detail:'',createdAt:new Date().toISOString(),updatedAt:'',writePending:'',events:[]};
+ try{await service['runPi'](e,'a'.repeat(40),[{id:'closed-issue',body:'phaseName validation',author:'reviewer',resolved:true}]);
+  assert.ok(prompt.includes('a'.repeat(40)));assert.ok(prompt.includes('b'.repeat(40)));assert.match(prompt,/增量复检/);assert.match(prompt,/回退为当前 MR 全量检视/);assert.match(prompt,/closed-issue/);assert.match(prompt,/"resolved":true/);assert.match(prompt,/不新建重复意见/);
+ }finally{await service.close();store.close();}
+});
