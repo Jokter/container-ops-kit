@@ -204,9 +204,27 @@ export class GroupMrService {
  removeHistory(id:string){return this.removeHistories([id]);}
  removeHistories(ids:string[]){const entries=[...new Set(ids)].map(id=>this.editable(id));for(const e of entries){if(!['DONE','CLOSED','FAILED','NO_PERMISSION','INTERRUPTED','ISSUES','PIPELINE'].includes(e.phase))throw Object.assign(Error('只能删除待处理或已结束的记录'),{statusCode:409});}for(const e of entries)this.store.putRecord('group-mr-hidden',e.id,{id:e.id,deletedAt:new Date().toISOString()});return {ok:true,deleted:entries.length};}
 
+ async mergeRecord(id:string,value:unknown){
+  const input=z.object({sha:z.string().regex(/^[a-f0-9]{40}$/i),confirmed:z.literal(true)}).strict().parse(value),e=this.editable(id);
+  if(e.supersededBy||this.store.getRecord('group-mr-hidden',id))throw Object.assign(Error('本记录已被替代或删除，请刷新'),{statusCode:409});
+  if(!['PIPELINE','ISSUES','NO_PERMISSION','INTERRUPTED','REVIEW','APPROVE','MERGE'].includes(e.phase)||e.writePending||e.sha!==input.sha)throw Object.assign(Error('当前记录不可合入、提交已变化或有待核对操作，请刷新并核对'),{statusCode:409});
+  if(!e.shortcut){
+   if(e.humanReviewRequired!==false&&(e.humanReview?.sha!==input.sha||e.humanReview.decision!=='pass'))throw Object.assign(Error('请先完成当前提交的人工审核'),{statusCode:409});
+   if(e.piReview?.source!=='codehub'||e.piReview.sha!==input.sha||e.piReview.ok!==true||e.piReview.findings?.length)throw Object.assign(Error('当前提交尚无通过的 Agent 检视结果，请先完成检视'),{statusCode:409});
+  }
+  const cfg=this.configuration();
+  intervention(this.store,id,'manual-merge');
+  await this.enqueue(e,async()=>{
+   this.mark(e,'MERGE','已请求合入，正在重新核对当前提交与门禁');e.detail='';this.save(e);
+   // Continue the existing checked workflow; do not create a shortcut or resolve comments implicitly.
+   await this.executeEntry(e,cfg,false);
+  });
+  return this.store.getRecord<Entry>('group-mr-entry',id)!;
+ }
+
  async submitReview(id:string,value:unknown){
   const input=reviewInput.parse(value),e=this.editable(id);
-  if(e.supersededBy)throw Object.assign(Error('本记录已被新记录替代，请刷新'),{statusCode:409});
+  if(e.supersededBy||this.store.getRecord('group-mr-hidden',id))throw Object.assign(Error('本记录已被新记录替代或删除，请刷新'),{statusCode:409});
   if(e.phase!=='HUMAN'||e.writePending||input.sha!==e.sha)throw Object.assign(Error('不是当前待审核提交，请刷新'),{statusCode:409});
   if(e.humanReview?.decision===input.decision&&e.humanReview.reason===input.reason&&e.humanReview.category===input.category)throw Object.assign(Error('相同审核已提交，请刷新'),{statusCode:409});
   return new Promise<Entry>((resolve,reject)=>{
@@ -504,6 +522,7 @@ ${scope}
  }
 }
 export function groupMrRoutes(app:FastifyInstance,service:GroupMrService){
+ app.post('/api/automation/group-mr/records/:id/merge',async request=>service.mergeRecord(z.object({id:z.uuid()}).parse(request.params).id,request.body));
  app.post('/api/automation/group-mr/records/:id/human-review',async request=>service.submitReview(z.object({id:z.uuid()}).parse(request.params).id,request.body));
  app.post('/api/automation/knowledge/reviews/:id/retry',async request=>service.retryKnowledge(z.object({id:z.uuid()}).parse(request.params).id));
  app.get('/api/automation/group-mr',async()=>{service.refreshRemoteStates();return service.summary();});
