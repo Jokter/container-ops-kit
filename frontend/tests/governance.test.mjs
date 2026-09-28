@@ -73,7 +73,7 @@ test('概览指标采用网格卡片，长错误限制在待处理表格内',asy
  const task={id:'long',repository:'Demo',reportVersion:'R27C10',status:'WAITING_EXTERNAL',message:'诊断'.repeat(3000),updatedAt:new Date().toISOString()};
  const dom=new JSDOM(html,{url:'http://localhost/#/automation',runScripts:'dangerously',beforeParse(w){w.scrollTo=()=>{};w.fetch=async url=>({ok:true,status:200,json:async()=>url==='/api/auto-ut/tasks'?[task]:url.startsWith('/api/automation/effectiveness')?metrics:url==='/api/automation/knowledge'?{items:[],reviews:[]}:url.startsWith('/api/auto-ut/governance')?{metrics:{},records:[task]}:[]});}});
  try{const style=dom.window.document.createElement('style');style.textContent=css;dom.window.document.head.append(style);await pause();const d=dom.window.document;
-  assert.equal(d.querySelectorAll('.review-metric').length,0);
+  assert.equal(d.querySelectorAll('.ov-secondary .review-metric').length,4);
   assert.equal(dom.window.getComputedStyle(d.querySelector('.overview-outcomes')).display,'grid');
   assert.equal(dom.window.getComputedStyle(d.querySelector('.review-todos')).tableLayout,'fixed');
   const reason=d.querySelector('.review-todo-reason');assert.equal(reason.textContent,task.message);assert.equal(dom.window.getComputedStyle(reason).overflow,'hidden');
