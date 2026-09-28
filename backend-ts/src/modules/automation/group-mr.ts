@@ -106,6 +106,7 @@ interface ExecutionContext {entry:Entry|undefined;command:string;diagnostic:Reco
 interface QueuedJob {entry:Entry;run:()=>Promise<void>;resolve:()=>void;reject:(error:unknown)=>void}
 export class GroupMrService {
  readonly knowledge:ReviewKnowledge;private background=new Set<Promise<void>>();
+ private groupReplyTails=new Map<string,Promise<void>>();
  private timer:NodeJS.Timeout;private busy=false;private closing=false;private active=new Set<string>();private initialised=false;private lastPoll=0;private controller=new AbortController();private pollPromise:Promise<void>|undefined;private contexts=new AsyncLocalStorage<ExecutionContext>();private monitorContext:ExecutionContext={entry:undefined,command:'',diagnostic:{},trace:[]};private workers=new Map<string,ExecutionContext>();private queue:QueuedJob[]=[];private reserved=new Set<string>();readonly concurrency=5;private stateChecks=new Map<string,number>();private stateJobs=new Map<string,Promise<void>>();private lastLoginAt=new Map<string,number>();private logins=new Map<string,Promise<void>>();
  private get context(){return this.contexts.getStore()??this.monitorContext;}
  private get activeCommand(){return this.context.command;} private set activeCommand(value:string){this.context.command=value;}
@@ -356,8 +357,21 @@ export class GroupMrService {
  private async gate(e:Entry){return parseObject(gateSchema,await this.code(['mr','gate',e.iid,'-p',e.repo],'ci_state_passed,quality_gate,conflict_passed,approval_reviewers_required_passed,approval_approvers_required_passed,merge_gate_passed,pipeline'),g=>g.ci_state_passed!==undefined);}
  private async current(e:Entry,sha:string,allowUnresolved=false){const view=await this.view(e);if(this.archiveRemote(e,view))throw Error('MR 已合入或关闭，本次处理结束');if(view.state!=='opened'||this.head(view)!==sha)throw Error('MR 已关闭或提交已变化，本次处理已停止；请重新发送链接');const gate=await this.gate(e);if(gate.ci_state_passed!==true||gate.quality_gate?.passed===false||gate.conflict_passed===false)throw Error('当前提交质量门禁或冲突检查未通过');const notes=parseDiscussions(await this.code(['mr','review','list',e.iid,'-p',e.repo]));if(!allowUnresolved&&notes.some(n=>!n.resolved))throw Error('仍有未闭环检视意见，禁止审核与合入');return {view,gate};}
  private async reply(e:Entry,cfg:Configuration,message:string){
+  // Serialize the entire send transaction per group, including confirmation and persistence.
+  // A rejected send releases the lane without retrying that message or blocking later replies.
+  const previous=this.groupReplyTails.get(cfg.groupId)??Promise.resolve();
+  const pending=previous.then(async()=>{
+   if(this.closing||this.controller.signal.aborted)throw Error('服务正在停止，群消息未发送');
+   await this.sendGroupReply(e,cfg,message);
+  });
+  const tail=pending.then(()=>{},()=>{});
+  this.groupReplyTails.set(cfg.groupId,tail);
+  try{await pending;}finally{if(this.groupReplyTails.get(cfg.groupId)===tail)this.groupReplyTails.delete(cfg.groupId);}
+ }
+ private async sendGroupReply(e:Entry,cfg:Configuration,message:string){
   // Use a native quote flag only when this installed CLI advertises one. Otherwise identify the source explicitly.
   const help=await this.command(['welink-cli','im','send-to-group','--help'],10000);
+  if(this.closing||this.controller.signal.aborted)throw Error('服务正在停止，群消息未发送');
   const flag=['--quote-message-id','--reply-to-message-id','--quote-msg-id'].find(option=>help.includes(option));
   if(!flag)e.events.push({time:new Date().toISOString(),phase:e.phase,message:'当前 WeLink CLI 未提供原生引用回复参数，群消息将使用原 MR 链接标识来源'});
   // Keep --text single-line for Windows welink-cli.cmd; never weaken batch argument validation.

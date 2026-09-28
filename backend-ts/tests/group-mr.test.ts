@@ -522,9 +522,9 @@ for(const batch of [false,true])test('shutdown and restart never execute queued 
  const jobs=(batch?[contents.join('\n\n')]:contents).map((content,i)=>service['accept']({id:String(i),sender:'developer',quoteId:'',content},cfg));
  const settled=Promise.allSettled(jobs);
  try{
-  assert.equal(service.summary().monitor.queuedCount,2);await service.close();await settled;
-  assert.equal(commands,5);assert.equal(service.list().filter(e=>e.phase==='INTERRUPTED').length,7);
-  const restarted=new GroupMrService(store,execute);await restarted.close();assert.equal(commands,5);assert.ok(restarted.list().every(e=>!e.queued));
+  assert.equal(service.summary().monitor.queuedCount,2);await new Promise<void>(resolve=>setImmediate(resolve));await service.close();await settled;
+  assert.equal(commands,1);assert.equal(service.list().filter(e=>e.phase==='INTERRUPTED').length,7);
+  const restarted=new GroupMrService(store,execute);await restarted.close();assert.equal(commands,1);assert.ok(restarted.list().every(e=>!e.queued));
  }finally{await service.close();store.close();}
 });
 
