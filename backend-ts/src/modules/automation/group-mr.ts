@@ -330,7 +330,7 @@ export class GroupMrService {
   if(!flag)e.events.push({time:new Date().toISOString(),phase:e.phase,message:'当前 WeLink CLI 未提供原生引用回复参数，群消息将使用原 MR 链接标识来源'});
   // Keep --text single-line for Windows welink-cli.cmd; never weaken batch argument validation.
   const sender=e.sender.replace(/[\r\n\0\u2028\u2029]+/g,' ').trim().slice(0,100)||'未知发送人';
-  const text=`发送人：${sender}；${e.url} —— ${message.replace(/[\r\n\0\u2028\u2029]+/g,'；')}`.slice(0,1800);
+  const text=`发送人：${sender}；${e.url} —— 【Agent回复】${message.replace(/[\r\n\0\u2028\u2029]+/g,'；')}`.slice(0,1800);
   e.reply={text,mode:flag?'quote':'reference',status:'sending'};e.writePending='群消息回复';this.save(e);
   // Persist before sending: even an unconfirmed send can later appear in group history.
   this.store.putRecord('group-mr-outgoing',replyTextKey(cfg.groupId,text),{entryId:e.id,createdAt:new Date().toISOString()});
