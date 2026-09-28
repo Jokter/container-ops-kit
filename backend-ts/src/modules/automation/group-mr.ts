@@ -141,7 +141,11 @@ export class GroupMrService {
   for(const entry of this.list()){if(entry.notification?.status==='sending'){entry.notification.status='unconfirmed';this.save(entry);}if(entry.reply?.status==='sending'){entry.reply.status='unconfirmed';this.save(entry);}}
   for(const entry of this.list().filter(e=>e.queued||!['HUMAN','DONE','CLOSED','ISSUES','FAILED','NO_PERMISSION','INTERRUPTED'].includes(e.phase))){const queued=entry.queued;entry.queued=false;entry.phase='INTERRUPTED';entry.status='服务重启，原执行中断，请重新发送 MR 链接';if(!queued)entry.writePending=entry.writePending||'需核对远端';this.save(entry);}
   this.updateMonitor({state:'waiting',error:'',message:this.configuration().enabled?'服务已启动，等待轮询':'监听已暂停'});
-  this.timer=setInterval(()=>{if(!this.busy)this.pollPromise=this.poll().catch(()=>{});},5000);this.timer.unref();
+  this.timer=setInterval(()=>{
+   if(!this.busy)this.pollPromise=this.poll().catch(()=>{});
+   // Track accepted MRs even without an open browser or an enabled group listener.
+   this.refreshRemoteStates();
+  },5000);this.timer.unref();
  }
  async close(){this.closing=true;clearInterval(this.timer);this.controller.abort();for(const job of this.queue.splice(0)){job.entry.queued=false;this.mark(job.entry,'INTERRUPTED','服务停止，排队任务未执行，请重新发送 MR 链接');this.reserved.delete(job.entry.repo+':'+job.entry.iid);job.reject(Error('服务正在停止'));}await this.pollPromise;await Promise.allSettled(this.background);await this.knowledge.close();}
  configuration(){return {...defaults,...this.store.getRecord<Configuration>('group-mr-config','main')};}
@@ -166,7 +170,7 @@ export class GroupMrService {
  // Reconcile by reading CodeHub; only the first confirmed merge result may notify the group.
  refreshRemoteStates(){
   if(this.closing)return;
-  const candidates=this.summary().pending.filter(e=>!this.reserved.has(e.repo+':'+e.iid)&&Date.now()-(this.stateChecks.get(e.repo+':'+e.iid)??0)>=60000)
+  const candidates=this.summary().pending.filter(e=>!this.reserved.has(e.repo+':'+e.iid)&&Date.now()-(this.stateChecks.get(e.repo+':'+e.iid)??0)>=10*60_000)
    .sort((a,b)=>(this.stateChecks.get(a.repo+':'+a.iid)??0)-(this.stateChecks.get(b.repo+':'+b.iid)??0)).slice(0,Math.max(0,this.concurrency-this.active.size));
   for(const row of candidates){
    const e=this.store.getRecord<Entry>('group-mr-entry',row.id)!;this.stateChecks.set(e.repo+':'+e.iid,Date.now());

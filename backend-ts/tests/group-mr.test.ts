@@ -807,3 +807,35 @@ test('role setup errors are skipped before the final three steps, without retryi
   assert.equal(service.list()[0]?.phase,'DONE');assert.equal(service.list()[0]?.writePending,'');assert.equal(service.list()[0]?.rolesPrepared,true);
  }finally{await service.close();store.close();}
 });
+
+for(const phase of ['NO_PERMISSION','INTERRUPTED','FAILED','ISSUES','HUMAN'] as const)test('background monitoring archives stopped MR without a browser or enabled listener: '+phase,async t=>{
+ t.mock.timers.enable({apis:['setInterval','Date'],now:Date.parse('2026-09-28T12:00:00Z')});
+ const store=new TaskStore(':memory:'),commands:string[][]=[];let remote='opened',unavailable=true;
+ const base={id:'tracked',repo:'MAE-M/Access/Demo',iid:'1',url:'',sha:'a'.repeat(40),previousSha:'',messageId:'1',sender:'developer',shortcut:false,phase,status:'stopped',detail:'',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),writePending:'检视',events:[]};
+ store.putRecord('group-mr-entry',base.id,base);
+ // Construct after restoring the record, just as on service restart.
+ const service=new GroupMrService(store,async args=>{commands.push([...args]);assert.equal(args[0],'codehub-cli');assert.equal(args[2],'view');if(unavailable)throw Error('temporary failure');return{exitCode:0,output:JSON.stringify({iid:1,state:remote})};});
+ try{
+  assert.equal(service.configuration().enabled,false);
+  t.mock.timers.tick(5000);await settle(service);assert.equal(commands.length,1);assert.equal(service.summary().pending[0]?.phase,phase);
+  unavailable=false;
+  t.mock.timers.tick(595000);await settle(service);assert.equal(commands.length,1);
+  t.mock.timers.tick(5000);await settle(service);assert.equal(commands.length,2);assert.equal(service.summary().pending.length,1);
+  remote=phase==='NO_PERMISSION'||phase==='FAILED'?'merged':'closed';
+  t.mock.timers.tick(600000);await settle(service);
+  assert.equal(commands.length,3);assert.equal(service.summary().pending.length,0);assert.equal(service.summary().history[0]?.phase,remote==='merged'?'DONE':'CLOSED');
+  t.mock.timers.tick(1200000);await settle(service);assert.equal(commands.length,3);
+ }finally{await service.close();store.close();}
+});
+
+test('background state checks rotate beyond five MRs and ignore deleted and terminal entries',async t=>{
+ t.mock.timers.enable({apis:['setInterval','Date'],now:Date.parse('2026-09-28T12:00:00Z')});
+ const store=new TaskStore(':memory:'),checked:string[]=[];
+ const service=new GroupMrService(store,async args=>{assert.equal(args[2],'view');checked.push(args[3]!);return{exitCode:0,output:'{"iid":1,"state":"opened"}'};});
+ try{
+  for(let i=1;i<=9;i++){const id=String(i);store.putRecord('group-mr-entry',id,{id,repo:'MAE-M/Access/Demo',iid:id,url:'',sha:'',previousSha:'',messageId:id,sender:'developer',shortcut:false,phase:i===9?'DONE':'NO_PERMISSION',status:'',detail:'',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),writePending:'',events:[]});}
+  service.removeHistory('8');
+  t.mock.timers.tick(5000);await settle(service);assert.equal(checked.length,5);
+  t.mock.timers.tick(5000);await settle(service);assert.equal(checked.length,7);assert.equal(new Set(checked).size,7);assert.ok(!checked.includes('8')&&!checked.includes('9'));
+ }finally{await service.close();store.close();}
+});
