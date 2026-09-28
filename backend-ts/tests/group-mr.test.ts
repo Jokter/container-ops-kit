@@ -383,7 +383,7 @@ test('unconfirmed initial receipt stops before Pi and is not retried',async()=>{
 test('authorized merge still waits for pipeline and does not resolve or approve early',async()=>{
  const store=new TaskStore(':memory:'),sha='a'.repeat(40),writes:string[]=[];
  const service=new GroupMrService(store,async args=>{let value:unknown={};if(args[2]==='send-to-group')value={resultCode:0};if(args[2]==='view')value={iid:1,state:'opened',sha};if(args[2]==='gate')value={ci_state_passed:false};if(args[2]==='pipeline')value=[{id:1,status:'running',sha}];if(['approve-review','approve','merge'].includes(args[2]??'')||args[3]==='resolve')writes.push(args.join(' '));return {exitCode:0,output:JSON.stringify(value)};});
- try{await service['accept']({id:'1',sender:'owner123',content:'合入',quoteId:'2',quotedContent:'https://codehub-y.huawei.com/MAE-M/Access/Demo/merge_requests/1'},{enabled:true,groupId:'123456789',authorizedSender:'owner123',repositoryPrefix:'MAE-M/Access/',intervalSeconds:5});assert.equal(service.list()[0]?.phase,'PIPELINE');assert.deepEqual(writes,[]);assert.doesNotMatch(service.list()[0]?.status??'',/Pi 检视已通过/);}
+ try{await service['accept']({id:'1',sender:'owner123',content:'合入',quoteId:'2',quotedContent:'https://codehub-y.huawei.com/MAE-M/Access/Demo/merge_requests/1'},{enabled:true,groupId:'123456789',authorizedSender:'owner123',repositoryPrefix:'MAE-M/Access/',intervalSeconds:5});assert.equal(service.list()[0]?.phase,'PIPELINE');assert.deepEqual(writes,[]);assert.doesNotMatch(service.list()[0]?.status??'',/Agent 检视已通过/);}
  finally{await service.close();store.close();}
 });
 
@@ -415,7 +415,7 @@ test('legacy receipt and failed-pipeline replies are ignored without stored reco
  const store=new TaskStore(':memory:'),service=new GroupMrService(store),url='https://codehub-y.huawei.com/MAE-M/Access/Demo/merge_requests/1';
  const cfg={enabled:true,groupId:'123456789',authorizedSender:'owner',repositoryPrefix:'MAE-M/Access/',intervalSeconds:5};
  try{
-  for(const status of ['已收到 MR，正在检视中。','Pi 检视已通过；当前MR提交流水线失败，本次暂不执行检视、审核和合并。']){
+  for(const status of ['已收到 MR，正在检视中。',...['Pi','Agent'].map(name=>name+' 检视已通过；当前MR提交流水线失败，本次暂不执行检视、审核和合并。')]){
    const content=url+' —— '+status;assert.equal(service['trigger']({id:'1',sender:'alias',content,quoteId:''},cfg),undefined);
    assert.equal(service['trigger']({id:'2',sender:'owner',content:'合入',quoteId:'1',quotedContent:content},cfg)?.shortcut,true);
   }

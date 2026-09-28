@@ -52,3 +52,25 @@ test('任务模块范围在编译和后续重试保留，旧失败记录可识�
  task.status='REPAIRING';store.putRecord('auto-ut-task',task.id,task);assert.throws(()=>service.retryCompile(task.id,defaultCompileCommand.join(' ')),/仅可/);
  }finally{await service.close();store.close();}
 });
+
+test('服务编译命令持久化、跨版本复用，临时修改和其他服务隔离',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'service-compile-')),db=join(root,'tasks.db');
+ let store=new TaskStore(db),service=new AutoUtService(store,undefined,false);
+ const base=defaultCompileCommand.join(' '),saved=base+' -pl model,website-service -am';
+ const failed:AutoUtTask={id:'compile-service',repository:'Demo',username:'tester',ticket:'DTS1',baseBranch:'main',repairBranch:'repair',reportedFailedTests:1,lineGoal:.8,branchGoal:.7,workspaceRoot:root,executionMode:'AUTOMATIC',status:'WAITING_EXTERNAL',nextStage:'BASELINE',progress:25,attempts:0,message:'',compileFailure:{command:base},pullRequestUrl:'',createdAt:'',updatedAt:'',history:[],liveEvents:[],liveSequence:0};
+ const retry=(command:string,persist:boolean)=>{store.putRecord('auto-ut-task',failed.id,failed);return service.retryCompile(failed.id,command,persist);};
+ try{
+  service['schedule']=()=>{};
+  assert.throws(()=>retry(base+' && echo bad',true));assert.equal(store.getRecord('auto-ut-service-compile','demo'),undefined);
+  retry(saved,true);retry(base+' -pl other',false);
+  assert.deepEqual(service.get(failed.id).mavenSelection,['-pl','other']);
+  await service.deleteTask(failed.id,false);await service.close();store.close();
+  store=new TaskStore(db);service=new AutoUtService(store,undefined,false);service['schedule']=()=>{};
+  const csv=Buffer.from('代码仓,语言,PL组,失败用例,行覆盖率,行覆盖率目标,分支覆盖率,分支覆盖率目标\ndemo,Java,Access_智能驾舱组,1,50%,80%,50%,70%\nOther,Java,Access_智能驾舱组,1,50%,80%,50%,70%');
+  const start=(version:string)=>service.start(csv,'tester','DTS1','main',root,'AUTOMATIC',{version,reportId:version});
+  const first=await start('R27C10'),second=await start('R27C00');
+  for(const tasks of [first,second]){assert.deepEqual(tasks[0]!.mavenSelection,['-pl','model,website-service','-am']);assert.equal(tasks[1]!.mavenSelection,undefined);}
+  retry(base,true);await service.deleteTask(failed.id,false);const restored=await start('R28C00');assert.deepEqual(restored[0]!.mavenSelection,[]);
+  assert.deepEqual(service.get(first[0]!.id).mavenSelection,['-pl','model,website-service','-am']);
+ }finally{await service.close();store.close();await rm(root,{recursive:true,force:true});}
+});

@@ -34,7 +34,7 @@ export function mrLinkFromMessage(content:string,prefix:string):{repo:string;iid
 function replyTextKey(groupId:string,text:string){return groupId+':'+createHash('sha256').update(text.replace(/\s+/g,' ').trim()).digest('hex');}
 function legacyAutomaticReply(content:string):boolean{
  const normalized=content.replace(/\s+/g,' ').trim();
- return /^https:\/\/codehub-y\.huawei\.com\/[A-Za-z0-9._/-]+\/merge_requests\/\d+ —— (?:已收到 MR，正在检视中。|已收到合入指令，正在处理。|Pi 检视已通过；当前MR提交流水线失败，本次暂不执行检视、审核和合并。)$/.test(normalized);
+ return /^https:\/\/codehub-y\.huawei\.com\/[A-Za-z0-9._/-]+\/merge_requests\/\d+ —— (?:已收到 MR，正在检视中。|已收到合入指令，正在处理。|(?:Pi|Agent) 检视已通过；当前MR提交流水线失败，本次暂不执行检视、审核和合并。)$/.test(normalized);
 }
 function object(v:unknown):Record<string,unknown>|undefined{return v&&typeof v==='object'&&!Array.isArray(v)?v as Record<string,unknown>:undefined;}
 function string(v:unknown){return typeof v==='string'?v:typeof v==='number'?String(v):'';}
@@ -186,9 +186,9 @@ export class GroupMrService {
  }
  acknowledgePi(id:string){
   const e=this.editable(id),related=this.list().filter(r=>r.repo===e.repo&&r.iid===e.iid&&r.writePending==='Pi 提交检视意见');
-  if(!related.length)throw Object.assign(Error('没有待核对的 Pi 提交结果'),{statusCode:409});
+  if(!related.length)throw Object.assign(Error('没有待核对的 Agent 提交结果'),{statusCode:409});
   intervention(this.store,id,'confirm-remote-result');
-  for(const r of related){r.writePending='';delete r.piReview;r.events.push({time:new Date().toISOString(),phase:r.phase,message:'已人工核对 CodeHub 上的 Pi 提交结果，解除拦截；未重新执行 Pi、审核或合并，请重新发送 MR 链接'});this.save(r);}
+  for(const r of related){r.writePending='';delete r.piReview;r.events.push({time:new Date().toISOString(),phase:r.phase,message:'已人工核对 CodeHub 上的 Agent 提交结果，解除拦截；未重新执行 Agent、审核或合并，请重新发送 MR 链接'});this.save(r);}
   return {ok:true};
  }
  removeHistory(id:string){return this.removeHistories([id]);}
@@ -306,7 +306,7 @@ export class GroupMrService {
   const now=new Date().toISOString();const old=this.list().find(e=>e.repo===link.repo&&e.iid===link.iid&&e.phase!=='DONE'&&!e.supersededBy);
   const entry:Entry={id:randomUUID(),repo:link.repo,iid:link.iid,url:link.url,sha:'',previousSha:old?.sha??'',messageId:msg.id,sender:msg.sender,shortcut:!!shortcut,pipelinePassed:false,phase:'QUEUED',stage:shortcut?'PIPELINE':'PI',status:'排队中，等待执行（最多同时处理 5 个 MR）',detail:'',createdAt:now,updatedAt:now,writePending:'',events:[]};this.save(entry);
   const blocked=this.list().find(e=>e.repo===link.repo&&e.iid===link.iid&&!e.supersededBy&&e.writePending);
-  if(blocked){entry.sha=blocked.sha||old?.sha||'';entry.writePending=blocked.writePending;this.mark(entry,'INTERRUPTED',`上一次${blocked.writePending}结果未确认，需人工核对后再处理`);for(const previous of this.list().filter(r=>r.id!==entry.id&&r.repo===entry.repo&&r.iid===entry.iid&&!r.supersededBy)){previous.supersededBy=entry.id;this.store.putRecord('group-mr-entry',previous.id,previous,previous.createdAt);}return;}
+  if(blocked){entry.sha=blocked.sha||old?.sha||'';entry.writePending=blocked.writePending;this.mark(entry,'INTERRUPTED',`上一次${blocked.writePending.replace(/\bPi\b/g,'Agent')}结果未确认，需人工核对后再处理`);for(const previous of this.list().filter(r=>r.id!==entry.id&&r.repo===entry.repo&&r.iid===entry.iid&&!r.supersededBy)){previous.supersededBy=entry.id;this.store.putRecord('group-mr-entry',previous.id,previous,previous.createdAt);}return;}
   for(const previous of this.list().filter(r=>r.id!==entry.id&&r.repo===entry.repo&&r.iid===entry.iid&&!r.supersededBy)){previous.supersededBy=entry.id;if(!['DONE','CLOSED','FAILED','NO_PERMISSION','INTERRUPTED'].includes(previous.phase))this.mark(previous,'INTERRUPTED','收到新的 MR 消息，本记录停止跟进，后续处理见最新记录');else this.store.putRecord('group-mr-entry',previous.id,previous,previous.createdAt);}
   if(old?.piReview)entry.piReview=old.piReview;const notified=this.list().find(r=>r.repo===entry.repo&&r.iid===entry.iid&&r.notification);if(notified?.notification)entry.notification={...notified.notification};
   this.save(entry);
@@ -375,13 +375,13 @@ ${scope}
 完成后简要说明实际检视范围（增量或全量及回退原因）、旧意见复核结果（引用 ID）、新增问题数量。`;
 
   const stream=piReplyStream();const input=JSON.stringify({id:'group-mr-'+e.id,type:'prompt',message:prompt})+'\n';
-  const startedAt=Date.now();this.diagnostic={command:'pi --mode rpc',timeoutMs:15*60_000};this.activeCommand='pi --mode rpc';this.recordLog('info','开始 Pi 检视');
+  const startedAt=Date.now();this.diagnostic={command:'pi --mode rpc',timeoutMs:15*60_000};this.activeCommand='pi --mode rpc';this.recordLog('info','开始 Agent 检视');
   e.writePending='Pi 提交检视意见';this.save(e);
   let result;try{result=await this.execute(['pi','--mode','rpc','--no-session','--no-context-files','--no-prompt-templates','--thinking','medium'],process.cwd(),15*60_000,undefined,stream.line,input,this.controller.signal);}finally{this.activeCommand='';}
   const answer=stream.answer();e.piOutput=answer.slice(0,12000);this.save(e);
   this.diagnostic={...this.diagnostic,elapsedMs:Date.now()-startedAt,exitCode:result.exitCode,answerBytes:Buffer.byteLength(answer),response:responseDiagnostic(result.output)};
-  this.recordLog(result.exitCode===0&&stream.completed()&&!stream.failed()?'info':'error',result.exitCode===0&&stream.completed()&&!stream.failed()?'Pi 执行结束，待查询 CodeHub 意见':'Pi 检视未完成');
-  if(result.exitCode!==0||stream.failed()||!stream.completed())throw Error('Pi 检视未正常结束，请核对 CodeHub 检视意见；本次不自动重试');
+  this.recordLog(result.exitCode===0&&stream.completed()&&!stream.failed()?'info':'error',result.exitCode===0&&stream.completed()&&!stream.failed()?'Agent 执行结束，待查询 CodeHub 意见':'Agent 检视未完成');
+  if(result.exitCode!==0||stream.failed()||!stream.completed())throw Error('Agent 检视未正常结束，请核对 CodeHub 检视意见；本次不自动重试');
  }
  private async process(e:Entry,cfg:Configuration){
   this.currentEntry=e;this.diagnostic={};this.trace=[];this.recordLog('info','开始处理 MR');
@@ -399,24 +399,24 @@ ${scope}
    const prior=checkpoint?.review??(e.piReview?.source==='codehub'?e.piReview:undefined);
    const baseSha=prior&&/^[a-f0-9]{40}$/i.test(prior.sha)?prior.sha:'';
    const cached=baseSha===e.sha;
-   if(!cached){this.mark(e,'PI',baseSha?'Pi 正在复核旧意见并检视新增修改':'Pi 正在全量检视当前提交');await this.runPi(e,baseSha,notes);}
-   else this.mark(e,'PI','当前提交未变化，复用已完成的 Pi 检视；重新查询 CodeHub 意见');
+   if(!cached){this.mark(e,'PI',baseSha?'Agent 正在复核旧意见并检视新增修改':'Agent 正在全量检视当前提交');await this.runPi(e,baseSha,notes);}
+   else this.mark(e,'PI','当前提交未变化，复用已完成的 Agent 检视；重新查询 CodeHub 意见');
    const afterPi=await this.view(e);if(this.archiveRemote(e,afterPi)){if(afterPi.state==='merged')await this.replyMerged(e,cfg);return;}if(afterPi.state!=='opened'||this.head(afterPi)!==e.sha)throw Error('MR 已关闭或提交已变化，本次检视结果不再适用；请重新发送 MR 链接');
    this.mark(e,'COMMENTS','正在通过 codehub-cli 获取检视意见');
    const remote=parseDiscussions(await this.code(['mr','review','list',e.iid,'-p',e.repo]));
    const unresolved=remote.filter(n=>!n.resolved);
    e.reviewComments=remote.map(n=>({id:n.id,body:n.body,resolved:n.resolved}));
-   const summary=unresolved.length?`CodeHub 中仍有 ${unresolved.length} 条未闭环检视意见，请处理后重新发送 MR 链接。`:'Pi 已完成检视，CodeHub 无未闭环检视意见';
+   const summary=unresolved.length?`CodeHub 中仍有 ${unresolved.length} 条未闭环检视意见，请处理后重新发送 MR 链接。`:'Agent 已完成检视，CodeHub 无未闭环检视意见';
    e.piReview={source:'codehub',sha:e.sha,discussionKey:JSON.stringify(unresolved.map(n=>({id:n.id,body:n.body})).sort((a,b)=>a.id.localeCompare(b.id))),ok:unresolved.length===0,findings:[],summary,resolvedDiscussionIds:remote.filter(n=>n.resolved).map(n=>n.id)};
    e.writePending='';this.save(e);
    this.store.putRecord('group-mr-review-checkpoint',checkpointKey,{sha:e.sha,review:e.piReview,completedAt:cached?(checkpoint?.completedAt??new Date().toISOString()):new Date().toISOString()} satisfies ReviewCheckpoint);
    if(unresolved.length){this.mark(e,'ISSUES',summary);await this.reply(e,cfg,summary);return;}
   }
-  if(e.phase!=='PIPELINE')this.mark(e,'PIPELINE',e.shortcut?'合入指令已确认，正在检查流水线':'Pi 检视已通过，正在检查流水线');
+  if(e.phase!=='PIPELINE')this.mark(e,'PIPELINE',e.shortcut?'合入指令已确认，正在检查流水线':'Agent 检视已通过，正在检查流水线');
   const gate=await this.gate(e);const pipelines=listObjects(await this.code(['mr','pipeline',e.iid,'-p',e.repo],'id,status,sha,commit_id,commit')).map(p=>pipelineSchema.parse(p));const current=pipelines.find(p=>(p.sha||p.commit_id||p.commit?.id)===e.sha);
   e.pipelinePassed=current?.status==='success'&&gate.ci_state_passed===true;this.save(e);
-  if(!current){if(e.status!==(e.shortcut?'等待当前提交触发流水线':'Pi 检视已完成，等待当前提交触发流水线'))this.mark(e,'PIPELINE',(e.shortcut?'等待当前提交触发流水线':'Pi 检视已完成，等待当前提交触发流水线'));return;}
-  if(current.status!=='success'||gate.ci_state_passed!==true){const prefix=e.shortcut?'':'Pi 检视已通过；';const message=current.status==='failed'?`${prefix}当前MR提交流水线失败，本次暂不执行检视、审核和合并。`:`${prefix}当前提交流水线状态为 ${current.status}，等待流水线门禁通过。`;if(e.status!==message)this.mark(e,current.status==='failed'?'FAILED':'PIPELINE',message);if(current.status==='failed')await this.reply(e,cfg,message);return;}
+  if(!current){if(e.status!==(e.shortcut?'等待当前提交触发流水线':'Agent 检视已完成，等待当前提交触发流水线'))this.mark(e,'PIPELINE',(e.shortcut?'等待当前提交触发流水线':'Agent 检视已完成，等待当前提交触发流水线'));return;}
+  if(current.status!=='success'||gate.ci_state_passed!==true){const prefix=e.shortcut?'':'Agent 检视已通过；';const message=current.status==='failed'?`${prefix}当前MR提交流水线失败，本次暂不执行检视、审核和合并。`:`${prefix}当前提交流水线状态为 ${current.status}，等待流水线门禁通过。`;if(e.status!==message)this.mark(e,current.status==='failed'?'FAILED':'PIPELINE',message);if(current.status==='failed')await this.reply(e,cfg,message);return;}
   if(gate.quality_gate?.passed===false||gate.conflict_passed===false){this.mark(e,'FAILED','质量门禁或冲突检查失败，本次处理结束');await this.reply(e,cfg,e.status);return;}
   if(e.shortcut){
    const notes=parseDiscussions(await this.code(['mr','review','list',e.iid,'-p',e.repo])).filter(n=>!n.resolved);

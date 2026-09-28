@@ -227,7 +227,7 @@ test('执行记录保留历史任务，打开详情只显示所选任务', async
   文档.querySelector('[data-automation-nav="tasks"]').click()
   assert.equal(文档.querySelectorAll('[data-auto-ut-task]').length, 2)
   文档.querySelector('[data-governance-detail="new-task"]').click()
-  assert.match(文档.querySelector('.ut-task-detail').textContent, /正在执行 Pi 修复/)
+  assert.match(文档.querySelector('.ut-task-detail').textContent, /正在执行 Agent 修复/)
   assert.doesNotMatch(文档.querySelector('.ut-task-detail').textContent, /旧任务错误|不应显示的历史信息/)
 
   await 页面实例.window.loadNavigationPage()
@@ -351,7 +351,7 @@ test('基线阶段展示细分流程且不提前显示Pi等待内容', async () 
   const 实时面板 = 文档.querySelector('[data-auto-ut-live="task-baseline"]')
   assert.match(实时面板.textContent, /基线测试.*执行中/)
   assert.match(实时面板.textContent, /mvn -B -ntp clean test/)
-  assert.doesNotMatch(实时面板.textContent, /等待 Pi 输出|等待 Pi 回复|等待模型/)
+  assert.doesNotMatch(实时面板.textContent, /等待 Agent 输出|等待 Agent 回复|等待模型/)
 
   await 页面实例.window.loadNavigationPage()
   页面实例.window.close()

@@ -1,6 +1,6 @@
 # Container Ops Kit 运维平台
 
-本项目已完成后端 TypeScript 重构。资源中心、SSH 连接、远程构建、容器资源、部署、Auto-UT/Pi 和持久化任务均由一个 Node.js 进程提供，不再需要 Java、Maven 或 Spring Boot。
+本项目已完成后端 TypeScript 重构。资源中心、SSH 连接、远程构建、容器资源、部署、Auto-UT/Agent 和持久化任务均由一个 Node.js 进程提供，不再需要 Java、Maven 或 Spring Boot。
 
 ## 启动
 
@@ -31,7 +31,7 @@ npm run dev --prefix frontend -- --host 127.0.0.1
 - `backend-ts/src/modules/build`：远程构建、产物与可重放 SSE
 - `backend-ts/src/modules/containerresource`：Kubernetes/Helm 资源发现、预览和变更
 - `backend-ts/src/modules/deployment`：Chart 补全、审阅、渲染和串行部署
-- `backend-ts/src/modules/autout`：CSV 扫描、Pi 修复、测试门禁和 CodeHub MR
+- `backend-ts/src/modules/autout`：CSV 扫描、Agent 修复、测试门禁和 CodeHub MR
 - `backend-ts/src/platform`：SQLite、独立 Worker和通用只读任务
 - `shared`：前后端共享的数据约定
 - `frontend` 与根目录 `index.html`：现有 Vue/Vite 页面
@@ -51,7 +51,7 @@ SQLite 默认写入 `data/platform/tasks.sqlite`。数据库使用进程独占�
 - `deployment/{taskId}.jsonl`：分析、编辑、渲染和部署输出
 - `automation/group-mr-monitor.jsonl`：群组 MR 监听轮询、过滤数量、命令状态和错误（不记录群消息正文）；页面“群组 MR 检视 → 监听日志”展示最近 100 条
 - `auto-ut/{taskId}.jsonl`：Auto-UT 阶段与实时事件
-- `auto-ut/details/{taskId}/*.log`：Git、Maven、Pi 和 CodeHub 命令的完整输出
+- `auto-ut/details/{taskId}/*.log`：Git、Maven、Agent 和 CodeHub 命令的完整输出
 
 JSON 日志会按敏感字段名脱敏。诊断时优先发送对应任务 ID 的日志文件，不要发送包含环境密码的 `data/platform/tasks.sqlite`。
 

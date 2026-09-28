@@ -110,13 +110,13 @@ test('居中确认和输入弹窗支持取消、键盘、焦点与安全文本',
 
 test('流水线失败仍展示已完成的 Pi 检视，不显示流水线已通过',async t=>{
  const sha='a'.repeat(40);const {doc}=await fixture(t,{route:'group-mr',records:[{id:'pi-complete',repo:'MAE-M/Access/Demo',iid:'444',sha,phase:'FAILED',stage:'PIPELINE',pipelinePassed:false,piReview:{sha,summary:'通过'},status:'Pi 检视已通过；当前MR提交流水线失败',events:[]}]});
- const steps=[...doc.querySelectorAll('.group-mr-flow li')];assert.ok(steps[3].classList.contains('stop'));assert.ok(!steps[3].classList.contains('done'));assert.ok(steps[1].classList.contains('done'));assert.match(steps[1].textContent,/Pi 检视已通过/);
+ const steps=[...doc.querySelectorAll('.group-mr-flow li')];assert.ok(steps[3].classList.contains('stop'));assert.ok(!steps[3].classList.contains('done'));assert.ok(steps[1].classList.contains('done'));assert.match(steps[1].textContent,/Agent 检视已通过/);
 });
 
 test('Pi 阶段待处理不会将流水线误标为已通过',async t=>{
  const {doc}=await fixture(t,{route:'group-mr',records:[{id:'issues',repo:'MAE-M/Access/Demo',iid:'444',sha:'a'.repeat(40),phase:'ISSUES',stage:'PI',pipelinePassed:false,status:'发现问题',events:[]}]});
  const steps=[...doc.querySelectorAll('.group-mr-flow li')];
- assert.deepEqual(steps.map(s=>s.querySelector('b').textContent),['收到消息','Pi 检视','检视意见','流水线','人工审核','检视','审核','合并']);
+ assert.deepEqual(steps.map(s=>s.querySelector('b').textContent),['收到消息','Agent 检视','检视意见','流水线','人工审核','检视','审核','合并']);
  assert.match(steps[1].textContent,/待处理/);assert.doesNotMatch(steps[1].textContent,/已停止/);assert.match(steps[3].textContent,/待处理/);assert.ok(!steps[3].classList.contains('done'));
 });
 
@@ -133,7 +133,7 @@ test('待处理支持批量删除已停止的待核对记录，执行中不可�
 test('快捷合入显示意见闭环及无权限检视跳过',async t=>{
  const {doc}=await fixture(t,{route:'group-mr',records:[{id:'shortcut',repo:'MAE-M/Access/Demo',iid:'1',sha:'a'.repeat(40),phase:'APPROVE',stage:'APPROVE',shortcut:true,reviewSkipped:true,pipelinePassed:true,reviewComments:[{id:'others',body:'意见',resolved:true}],events:[]}]});
  const steps=[...doc.querySelectorAll('.group-mr-flow li')];
- assert.match(steps.find(s=>s.querySelector('b').textContent==='Pi 检视').textContent,/已跳过/);
+ assert.match(steps.find(s=>s.querySelector('b').textContent==='Agent 检视').textContent,/已跳过/);
  assert.match(steps.find(s=>s.querySelector('b').textContent==='检视意见').textContent,/已通过/);
  assert.match(steps.find(s=>s.querySelector('b').textContent==='检视').textContent,/已跳过/);
  assert.match(steps.find(s=>s.querySelector('b').textContent==='人工审核').textContent,/已跳过/);
@@ -141,10 +141,13 @@ test('快捷合入显示意见闭环及无权限检视跳过',async t=>{
 });
 
 test('Pi 待核对详情显示最终回复和人工解除入口，不重新运行任务',async t=>{
- const row={id:'pi-unknown',repo:'MAE-M/Access/Demo',iid:'1',phase:'INTERRUPTED',stage:'PI',writePending:'Pi 提交检视意见',piOutput:'<b>检视完成</b>',events:[]};
+ const row={id:'pi-unknown',repo:'MAE-M/Access/Demo',iid:'1',phase:'INTERRUPTED',stage:'PI',writePending:'Pi 提交检视意见',piOutput:'<b>检视完成</b>',status:'Pi 检视未正常结束',events:[{phase:'PI',message:'Pi 正在全量检视当前提交'}]};
  const {doc,writes}=await fixture(t,{route:'group-mr',history:[row]});
  doc.querySelector('[data-group-mr-tab="history"]').click();await flush();
  assert.match(doc.querySelector('.group-mr-detail').textContent,/<b>检视完成<\/b>/);
+ assert.match(doc.querySelector('.group-mr-detail').textContent,/Agent 提交检视意见结果待核对/);
+ assert.match(doc.querySelector('.group-mr-detail').textContent,/Agent 正在全量检视当前提交/);
+ assert.doesNotMatch(doc.querySelector('.group-mr-detail').textContent,/Pi/);
  doc.querySelector('[data-group-mr-action="ack-pi"]').click();await flush();doc.querySelector('[data-studio-confirm]').click();await flush();
  assert.equal(writes[0].url,'/api/automation/group-mr/records/pi-unknown/acknowledge-pi');assert.deepEqual(JSON.parse(writes[0].body),{confirmed:true});
 });
