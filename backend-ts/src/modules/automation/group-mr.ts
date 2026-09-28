@@ -26,6 +26,12 @@ interface Monitor {state:'waiting'|'polling'|'processing'|'error';at:string;last
 interface MonitorEvent {time:string;level:'info'|'error';message:string}
 const monitorDefaults:Monitor={state:'waiting',at:'',lastSuccessAt:'',error:'',readCount:0,newCount:0,matchedCount:0,filteredCount:0,message:'等待首次轮询'};
 const urlPattern=/https:\/\/codehub-y\.huawei\.com\/([A-Za-z0-9._/-]+)\/merge_requests\/(\d+)(?![\w/])/g;
+interface MrLink {repo:string;iid:string;url:string}
+export function mrLinksFromMessage(content:string,prefix:string):MrLink[]{
+ const links=[...content.matchAll(urlPattern)].map(m=>({repo:m[1]!,iid:m[2]!,url:`https://codehub-y.huawei.com/${m[1]}/merge_requests/${m[2]}`}))
+  .filter(m=>m.repo.startsWith(prefix)&&!m.repo.includes('..')&&!m.repo.includes('//'));
+ return [...new Map(links.map(m=>[m.repo+':'+m.iid,m])).values()];
+}
 export function mrLinkFromMessage(content:string,prefix:string):{repo:string;iid:string;url:string}|undefined{
  const matches=[...content.matchAll(urlPattern)].map(m=>({repo:m[1]!,iid:m[2]!,url:`https://codehub-y.huawei.com/${m[1]}/merge_requests/${m[2]}`}));
  if(!matches.length||matches.some(m=>!m.repo.startsWith(prefix)||m.repo.includes('..')||m.repo.includes('//')))return;
@@ -286,7 +292,7 @@ export class GroupMrService {
    if(msg.content.trim()!=='合入'||!msg.quoteId)return;
    const stored=this.store.getRecord<{url:string}>('group-mr-message',cfg.groupId+':'+msg.quoteId);
    const link=mrLinkFromMessage(msg.quotedContent??stored?.url??'',cfg.repositoryPrefix);
-   return link?{link,direct:undefined,shortcut:true}:undefined;
+   return link?{links:[link],shortcut:true}:undefined;
   }
   // A quoted card from another account is not an authorized merge instruction.
   if(msg.quotedContent!==undefined)return;
@@ -295,13 +301,17 @@ export class GroupMrService {
   if(this.store.getRecord('group-mr-outgoing',fingerprint)||legacyAutomaticReply(msg.content))return;
   // Upgrade compatibility: older versions retained only the latest reply on each record.
   if(this.list().some(e=>e.reply&&replyTextKey(cfg.groupId,e.reply.text)===fingerprint))return;
-  const direct=mrLinkFromMessage(msg.content,cfg.repositoryPrefix);
-  return direct?{link:direct,direct,shortcut:false}:undefined;
+  const links=mrLinksFromMessage(msg.content,cfg.repositoryPrefix);
+  return links.length?{links,shortcut:false}:undefined;
  }
  private async accept(msg:GroupMessage,cfg:Configuration){
-  const trigger=this.trigger(msg,cfg);if(!trigger)return;const {link,direct,shortcut}=trigger;
+  const trigger=this.trigger(msg,cfg);if(!trigger)return;const {links,shortcut}=trigger;
+  // Keep the whole message association: a quoted multi-MR message must not select one MR implicitly.
+  if(!shortcut)this.store.putRecord('group-mr-message',cfg.groupId+':'+msg.id,{url:msg.content});
+  await Promise.all(links.map(link=>this.acceptLink(msg,cfg,link,shortcut)));
+ }
+ private async acceptLink(msg:GroupMessage,cfg:Configuration,link:MrLink,shortcut:boolean){
   this.updateMonitor({state:'processing',message:`处理 MR ${link.repo} !${link.iid}`});this.recordLog('info',`识别 MR ${link.repo} !${link.iid}，开始处理`);
-  if(direct)this.store.putRecord('group-mr-message',cfg.groupId+':'+msg.id,link);
   const key=link.repo+':'+link.iid;const stateJob=this.stateJobs.get(key);if(stateJob)await stateJob;if(this.reserved.has(key)||this.closing)return;
   const now=new Date().toISOString();const old=this.list().find(e=>e.repo===link.repo&&e.iid===link.iid&&e.phase!=='DONE'&&!e.supersededBy);
   const entry:Entry={id:randomUUID(),repo:link.repo,iid:link.iid,url:link.url,sha:'',previousSha:old?.sha??'',messageId:msg.id,sender:msg.sender,shortcut:!!shortcut,humanReviewRequired:cfg.humanReviewEnabled!==false,pipelinePassed:false,phase:'QUEUED',stage:shortcut?'PIPELINE':'PI',status:'排队中，等待执行（最多同时处理 5 个 MR）',detail:'',createdAt:now,updatedAt:now,writePending:'',events:[]};this.save(entry);
