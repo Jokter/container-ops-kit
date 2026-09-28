@@ -197,6 +197,7 @@ for(const saveForService of [true,false])test('编译命令保存按服务可选
 
 test('Pi轮次仅附在进度文案后，并采用当前修复阶段的上限',async()=>{
  const dom=page();try{
+  await dom.window.loadNavigationPage();
   const task={id:'round-ui',repository:'Demo',status:'REPAIRING',nextStage:'REPAIR',attempts:2,maxRepairAttempts:3,message:'正在修复。',history:[]};
   const render=t=>{dom.window.document.body.innerHTML=dom.window.autoUtTaskDetail(t);return dom.window.document};
   let d=render(task);assert.equal(d.querySelector('.ut-task-current strong .ut-pi-round').textContent,'第 2/3 轮');assert.equal(d.querySelectorAll('.ut-pi-round').length,1);

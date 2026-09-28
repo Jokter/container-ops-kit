@@ -39,7 +39,10 @@ test('正式页面可以在三个平台域之间切换', () => {
     ['automation', 'container', 'virtualization']
   )
   assert.equal(文档.querySelector('.platform-switch').tagName, 'NAV')
-  assert.equal(文档.querySelector('[data-platform-domain="container"]').getAttribute('aria-current'), 'page')
+  assert.equal(文档.querySelector('[data-platform-domain="automation"]').getAttribute('aria-current'), 'page')
+  assert.equal(页面实例.window.location.hash, '#/automation')
+  assert.equal(文档.querySelector('[data-automation-nav="catalog"]').getAttribute('aria-current'), 'page')
+  文档.querySelector('[data-platform-domain="container"]').click()
   文档.querySelector('[data-page="resources"]').click()
   assert.equal(文档.querySelector('.environment-version-card label').textContent, '版本')
   assert.doesNotMatch(文档.querySelector('.environment-version-card').textContent, /当前发布版本/)
@@ -85,6 +88,7 @@ test('切回容器化后恢复离开前的页面', () => {
   const 页面实例 = 打开页面()
   const 文档 = 页面实例.window.document
 
+  文档.querySelector('[data-platform-domain="container"]').click()
   文档.querySelector('[data-page="build"]').click()
   assert.equal(文档.querySelector('.page-head h1').textContent, '构建')
 
@@ -361,6 +365,7 @@ test('工作台恢复原图标，分组不伪装成按钮，入口跳转且不�
  const dom=打开页面();
  try {
   const d=dom.window.document;
+  d.querySelector('[data-platform-domain="container"]').click();
   assert.ok(d.querySelector('.studio-brand .taiji svg'));
   assert.equal(d.querySelector('.studio-brand strong').textContent,'Ops Studio');
   assert.equal(d.querySelectorAll('.home-shortcut').length,4);

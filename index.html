@@ -353,7 +353,7 @@
 <body>
   <div id="app"></div>
   <script>
-    const state = { platformDomain: 'container', page: 'dashboard', automationPage: 'catalog', buildTab: 'single', resourceVersion: 'r27c10', resourceType: 'build', resourceStatus: 'all', resourceQuery: '', resourceDrawer: null, batch: null, selectedBuildEnvironment: 'build-27b-01', selectedContainerEnvironment: 'container-27b-01', autoUtUsername: '', autoUtTicket: '', autoUtWorkspace: '', autoUtPlan: [], autoUtTasks: [], autoUtBusy: false, autoUtDirectory: null, autoUtDirectoryPath: '', autoUtDirectoryError: '', autoUtDirectoryBusy: false, autoUtLive: {} };
+    const state = { platformDomain: 'automation', page: 'dashboard', automationPage: 'catalog', buildTab: 'single', resourceVersion: 'r27c10', resourceType: 'build', resourceStatus: 'all', resourceQuery: '', resourceDrawer: null, batch: null, selectedBuildEnvironment: 'build-27b-01', selectedContainerEnvironment: 'container-27b-01', autoUtUsername: '', autoUtTicket: '', autoUtWorkspace: '', autoUtPlan: [], autoUtTasks: [], autoUtBusy: false, autoUtDirectory: null, autoUtDirectoryPath: '', autoUtDirectoryError: '', autoUtDirectoryBusy: false, autoUtLive: {} };
 
     const releaseVersions = [
       { id: 'r27c10', code: 'R27C10', name: '27B', locked: false },
@@ -1012,7 +1012,7 @@
         : state.platformDomain === 'automation'
           ? automationContent()
           : `<section class="panel platform-placeholder"><div class="platform-placeholder-content"><div class="platform-placeholder-symbol">${placeholder[0]}</div><h1>${placeholder[1]}</h1><p>${placeholder[2]}</p><span class="platform-boundary">平台边界已预留</span></div></section>`;
-      return `<div class="variant-a-shell studio-shell"><header class="studio-topbar"><div class="studio-brand">${taiji}<strong>Ops Studio</strong><span class="studio-divider">/</span></div>${platformSwitch}<span class="studio-product">统一基础设施工作台</span></header><aside class="variant-a-sidebar">${state.platformDomain==='container'?nav:state.platformDomain==='automation'?automationNav():''}<div class="studio-sidebar-bottom">${state.platformDomain==='automation'?'<button class="studio-settings-link" data-automation-nav="settings">连接与设置</button>':''}<div class="variant-a-user">V0.2.111</div></div></aside><main class="variant-a-main">${content}</main></div>`;
+      return `<div class="variant-a-shell studio-shell"><header class="studio-topbar"><div class="studio-brand">${taiji}<strong>Ops Studio</strong><span class="studio-divider">/</span></div>${platformSwitch}<span class="studio-product">统一基础设施工作台</span></header><aside class="variant-a-sidebar">${state.platformDomain==='container'?nav:state.platformDomain==='automation'?automationNav():''}<div class="studio-sidebar-bottom">${state.platformDomain==='automation'?'<button class="studio-settings-link" data-automation-nav="settings">连接与设置</button>':''}<div class="variant-a-user">V0.2.112</div></div></aside><main class="variant-a-main">${content}</main></div>`;
 
     }
 
@@ -1792,7 +1792,7 @@
     const schedulerNames={quality:'质量检查','auto-ut':'UT 治理','auto-ut-cleanup':'历史计划 · 定期清理',csv:'历史计划 · CSV 导入'};
     function automationNav(){return `<nav class="variant-a-nav" aria-label="自动化工具导航"><div class="nav-section">工作台</div>${[['catalog','概览'],['tools','工具'],['tasks','执行记录'],['schedules','定时计划']].map(([p,n])=>`<button data-automation-nav="${p}" class="${state.automationPage===p||(p==='tools'&&['auto-ut','quality','group-mr'].includes(state.automationPage))?'active':''}" ${state.automationPage===p?'aria-current="page"':''}>${navIcon(p==='catalog'?'home':p)}<span>${n}</span></button>`).join('')}</nav>`;}
     function appRoute(){return state.platformDomain==='automation'?'#/automation'+(state.automationPage==='catalog'?'':'/'+state.automationPage):state.platformDomain==='container'?'#/container/'+state.page:'#/virtualization';}
-    function parseAppRoute(hash){const m=hash.match(/^#\/automation(?:\/(quality|auto-ut|group-mr|schedules|tools|tasks|settings|knowledge))?$/);if(m)return{domain:'automation',page:m[1]||'catalog'};const c=hash.match(/^#\/container\/(dashboard|build|deploy|operations|resources)$/);if(c)return{domain:'container',page:c[1]};if(hash==='#/virtualization')return{domain:'virtualization',page:''};return{domain:'container',page:'dashboard'};}
+    function parseAppRoute(hash){const m=hash.match(/^#\/automation(?:\/(quality|auto-ut|group-mr|schedules|tools|tasks|settings|knowledge))?$/);if(m)return{domain:'automation',page:m[1]||'catalog'};const c=hash.match(/^#\/container\/(dashboard|build|deploy|operations|resources)$/);if(c)return{domain:'container',page:c[1]};if(hash==='#/virtualization')return{domain:'virtualization',page:''};return{domain:'automation',page:'catalog'};}
     function loadNavigationPage(){if(typeof fetch!=='function')return Promise.resolve();const key=appRoute();if(navUi.loads.has(key))return navUi.loads.get(key);if(navUi.loaded.has(key))return Promise.resolve();navUi.loaded.add(key);let work=Promise.resolve();if(state.platformDomain==='automation'){
       work=Promise.all([loadAutoUtTasks(),loadReportSettings(),loadQuality(),loadSchedules(),loadGroupMr(),loadReviewData()]);
     }navUi.loads.set(key,work);return work.finally(()=>navUi.loads.delete(key));}
