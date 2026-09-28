@@ -27,7 +27,7 @@ test('限定 SQL 的版本和团队；静态检查排除构建仓且保留零记
 });
 test('分版本保留部分成功、有效空报告与进度；请求采用实际连接配置',async()=>{
  const store=new TaskStore(':memory:');let calls=0;const service=new QualityService(store,undefined,async(_url,init)=>{calls++;const body=JSON.parse(String(init?.body)) as {queries:{rawSql:string;datasourceId:number}[]};assert.equal(body.queries[0]!.datasourceId,4);return body.queries[0]!.rawSql.includes('R27C00')?new Response('no',{status:500}):Response.json(payload([]));});
- try{const job=service.start(input);const done=await service.wait(job.id);assert.equal(done.status,'PARTIAL');assert.equal(done.parts[0]!.status,'EMPTY');assert.equal(done.parts[1]!.status,'FAILED');assert.equal(calls,2);}finally{await service.close();store.close();}
+ try{const job=service.start(input);const done=await service.wait(job.id);assert.equal(done.status,'PARTIAL');assert.equal(done.parts[0]!.status,'EMPTY');assert.equal(done.parts[1]!.status,'FAILED');assert.equal(calls,5);}finally{await service.close();store.close();}
 });
 test('每周/工作日时区计算与相对报告日期，不依赖服务器时区',()=>{
  const c=config();assert.equal(nextRun(c,new Date('2026-09-18T02:00:00Z')),'2026-09-21T01:00:00.000Z');assert.equal(reportDate(c,new Date('2026-09-20T17:00:00Z')),'2026-09-20');c.schedule.frequency='weekly';c.schedule.weekday=0;assert.equal(nextRun(c,new Date('2026-09-20T00:00:00Z')),'2026-09-20T01:00:00.000Z');
@@ -103,4 +103,30 @@ for(const status of ['RESOLVED','NO_CHANGE','MR_CLOSED'] as const)test(status+'�
   assert.equal(auto.calls.length,2);assert.equal(auto.records[0]!.status,status);assert.equal(auto.records[1]!.sourceReportId,next.id);
   assert.equal(reports.versionLocked('R27C10','release/27'),true);
  }finally{await reports.close();await quality.close();auto.close();store.close();}
+});
+
+test('查询默认及旧配置最多 30 秒；超时最多重试 3 次',async t=>{
+ t.mock.timers.enable({apis:['setTimeout']});
+ const store=new TaskStore(':memory:');let calls=0;
+ const service=new QualityService(store,undefined,async(_url,init)=>{calls++;return new Promise<Response>((_resolve,reject)=>init?.signal?.addEventListener('abort',()=>reject(new DOMException('aborted','AbortError')),{once:true}));});
+ try{
+  assert.equal(service.connection().timeoutSeconds,30);
+  store.putRecord('quality-config','connection',{...service.connection(),timeoutSeconds:60});
+  assert.equal(service.connection().timeoutSeconds,30);
+  const job=service.start({...input,versions:['R27C10']});
+  for(let attempt=0;attempt<4;attempt++){assert.equal(calls,attempt+1);t.mock.timers.tick(30000);await new Promise<void>(resolve=>setImmediate(resolve));}
+  const done=await service.wait(job.id);assert.equal(calls,4);assert.equal(done.status,'FAILED');assert.match(done.parts[0]!.message,/超时（30 秒）.*已重试 3 次/);
+ }finally{await service.close();store.close();}
+});
+test('临时网络失败可恢复，认证与无效报告不重试',async()=>{
+ for(const kind of ['network','auth','invalid'] as const){
+  const store=new TaskStore(':memory:');let calls=0;
+  const service=new QualityService(store,undefined,async()=>{calls++;if(kind==='network'&&calls===1)throw new TypeError('fetch failed');if(kind==='auth')return new Response('',{status:401});return Response.json(kind==='invalid'?{}:payload([row]));});
+  try{const done=await service.wait(service.start({...input,versions:['R27C10']}).id);assert.equal(calls,kind==='network'?2:1);assert.equal(done.status,kind==='network'?'SUCCEEDED':'FAILED');}finally{await service.close();store.close();}
+ }
+});
+test('用户停止查询后不重试',async()=>{
+ const store=new TaskStore(':memory:');let calls=0;
+ const service=new QualityService(store,undefined,async(_url,init)=>{calls++;return new Promise<Response>((_resolve,reject)=>init?.signal?.addEventListener('abort',()=>reject(new DOMException('aborted','AbortError')),{once:true}));});
+ try{const job=service.start({...input,versions:['R27C10']});await service.stop(job.id);const done=await service.wait(job.id);assert.equal(calls,1);assert.equal(done.status,'INTERRUPTED');assert.equal(done.parts[0]!.message,'查询已停止');}finally{await service.close();store.close();}
 });
