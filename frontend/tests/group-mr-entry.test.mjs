@@ -215,3 +215,50 @@ test('MR 历史展示已关闭状态，重试明细只出现在选中 MR 内',as
  records[0]={...current,id:'retry'};await dom.window.eval('loadGroupMr()');assert.equal(doc.querySelector('[data-group-mr-record-button="retry"]').getAttribute('aria-current'),'true');
  doc.querySelector('[data-group-mr-tab="history"]').click();assert.equal(doc.querySelectorAll('[data-group-mr-record]').length,1);assert.match(doc.querySelector('.group-mr-detail .group-mr-status').textContent,/已关闭/);assert.match(doc.querySelector('.group-mr-toolbar').textContent,/已合入 \/ 已关闭/);
 });
+
+test('Agent 最终回复在轮询与重绘后保持展开，也保留手动收起状态',async t=>{
+ const row={id:'reply-state',repo:'MAE-M/Access/Demo',iid:'444',sha:'a'.repeat(40),phase:'HUMAN',status:'等待人工审核',piOutput:'最终检视结论',events:[],updatedAt:new Date().toISOString()}
+ const {doc,dom}=await fixture(t,{route:'group-mr',records:[row]})
+ const selector='[data-qw-open="group-mr-agent-output-reply-state"]'
+ assert.equal(doc.querySelector(selector).open,false)
+ doc.querySelector(selector).open=true
+ await dom.window.eval('loadGroupMr()');assert.equal(doc.querySelector(selector).open,true)
+ dom.window.eval('render(false)');assert.equal(doc.querySelector(selector).open,true)
+ doc.querySelector(selector).open=false
+ await dom.window.eval('loadGroupMr()');assert.equal(doc.querySelector(selector).open,false)
+})
+
+test('人工审核默认开启，关闭前提示，取消不改变设置，确认后保存布尔值',async t=>{
+ const {doc,dom,writes}=await fixture(t,{route:'group-mr'})
+ doc.querySelector('[data-group-mr-config]').click()
+ const selector='[data-group-mr-human-toggle]'
+ assert.equal(doc.querySelector(selector).getAttribute('aria-checked'),'true')
+ doc.querySelector(selector).click()
+ assert.ok(doc.querySelector('[data-group-mr-human-confirm]'));assert.match(doc.querySelector('[role="alert"]').textContent,/可能自动合入/)
+ doc.querySelector('#group-mr-form').dispatchEvent(new dom.window.Event('submit',{bubbles:true,cancelable:true}));await flush();assert.equal(writes.length,0)
+ await dom.window.eval('loadGroupMr()');assert.ok(doc.querySelector('[data-group-mr-human-confirm]'))
+ doc.querySelector('[data-group-mr-human-cancel]').click();assert.equal(doc.querySelector(selector).getAttribute('aria-checked'),'true')
+ doc.querySelector(selector).click();doc.querySelector('[data-group-mr-human-confirm]').click()
+ assert.equal(doc.querySelector(selector).getAttribute('aria-checked'),'false');assert.equal(writes.length,0)
+ await dom.window.eval('loadGroupMr()');assert.equal(doc.querySelector(selector).getAttribute('aria-checked'),'false')
+ doc.querySelector('#group-mr-form').dispatchEvent(new dom.window.Event('submit',{bubbles:true,cancelable:true}));await flush()
+ assert.equal(writes.length,1);assert.equal(writes[0].humanReviewEnabled,false)
+ doc.querySelector('[data-group-mr-config]').click();assert.equal(doc.querySelector(selector).getAttribute('aria-checked'),'false')
+ doc.querySelector(selector).click();assert.equal(doc.querySelector(selector).getAttribute('aria-checked'),'true');assert.equal(doc.querySelector('[data-group-mr-human-confirm]'),null)
+ doc.querySelector('#group-mr-form').dispatchEvent(new dom.window.Event('submit',{bubbles:true,cancelable:true}));await flush();assert.equal(writes[1].humanReviewEnabled,true)
+})
+
+test('关闭人工审核保存失败时保留草稿，退出配置不改变已保存策略',async t=>{
+ const {doc,dom,config}=await fixture(t,{route:'group-mr',save:()=>response({message:'保存失败'},false)})
+ doc.querySelector('[data-group-mr-config]').click();doc.querySelector('[data-group-mr-human-toggle]').click();doc.querySelector('[data-group-mr-human-confirm]').click()
+ doc.querySelector('#group-mr-form').dispatchEvent(new dom.window.Event('submit',{bubbles:true,cancelable:true}));await flush()
+ assert.equal(doc.querySelector('[data-group-mr-human-toggle]').getAttribute('aria-checked'),'false');assert.match(doc.body.textContent,/保存失败/);assert.notEqual(config.humanReviewEnabled,false)
+ doc.querySelector('[data-group-mr-config-back]').click();doc.querySelector('[data-group-mr-config]').click();assert.equal(doc.querySelector('[data-group-mr-human-toggle]').getAttribute('aria-checked'),'true')
+})
+
+test('按任务策略跳过人工审核时流程明确标记已跳过',async t=>{
+ const row={id:'skipped',repo:'MAE-M/Access/Demo',iid:'444',sha:'a'.repeat(40),phase:'MERGE',status:'正在合并',humanReviewRequired:false,humanReviewSkipped:true,events:[],updatedAt:new Date().toISOString()}
+ const {doc}=await fixture(t,{route:'group-mr',records:[row]})
+ assert.match([...doc.querySelectorAll('.group-mr-flow li')].find(x=>x.textContent.includes('人工审核')).textContent,/已跳过/)
+ assert.match(doc.querySelector('.group-mr-detail').textContent,/按接收时配置跳过人工审核/)
+})

@@ -13,12 +13,12 @@ import {runProcess} from '../../infrastructure/process.js';
 import {noFileLogs,type LogSink} from '../../infrastructure/file-logs.js';
 import {jsonValues,parseMr,parseObject,gateSchema,listObjects,pipelineSchema,type MrView} from '../autout/mr-codehub.js';
 
-const configSchema=z.object({enabled:z.boolean(),groupId:z.string().regex(/^\d{5,30}$/),authorizedSender:z.string().regex(/^[A-Za-z][A-Za-z0-9._-]{1,79}$/),repositoryPrefix:z.string().regex(/^[A-Za-z0-9._/-]+$/).refine(v=>v.endsWith('/')&&!v.includes('..')&&!v.includes('//')),intervalSeconds:z.number().int().min(5).max(300).default(10)});
-type Configuration=z.infer<typeof configSchema>;
-const defaults:Configuration={enabled:false,groupId:'',authorizedSender:'',repositoryPrefix:'MAE-M/Access/',intervalSeconds:10};
+const configSchema=z.object({humanReviewEnabled:z.boolean().default(true),enabled:z.boolean(),groupId:z.string().regex(/^\d{5,30}$/),authorizedSender:z.string().regex(/^[A-Za-z][A-Za-z0-9._-]{1,79}$/),repositoryPrefix:z.string().regex(/^[A-Za-z0-9._/-]+$/).refine(v=>v.endsWith('/')&&!v.includes('..')&&!v.includes('//')),intervalSeconds:z.number().int().min(5).max(300).default(10)});
+type Configuration=Omit<z.infer<typeof configSchema>,'humanReviewEnabled'> & {humanReviewEnabled?:boolean};
+const defaults:Configuration={humanReviewEnabled:true,enabled:false,groupId:'',authorizedSender:'',repositoryPrefix:'MAE-M/Access/',intervalSeconds:10};
 const phase=z.enum(['QUEUED','HUMAN','PIPELINE','PI','COMMENTS','REVIEW','APPROVE','MERGE','DONE','CLOSED','ISSUES','FAILED','NO_PERMISSION','INTERRUPTED']);
 type Phase=z.infer<typeof phase>;
-export interface Entry{queued?:boolean;humanStartedAt?:string;humanReview?:HumanReview;notification?:{sha:string;receiver:string;status:string};knowledgeIds?:string[];piOutput?:string;reviewSkipped?:boolean;supersededBy?:string;pipelinePassed?:boolean;piReview?:{source?:'codehub';ok?:boolean;findings?:Array<{path:string;line:number;body:string}>;sha:string;discussionKey:string;summary:string;resolvedDiscussionIds:string[]};id:string;repo:string;iid:string;url:string;sha:string;previousSha:string;messageId:string;sender:string;shortcut:boolean;phase:Phase;stage?:Phase;status:string;detail:string;createdAt:string;updatedAt:string;writePending:string;events:Array<{time:string;phase:Phase;message:string}>;reviewComments?:Array<{id:string;body:string;resolved:boolean}>;reply?:{text:string;mode:'quote'|'reference';status:'sending'|'sent'|'unconfirmed'|'checked'}}
+export interface Entry{humanReviewRequired?:boolean;humanReviewSkipped?:boolean;queued?:boolean;humanStartedAt?:string;humanReview?:HumanReview;notification?:{sha:string;receiver:string;status:string};knowledgeIds?:string[];piOutput?:string;reviewSkipped?:boolean;supersededBy?:string;pipelinePassed?:boolean;piReview?:{source?:'codehub';ok?:boolean;findings?:Array<{path:string;line:number;body:string}>;sha:string;discussionKey:string;summary:string;resolvedDiscussionIds:string[]};id:string;repo:string;iid:string;url:string;sha:string;previousSha:string;messageId:string;sender:string;shortcut:boolean;phase:Phase;stage?:Phase;status:string;detail:string;createdAt:string;updatedAt:string;writePending:string;events:Array<{time:string;phase:Phase;message:string}>;reviewComments?:Array<{id:string;body:string;resolved:boolean}>;reply?:{text:string;mode:'quote'|'reference';status:'sending'|'sent'|'unconfirmed'|'checked'}}
 interface ReviewCheckpoint {sha:string;review:NonNullable<Entry['piReview']>;completedAt:string}
 interface GroupMessage{id:string;content:string;sender:string;quoteId:string;quotedContent?:string}
 interface Discussion{id:string;body:string;author:string;resolved:boolean}
@@ -138,7 +138,7 @@ export class GroupMrService {
   this.timer=setInterval(()=>{if(!this.busy)this.pollPromise=this.poll().catch(()=>{});},5000);this.timer.unref();
  }
  async close(){this.closing=true;clearInterval(this.timer);this.controller.abort();for(const job of this.queue.splice(0)){job.entry.queued=false;this.mark(job.entry,'INTERRUPTED','服务停止，排队任务未执行，请重新发送 MR 链接');this.reserved.delete(job.entry.repo+':'+job.entry.iid);job.reject(Error('服务正在停止'));}await this.pollPromise;await Promise.allSettled(this.background);await this.knowledge.close();}
- configuration(){return this.store.getRecord<Configuration>('group-mr-config','main')??defaults;}
+ configuration(){return {...defaults,...this.store.getRecord<Configuration>('group-mr-config','main')};}
  configure(value:unknown){const config=configSchema.parse(value),previous=this.configuration();this.store.putRecord('group-mr-config','main',config);this.initialised=false;this.lastPoll=0;const message=config.enabled?'监听已开启，等待下一次轮询':'监听已暂停，已开始的 MR 处理将继续完成';this.updateMonitor({...(previous.groupId!==config.groupId?monitorDefaults:{}),state:'waiting',error:'',message});this.recordLog('info',message);return config;}
  private monitor(){return {...monitorDefaults,...this.store.getRecord<Partial<Monitor>>('group-mr-monitor','main')};}
  private updateMonitor(update:Partial<Monitor>){this.store.putRecord('group-mr-monitor','main',{...this.monitor(),...update,at:new Date().toISOString()});}
@@ -304,7 +304,7 @@ export class GroupMrService {
   if(direct)this.store.putRecord('group-mr-message',cfg.groupId+':'+msg.id,link);
   const key=link.repo+':'+link.iid;const stateJob=this.stateJobs.get(key);if(stateJob)await stateJob;if(this.reserved.has(key)||this.closing)return;
   const now=new Date().toISOString();const old=this.list().find(e=>e.repo===link.repo&&e.iid===link.iid&&e.phase!=='DONE'&&!e.supersededBy);
-  const entry:Entry={id:randomUUID(),repo:link.repo,iid:link.iid,url:link.url,sha:'',previousSha:old?.sha??'',messageId:msg.id,sender:msg.sender,shortcut:!!shortcut,pipelinePassed:false,phase:'QUEUED',stage:shortcut?'PIPELINE':'PI',status:'排队中，等待执行（最多同时处理 5 个 MR）',detail:'',createdAt:now,updatedAt:now,writePending:'',events:[]};this.save(entry);
+  const entry:Entry={id:randomUUID(),repo:link.repo,iid:link.iid,url:link.url,sha:'',previousSha:old?.sha??'',messageId:msg.id,sender:msg.sender,shortcut:!!shortcut,humanReviewRequired:cfg.humanReviewEnabled!==false,pipelinePassed:false,phase:'QUEUED',stage:shortcut?'PIPELINE':'PI',status:'排队中，等待执行（最多同时处理 5 个 MR）',detail:'',createdAt:now,updatedAt:now,writePending:'',events:[]};this.save(entry);
   const blocked=this.list().find(e=>e.repo===link.repo&&e.iid===link.iid&&!e.supersededBy&&e.writePending);
   if(blocked){entry.sha=blocked.sha||old?.sha||'';entry.writePending=blocked.writePending;this.mark(entry,'INTERRUPTED',`上一次${blocked.writePending.replace(/\bPi\b/g,'Agent')}结果未确认，需人工核对后再处理`);for(const previous of this.list().filter(r=>r.id!==entry.id&&r.repo===entry.repo&&r.iid===entry.iid&&!r.supersededBy)){previous.supersededBy=entry.id;this.store.putRecord('group-mr-entry',previous.id,previous,previous.createdAt);}return;}
   for(const previous of this.list().filter(r=>r.id!==entry.id&&r.repo===entry.repo&&r.iid===entry.iid&&!r.supersededBy)){previous.supersededBy=entry.id;if(!['DONE','CLOSED','FAILED','NO_PERMISSION','INTERRUPTED'].includes(previous.phase))this.mark(previous,'INTERRUPTED','收到新的 MR 消息，本记录停止跟进，后续处理见最新记录');else this.store.putRecord('group-mr-entry',previous.id,previous,previous.createdAt);}
@@ -429,7 +429,8 @@ ${scope}
   const openNotes=parseDiscussions(await this.code(['mr','review','list',e.iid,'-p',e.repo]));
   e.reviewComments=openNotes.map(n=>({id:n.id,body:n.body,resolved:n.resolved}));this.save(e);
   if(openNotes.some(n=>!n.resolved)){this.mark(e,'ISSUES','仍有未闭环检视意见，请先处理');return;}
-  if(!e.shortcut&&(e.humanReview?.sha!==e.sha||e.humanReview.decision!=='pass')){
+  // Snapshot the policy when accepting a message; legacy and waiting entries keep the human gate.
+  if(!e.shortcut&&e.humanReviewRequired!==false&&(e.humanReview?.sha!==e.sha||e.humanReview.decision!=='pass')){
    e.humanStartedAt??=new Date().toISOString();this.mark(e,'HUMAN',e.humanReview?.decision==='reject'?'人工审核不通过，等待修改':'自动检查已通过，等待人工审核');
    if(e.notification?.sha!==e.sha){
     e.notification={sha:e.sha,receiver:cfg.authorizedSender,status:'sending'};this.save(e);
@@ -437,6 +438,9 @@ ${scope}
     try{await client.send(cfg.authorizedSender.toLowerCase(),`Ops Studio：MR 待人工审核。${e.url}，提交 ${e.sha.slice(0,12)}。自动检查已通过，请进入自动化空间的 MR 详情提交审核结论。`,settings.token(),this.controller.signal);e.notification.status='sent';}
     catch{e.notification.status='unconfirmed';}this.save(e);
    }return;
+  }
+  if(!e.shortcut&&e.humanReviewRequired===false&&!e.humanReviewSkipped){
+   e.humanReviewSkipped=true;this.mark(e,'HUMAN','人工审核已关闭，跳过平台人工审核；继续核验 CodeHub 权限与合并门禁');
   }
   for(const [name,phase,role,command,passed] of [
    ['检视','REVIEW','approval_merge_request_reviewers',['mr','approve-review',e.iid,'-p',e.repo,'--action-type','complete'],(g:{approval_reviewers_required_passed?:boolean|undefined})=>g.approval_reviewers_required_passed===true],

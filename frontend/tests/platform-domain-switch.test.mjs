@@ -36,7 +36,7 @@ test('正式页面可以在三个平台域之间切换', () => {
 
   assert.deepEqual(
     [...文档.querySelectorAll('[data-platform-domain]')].map(入口 => 入口.dataset.platformDomain),
-    ['container', 'automation', 'virtualization']
+    ['automation', 'container', 'virtualization']
   )
   assert.equal(文档.querySelector('.platform-switch').tagName, 'NAV')
   assert.equal(文档.querySelector('[data-platform-domain="container"]').getAttribute('aria-current'), 'page')
@@ -45,7 +45,7 @@ test('正式页面可以在三个平台域之间切换', () => {
   assert.doesNotMatch(文档.querySelector('.environment-version-card').textContent, /当前发布版本/)
 
   文档.querySelector('[data-platform-domain="virtualization"]').click()
-  assert.equal(文档.querySelector('.platform-placeholder h1').textContent, '虚拟化')
+  assert.equal(文档.querySelector('.platform-placeholder h1').textContent, '虚机运维')
   assert.equal(文档.querySelector('.variant-a-nav'), null)
 
   文档.querySelector('[data-platform-domain="automation"]').click()
@@ -362,7 +362,7 @@ test('工作台恢复原图标，分组不伪装成按钮，入口跳转且不�
  try {
   const d=dom.window.document;
   assert.ok(d.querySelector('.studio-brand .taiji svg'));
-  assert.equal(d.querySelector('.studio-brand strong').textContent,'运维平台');
+  assert.equal(d.querySelector('.studio-brand strong').textContent,'Ops Studio');
   assert.equal(d.querySelectorAll('.home-shortcut').length,4);
   assert.ok(d.querySelector('.home-empty'));
   assert.doesNotMatch(d.querySelector('.home-workbench').textContent,/build-1048|release-0828|production-mae/);

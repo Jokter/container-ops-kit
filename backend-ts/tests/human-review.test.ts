@@ -80,3 +80,54 @@ for(const scenario of ['review-denied','approve-denied','merge-denied','review-a
   else{assert.equal(service.list()[0]?.phase,'NO_PERMISSION');assert.ok(sent[0]?.includes('无'+role+'权限'));assert.equal(merged,false);assert.equal(writes.length,scenario.endsWith('absent')?0:1);}
  }finally{await service.close();store.close();}
 });
+
+test('human review configuration defaults on for fresh and legacy installations and persists explicit opt-out',async()=>{
+ const store=new TaskStore(':memory:'),service=new GroupMrService(store,async()=>{throw Error('configuration must not execute');});
+ try{
+  assert.equal(service.configuration().humanReviewEnabled,true);
+  store.putRecord('group-mr-config','main',cfg);assert.equal(service.configuration().humanReviewEnabled,true);
+  assert.equal(service.configure({...cfg,humanReviewEnabled:false}).humanReviewEnabled,false);
+  assert.equal(service.configuration().humanReviewEnabled,false);
+  assert.throws(()=>service.configure({...cfg,humanReviewEnabled:'false'}));
+  assert.equal(service.configuration().humanReviewEnabled,false);
+  const waiting={...entry(),phase:'HUMAN' as const,humanReviewRequired:true};store.putRecord('group-mr-entry',waiting.id,waiting);
+  service.configure({...cfg,humanReviewEnabled:true});service.configure({...cfg,humanReviewEnabled:false});
+  assert.equal(service.list()[0]?.phase,'HUMAN');assert.equal(service.list()[0]?.humanReviewRequired,true);
+ }finally{await service.close();store.close();}
+});
+
+for(const scenario of ['pass','comments','pipeline','quality','permission','merge-gate','legacy','required'] as const)test('disabled platform human review keeps automatic gates: '+scenario,async()=>{
+ const store=new TaskStore(':memory:');let merged=false,notifications=0;const writes:string[]=[];
+ const execute:typeof runProcess=async args=>{let data:unknown={};const action=args[2];
+  if(action==='view')data={iid:1,state:merged?'merged':'opened',sha,approval_merge_request_approvers:[]};
+  if(action==='gate')data={ci_state_passed:scenario!=='pipeline',quality_gate:{passed:scenario!=='quality'},conflict_passed:true,approval_reviewers_required_passed:true,approval_approvers_required_passed:scenario!=='permission',merge_gate_passed:scenario!=='merge-gate'};
+  if(action==='pipeline')data=[{id:1,sha,status:scenario==='pipeline'?'failed':'success'}];
+  if(action==='review')data=scenario==='comments'?[{id:'unresolved',resolved:false,notes:[{body:'must fix'}]}]:[];
+  if(args[1]==='user')data={username:'someone'};
+  if(action==='merge'){writes.push('merge');merged=true;}
+  if(action==='send-to-group')data={resultCode:0};
+  return{exitCode:0,output:JSON.stringify(data)};
+ };
+ const service=new GroupMrService(store,execute,undefined,undefined,{send:async()=>{notifications++;}}),e=entry();
+ if(scenario!=='legacy')e.humanReviewRequired=scenario==='required';
+ try{
+  service.configure({...cfg,humanReviewEnabled:false});store.putRecord('group-mr-entry',e.id,e);
+  await service['process'](e,service.configuration());
+  assert.equal(merged,scenario==='pass');assert.equal(writes.length,scenario==='pass'?1:0);
+  assert.equal(e.humanReview,undefined);assert.equal(service.knowledge.reviews().length,0);
+  if(scenario==='legacy'||scenario==='required'){assert.equal(e.phase,'HUMAN');assert.equal(e.humanReviewSkipped,undefined);assert.equal(e.notification?.sha,sha);}
+  else{assert.equal(notifications,0);if(['pass','permission','merge-gate'].includes(scenario)){assert.equal(e.humanReviewSkipped,true);assert.ok(e.events.some(x=>x.message.includes('人工审核已关闭')));}else assert.notEqual(e.phase,'HUMAN');}
+ }finally{await service.close();store.close();}
+});
+
+test('new MR snapshots human review policy while previously accepted records keep their policy',async()=>{
+ const store=new TaskStore(':memory:');const service=new GroupMrService(store,async args=>({exitCode:0,output:JSON.stringify(args[2]==='view'?{iid:1,state:'closed',sha}:{resultCode:0})}));
+ try{
+  const off=service.configure({...cfg,humanReviewEnabled:false});
+  await service['accept']({id:'off',sender:'developer',content:'https://codehub-y.huawei.com/MAE-M/Access/Demo/merge_requests/1',quoteId:''},off);
+  const first=service.list()[0]!;assert.equal(first.humanReviewRequired,false);
+  const on=service.configure({...cfg,humanReviewEnabled:true});assert.equal(service.list()[0]?.humanReviewRequired,false);
+  await service['accept']({id:'on',sender:'developer',content:'https://codehub-y.huawei.com/MAE-M/Access/Demo/merge_requests/2',quoteId:''},on);
+  assert.equal(service.list().find(e=>e.iid==='2')?.humanReviewRequired,true);
+ }finally{await service.close();store.close();}
+});
