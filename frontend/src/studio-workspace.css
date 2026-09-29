@@ -38,7 +38,7 @@
 .group-mr-toggle[aria-checked=true]{background:#365ccb}
 .group-mr-toggle[aria-checked=true]:before{transform:translateX(15px)}
 .group-mr-toggle:disabled{opacity:.5;cursor:not-allowed}
-.group-mr-overview{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-bottom:22px}
+.group-mr-overview{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:14px;margin-bottom:22px}
 .group-mr-overview>.panel{display:flex;flex-direction:column;padding:18px 20px;min-height:115px;min-width:0}
 .group-mr-overview span{color:#8794a8;font-size:12px}
 .group-mr-overview small{color:#9ba7b7;font-size:11px;line-height:1.6}
