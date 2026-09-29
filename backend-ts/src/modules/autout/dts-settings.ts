@@ -6,7 +6,7 @@ import type {TaskStore} from '../../platform/store.js';
 
 interface Secret {iv:string;tag:string;encrypted:string}
 export class DtsSettings {
- constructor(private readonly store:TaskStore,private readonly keyPath=join(homedir(),'.container-ops-kit','dts.key')){}
+ constructor(private readonly store:TaskStore,private readonly keyPath=join(store.workspace?.home??homedir(),'.container-ops-kit','dts.key')){}
  status(){return{configured:!!this.store.getRecord<Secret>('dts-settings','token')};}
  private key(create=false){
   if(create){mkdirSync(dirname(this.keyPath),{recursive:true,mode:0o700});try{writeFileSync(this.keyPath,randomBytes(32),{flag:'wx',mode:0o600});}catch(error){if(!(error instanceof Error&&'code' in error&&error.code==='EEXIST'))throw error;}}

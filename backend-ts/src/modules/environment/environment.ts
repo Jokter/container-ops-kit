@@ -1,3 +1,4 @@
+import {posix} from 'node:path';
 import {z} from 'zod';
 import type {FastifyInstance} from 'fastify';
 import type {TaskStore} from '../../platform/store.js';
@@ -61,6 +62,7 @@ export class EnvironmentService {
     if (!this.store.db.prepare('SELECT id FROM release_versions WHERE id=?').get(id)) throw Object.assign(new Error('发布版本不存在'), {statusCode: 404});
   }
   create(input: EnvironmentInput) {
+    input={...input,workDirectory:this.store.workspace&&(!input.workDirectory||input.workDirectory.replace(/\/+$/,'')===posix.dirname(this.store.workspace.remoteRoot))?this.store.workspace.remoteRoot:input.workDirectory};
     this.version(input.releaseVersionId);
     const now = new Date().toISOString();
     const result = this.store.db.prepare(`INSERT INTO environments(release_version_id,type,name,host,ssh_port,password,root_password,work_directory,architecture,
@@ -72,6 +74,7 @@ export class EnvironmentService {
   update(id: number, input: EnvironmentInput) {
     const current = this.get(id);
     if (input.version == null || input.version !== current.version) throw Object.assign(new Error('环境已被其他请求修改，请刷新后重试'), {statusCode: 409});
+    input={...input,workDirectory:this.store.workspace&&(!input.workDirectory||input.workDirectory.replace(/\/+$/,'')===posix.dirname(this.store.workspace.remoteRoot))?this.store.workspace.remoteRoot:input.workDirectory};
     this.version(input.releaseVersionId);
     const connectionChanged = input.host !== current.host || input.sshPort !== current.sshPort || input.password !== current.password || input.rootPassword !== current.rootPassword || input.type !== current.type;
     const result = this.store.db.prepare(`UPDATE environments SET release_version_id=?,type=?,name=?,host=?,ssh_port=?,password=?,root_password=?,work_directory=?,architecture=?,
@@ -79,7 +82,7 @@ export class EnvironmentService {
       connection_status=?,last_tested_at=?,last_test_latency_ms=?,last_test_error=?,updated_at=?,version=version+1 WHERE id=? AND version=?`)
       .run(input.releaseVersionId,input.type,input.name,input.host,input.sshPort,input.password,input.type==='CONTAINER'?input.rootPassword:null,input.workDirectory,input.architecture??(connectionChanged?null:current.architecture),
         input.businessPlaneUrl,input.businessPlaneUser,input.businessPlanePassword,input.managementPlaneUrl,input.managementPlaneUser,input.managementPlanePassword,
-        connectionChanged?'UNTESTED':current.connectionStatus,connectionChanged?null:current.lastTestedAt,connectionChanged?null:current.lastTestLatencyMs,connectionChanged?null:current.lastTestError,new Date().toISOString(),id,input.version);
+        connectionChanged?'UNTESTED':current.connectionStatus,connectionChanged?null:current.lastTestedAt,connectionChanged?null:current.lastTestLatencyMs,connectionChanged?null:current.lastTestError,new Date().toISOString(),id,current.version);
     if (!result.changes) throw Object.assign(new Error('环境已被其他请求修改，请刷新后重试'), {statusCode: 409});
     return this.get(id);
   }

@@ -1,3 +1,4 @@
+import {workspacePath,processEnvironment} from '../auth/workspace.js';
 import {fork} from 'node:child_process';
 import type {ChildProcess} from 'node:child_process';
 import {workerEvent} from '../../../shared/contracts.js';
@@ -13,7 +14,7 @@ export class TaskRunner {
   }
   submit(input: TaskInput) {
     if (this.stopping) throw new Error('执行器正在关闭');
-    const task = this.store.create(input);
+    const task = this.store.create({...input,path:workspacePath(input.path)});
     this.pump();
     return task;
   }
@@ -28,7 +29,7 @@ export class TaskRunner {
       const task = this.store.next();
       if (!task) break;
       this.store.record(task.id, 'RUNNING', '独立 Worker 已启动');
-      const child = fork(new URL('./worker.js', import.meta.url), [], {stdio: ['ignore', 'ignore', 'ignore', 'ipc'], execArgv: []});
+      const child = fork(new URL('./worker.js', import.meta.url), [], {stdio: ['ignore', 'ignore', 'ignore', 'ipc'], execArgv: [],env:processEnvironment()});
       let finished = false;
       const finish = (status: TaskStatus, message: string) => {
         if (finished) return;

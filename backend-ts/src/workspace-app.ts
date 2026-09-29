@@ -1,0 +1,59 @@
+import {currentWorkspace} from './auth/workspace.js';
+import {join} from 'node:path';
+import {effectivenessRoutes} from './modules/automation/effectiveness.js';
+import {knowledgeRoutes} from './modules/automation/review-knowledge.js';
+import {codehubSettingsRoutes} from './modules/autout/codehub-settings.js';
+import {welinkSettingsRoutes} from './modules/autout/welink-settings.js';
+import {languageSettingsRoutes} from './modules/automation/language-settings.js';
+import {AutomationRecords,automationRecordRoutes} from './modules/automation/records.js';
+import {dtsRoutes} from './modules/autout/dts.js';
+import {UnifiedSchedules,scheduleRoutes} from './modules/automation/schedules.js';
+import {GroupMrService,groupMrRoutes} from './modules/automation/group-mr.js';
+import Fastify from 'fastify';
+import {ZodError} from 'zod';
+import type {Config} from './config.js';
+import {TaskStore} from './platform/store.js';
+import {TaskRunner} from './platform/tasks.js';
+import {taskRoutes} from './platform/routes.js';
+import {SshOperations} from './infrastructure/ssh.js';
+import {EnvironmentService,environmentRoutes} from './modules/environment/environment.js';
+import {BuildService,buildRoutes} from './modules/build/build.js';
+import {AutoUtService,autoUtRoutes} from './modules/autout/autout.js';
+import {ContainerResourceService,containerResourceRoutes} from './modules/containerresource/containerresource.js';
+import {DeploymentService,deploymentRoutes} from './modules/deployment/deployment.js';
+import {QualityService,qualityRoutes} from './modules/quality/quality.js';
+import {AutoUtReports,autoUtReportRoutes} from './modules/autout/reports.js';
+import {FileLogs} from './infrastructure/file-logs.js';
+
+export async function createWorkspaceApp(config: Config) {
+  const logs=new FileLogs(currentWorkspace()?join(currentWorkspace()!.dataRoot,'logs'):undefined);
+  const app = Fastify({bodyLimit: 1024 * 1024, forceCloseConnections: true, logger: {
+    level: 'info', redact: ['req.headers.authorization', 'req.headers.cookie'],
+    // Queries may contain local paths. Bodies/passwords are never logged.
+    serializers: {req: request => ({method: request.method, url: request.url.split('?')[0] ?? ''})},stream:logs.backendStream(),
+  }});
+  const store = new TaskStore(config.database,logs);
+  const runner = new TaskRunner(store, config.workers, config.taskTimeoutMs);
+  const ssh=new SshOperations(),environments=new EnvironmentService(store,ssh),builds=new BuildService(store,environments,ssh,logs),autoUt=new AutoUtService(store,logs,false),containers=new ContainerResourceService(environments,ssh,config.kubectlKubeconfig,config.helmKubeconfig),deployments=new DeploymentService(store,builds,environments,ssh,config.kubectlKubeconfig,config.helmKubeconfig,logs);
+  const quality=new QualityService(store,logs),reports=new AutoUtReports(store,quality,autoUt,logs,false);
+  const schedules=new UnifiedSchedules(store,quality,reports,autoUt,logs);
+  const groupMr=new GroupMrService(store,undefined,logs);
+  groupMrRoutes(app,groupMr);knowledgeRoutes(app,groupMr.knowledge);effectivenessRoutes(app,store,groupMr);
+  automationRecordRoutes(app,new AutomationRecords(autoUt,reports,quality));scheduleRoutes(app,schedules);qualityRoutes(app,quality);autoUtReportRoutes(app,reports,schedules);
+  await deployments.cleanupPreparations();
+  app.addHook('onClose', async () => {await groupMr.close();schedules.stop();await quality.close();await reports.close();await schedules.close();await autoUt.close();await builds.close();await runner.close();store.close();});
+  app.setErrorHandler((error, request, reply) => {
+    if (error instanceof ZodError) return reply.code(400).send({message: '输入不符合接口约定', fields: error.issues.map(issue => issue.path.join('.'))});
+    const code = error instanceof Error && 'statusCode' in error ? error.statusCode : 500;
+    const status = typeof code === 'number' && code >= 400 && code <= 599 ? code : 500;
+    if (status >= 500) request.log.error({status,err:error}, 'Request failed');
+    return reply.code(status).send({message: status >= 500 ? '服务暂不可用，请检查后端日志' : error instanceof Error ? error.message : '请求失败'});
+  });
+  app.get('/api/platform/health', async () => ({status:'UP',backend:'typescript',migrationStage:'complete'}));
+  app.get('/api/health', async () => ({status:'UP'}));
+  taskRoutes(app, runner);
+  dtsRoutes(app,store,reports);welinkSettingsRoutes(app,store);codehubSettingsRoutes(app,store);
+  languageSettingsRoutes(app,autoUt.languageSettings);
+  environmentRoutes(app,environments,ssh);buildRoutes(app,builds);await autoUtRoutes(app,autoUt,schedules);containerResourceRoutes(app,containers);deploymentRoutes(app,deployments);
+  return app;
+}

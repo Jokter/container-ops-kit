@@ -1,3 +1,4 @@
+import {accountValue,workspacePath} from '../../auth/workspace.js';
 import {dtsProduct} from './dts-product.js';
 import type {UnifiedSchedules} from '../automation/schedules.js';
 import {randomUUID} from 'node:crypto';
@@ -31,8 +32,8 @@ export class AutoUtReports{
  }
  private track<T>(promise:Promise<T>){this.pending.add(promise);void promise.catch(()=>this.logs.task('auto-ut','report-scheduler',{time:new Date().toISOString(),message:'报告调度异常，请检查任务记录'})).finally(()=>this.pending.delete(promise));return promise;}
  async close(){this.closed=true;clearInterval(this.timer);await Promise.allSettled(this.pending);}
- configuration():SavedConfig{return this.store.getRecord<SavedConfig>('auto-ut-report-config','main')??{config:structuredClone(defaults),nextRunAt:null};}
- configure(value:unknown){const config=reportConfig.parse(value);for(const previous of this.configuration().config.versions){const next=config.versions.find(v=>v.version===previous.version);if(this.versionLocked(previous.version,previous.baseBranch)&&(!next||next.baseBranch!==previous.baseBranch))throw Object.assign(Error('已有 UT 修复任务的版本不能移除或修改基础分支'),{statusCode:409});}if(config.schedule.enabled&&config.schedule.action==='REPAIR'&&!executionReady(config))throw Object.assign(new Error('自动修复必须填写各版本分支、用户名、各版本独立单号和工作目录'),{statusCode:400});const saved={config,nextRunAt:config.schedule.enabled?nextRun(config):null};this.store.putRecord('auto-ut-report-config','main',saved);return saved;}
+ configuration():SavedConfig{return this.store.getRecord<SavedConfig>('auto-ut-report-config','main')??{config:{...structuredClone(defaults),...(this.store.workspace?{username:this.store.workspace.account,workspaceRoot:this.store.workspace.workRoot}:{})},nextRunAt:null};}
+ configure(value:unknown){const config=accountValue(reportConfig.parse(value),'username');if(this.store.workspace)config.workspaceRoot=workspacePath(config.workspaceRoot);for(const previous of this.configuration().config.versions){const next=config.versions.find(v=>v.version===previous.version);if(this.versionLocked(previous.version,previous.baseBranch)&&(!next||next.baseBranch!==previous.baseBranch))throw Object.assign(Error('已有 UT 修复任务的版本不能移除或修改基础分支'),{statusCode:409});}if(config.schedule.enabled&&config.schedule.action==='REPAIR'&&!executionReady(config))throw Object.assign(new Error('自动修复必须填写各版本分支、用户名、各版本独立单号和工作目录'),{statusCode:400});const saved={config,nextRunAt:config.schedule.enabled?nextRun(config):null};this.store.putRecord('auto-ut-report-config','main',saved);return saved;}
  list(){return this.store.records<ReportRun>('auto-ut-report-run');}get(id:string){const run=this.store.getRecord<ReportRun>('auto-ut-report-run',id);if(!run)throw Object.assign(new Error('报告获取记录不存在'),{statusCode:404});return run;}
  private save(run:ReportRun){this.store.putRecord('auto-ut-report-run',run.id,run,run.createdAt);this.logs.task('auto-ut',run.id,{time:new Date().toISOString(),status:run.status,message:run.messages.at(-1)??'开始获取报告',taskIds:run.taskIds});}
  versionLocked(version:string,baseBranch:string){return this.autoUt.tasks().some(t=>(t.reportVersion===version||!t.reportVersion&&t.baseBranch===baseBranch)&&this.autoUt.blocksRepository(t.repository,version,baseBranch))||this.autoUt.archivedMrBlockers().some(t=>t.reportVersion===version||!t.reportVersion&&t.baseBranch===baseBranch);}
@@ -54,7 +55,7 @@ export class AutoUtReports{
   const target=run.config.versions.find(v=>v.version===version)!;target.ticket=ticket;run.config.username=username;run.config.workspaceRoot=saved.config.workspaceRoot;this.save(run);return run;
  }
  fetchReport(trigger:'MANUAL'|'SCHEDULE'='MANUAL',snapshot?:ReportConfig,versions?:string[]){
-  if(this.closed||this.fetching)throw Object.assign(new Error('报告正在获取，请等待本次完成'),{statusCode:409});const config=reportConfig.parse(snapshot??this.configuration().config);
+  if(this.closed||this.fetching)throw Object.assign(new Error('报告正在获取，请等待本次完成'),{statusCode:409});const config=accountValue(reportConfig.parse(snapshot??this.configuration().config),'username');if(this.store.workspace)config.workspaceRoot=workspacePath(config.workspaceRoot);
   config.versions=config.versions.filter(v=>(!versions||versions.includes(v.version))&&!this.versionLocked(v.version,v.baseBranch));if(!config.versions.length)throw Object.assign(Error('没有可刷新的版本：已有 UT 修复任务的版本不能重复获取报告。'),{statusCode:409});
   const job=this.quality.start({versions:config.versions.map(v=>v.version),date:new Date().toISOString().slice(0,10),latest:true,domain:'Access',teams:['Access_智能驾舱组'],kinds:['ut']});
   const run:ReportRun={id:randomUUID(),jobId:job.id,trigger,status:'FETCHING',createdAt:new Date().toISOString(),config,plan:[],taskIds:[],messages:[],claimed:[]};this.save(run);this.fetching=true;

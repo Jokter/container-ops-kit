@@ -69,3 +69,36 @@ npm run build --prefix frontend
 SSH 用户名仍按环境类型固定：构建环境使用 `huawei`，容器环境连接测试使用 `sopuser`，Kubernetes/Helm 操作使用 `root`。密码不会写入应用日志。
 
 构建产物下载和双分支文件对比要求远端构建环境提供 `python3`（仅使用标准库）。服务目录按需打包；已有 `.tgz` / `.tar.gz` 包原样下载。批量下载返回包含各服务包的 `.tar.gz`；包内链接或越界路径会拒绝处理。对比结果保存在 SQLite，文本差异有大小限制，截断或二进制文件会提示下载原包查看。
+
+## 个人账号与工作空间
+
+项目根目录直接提供 `auth-config.json`，已配置白名单账号 `w00789509`，无需复制或重命名文件；启动前在本地填写约定的统一密码，仓库不包含明文密码。可在此文件维护白名单；部署后的个人配置也可通过 `PLATFORM_AUTH_FILE` 指向被 Git 忽略的 `auth-config.local.json`：
+
+```json
+{
+  "defaultPassword": "填写约定的统一密码",
+  "allowedAccounts": ["a123456", "b234567"]
+}
+```
+
+示例中的账号需替换为真实工号：2–40 位，以英文字母开头，后续为字母、数字、下划线或短横线，统一转为小写。默认白名单包含 `w00789509`；白名单为空时不允许任何账号登录。配置修改无需重启；移除账号或修改密码后，其已有会话失效。移除账号会在 5 秒内停止其后台服务。退出登录只结束浏览器会话，已经发起的后台任务继续执行。服务器重启后需要重新登录，未完成的外部写操作不会自动重放。
+
+登录后保留现有工作台样式和交互。WeLink 授权账号、UT 执行用户名、通知本人账号由后端绑定为登录账号，不能通过修改请求冒用别人。登录密码用于 Ops Studio 本身；WeLink、CodeHub、DTS、Agent 仍需要该用户各自的真实服务授权。
+
+- 用户数据库、设置、执行记录、日志和 Agent 会话：`data/platform/users/<账号>/`。
+- Grafana Token 认证按用户读取 `QUALITY_GRAFANA_TOKEN_<大写账号>`，例如 `QUALITY_GRAFANA_TOKEN_A123456`，不回退到共享 Token。
+- 各用户的 CLI HOME / USERPROFILE：`data/platform/users/<账号>/home/`。不沿用启动服务器账号的 CLI 登录缓存或 WeLink 环境 Token。需要外部 CLI 配置时在对应 HOME 下配置；Windows 同时指定 USERPROFILE / APPDATA / LOCALAPPDATA。平台执行 CLI 时自动使用这些目录。
+- 本地默认任务目录：Linux 为 `/usr1/wytest/<账号>`；Windows 为项目下 `data/workspaces/<账号>`。可用 `PLATFORM_WORK_ROOT` 指定公共父目录，程序追加账号。目录浏览和 UT 写入限制在当前账号根目录内，拒绝路径穿越和指向其它用户目录的符号链接。
+- 新环境的默认远端工作目录：`/usr1/wytest/<账号>`；可用 `PLATFORM_REMOTE_WORK_ROOT` 指定父目录。管理员配置的远端主机和集群仍受实际 SSH / Kubernetes 权限约束。
+- 浏览器缓存按账号保存，切换账号会重新加载页面。所有业务 API、日志下载和 SSE 均经过登录校验；用户不能读取、删除或继续别人的任务。
+
+### 旧单用户数据迁移
+
+旧的 `data/platform/tasks.sqlite` 保留，不会自动分配给第一个登录的人。需要把旧数据归属到指定账号时，先停止服务、备份数据目录，加入该账号白名单，再运行：
+
+```sh
+npm run build
+node scripts/migrate-user-workspace.mjs <实际账号>
+```
+
+迁移拒绝覆盖已有用户数据，原数据库不删除。旧密钥仅复制到指定用户目录；旧 CLI 登录缓存和代码工作目录不自动迁移。计划与群监听暂停，历史记录保留。检查个人连接设置后再启用自动任务；旧工作目录在个人根目录之外的 UT 任务需要重新发起，不能跨用户目录续跑。

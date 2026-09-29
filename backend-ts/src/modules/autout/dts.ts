@@ -98,6 +98,7 @@ export class DtsTickets{
   this.save(value);
  }
  async create(requestId:string,username:string,version:string){
+  username=this.store.workspace?.account??username;
   version=dtsVersion.parse(version);
   const previous=this.store.getRecord<TicketResult>('dts-ticket',requestId);
   if(previous){if(previous.username!==username||(previous.version??'R27C10')!==version)throw Object.assign(Error('建单请求与用户名或版本不匹配'),{statusCode:409});return previous.ticket&&previous.status==='REVIEW'?this.control(previous.ticket,username,'check',version):previous;}
@@ -117,6 +118,7 @@ export class DtsTickets{
   return value;
  }
  async control(ticket:string,username:string,action:'check'|'continue',version:string){
+  username=this.store.workspace?.account??username;
   version=dtsVersion.parse(version);
   const value=this.store.records<TicketResult>('dts-ticket').find(t=>t.ticket===ticket&&t.username===username&&(t.version??'R27C10')===version);
   if(!value)throw Object.assign(Error('未找到该用户的自动建单记录，请在 DTS 核对该单号。'),{statusCode:404});
@@ -132,4 +134,4 @@ export class DtsTickets{
   return value;
  }
 }
-export function dtsRoutes(app:FastifyInstance,store:TaskStore,reports:AutoUtReports){const settings=new DtsSettings(store),service=new DtsTickets(store);app.get('/api/auto-ut/tickets',async()=>store.records<TicketResult>('dts-ticket'));app.get('/api/auto-ut/dts-settings',async()=>settings.status());app.put('/api/auto-ut/dts-settings',async request=>{const {token}=z.object({token:z.string().trim().min(1).max(16384).regex(/^[^\r\n]+$/)}).parse(request.body);return settings.save(token);});app.delete('/api/auto-ut/dts-settings',async()=>settings.clear());app.post('/api/auto-ut/tickets/control',async request=>{const input=z.object({ticket:z.string().regex(/^DTS\d+$/i),username:z.string().regex(/^[A-Za-z0-9._-]+$/),reportId:z.uuid().optional(),version:dtsVersion,action:z.enum(['check','continue'])}).parse(request.body);const result=await service.control(input.ticket,input.username,input.action,input.version);if(result.status==='READY'&&input.reportId)reports.bindTicket(input.reportId,input.version,input.username,result.ticket);return result;});app.post('/api/auto-ut/tickets',async request=>{const input=z.object({requestId:z.uuid(),reportId:z.uuid(),version:dtsVersion,username:z.string().regex(/^[A-Za-z0-9._-]+$/)}).parse(request.body);reports.assertCanCreate(input.reportId,input.version,input.username);const result=await service.create(input.requestId,input.username,input.version);if(result.status==='READY')reports.bindTicket(input.reportId,input.version,input.username,result.ticket);return result;});}
+export function dtsRoutes(app:FastifyInstance,store:TaskStore,reports:AutoUtReports){const settings=new DtsSettings(store),service=new DtsTickets(store);app.get('/api/auto-ut/tickets',async()=>store.records<TicketResult>('dts-ticket'));app.get('/api/auto-ut/dts-settings',async()=>settings.status());app.put('/api/auto-ut/dts-settings',async request=>{const {token}=z.object({token:z.string().trim().min(1).max(16384).regex(/^[^\r\n]+$/)}).parse(request.body);return settings.save(token);});app.delete('/api/auto-ut/dts-settings',async()=>settings.clear());app.post('/api/auto-ut/tickets/control',async request=>{const input=z.object({ticket:z.string().regex(/^DTS\d+$/i),username:z.string().regex(/^[A-Za-z0-9._-]+$/),reportId:z.uuid().optional(),version:dtsVersion,action:z.enum(['check','continue'])}).parse(request.body);input.username=store.workspace?.account??input.username;const result=await service.control(input.ticket,input.username,input.action,input.version);if(result.status==='READY'&&input.reportId)reports.bindTicket(input.reportId,input.version,input.username,result.ticket);return result;});app.post('/api/auto-ut/tickets',async request=>{const input=z.object({requestId:z.uuid(),reportId:z.uuid(),version:dtsVersion,username:z.string().regex(/^[A-Za-z0-9._-]+$/)}).parse(request.body);input.username=store.workspace?.account??input.username;reports.assertCanCreate(input.reportId,input.version,input.username);const result=await service.create(input.requestId,input.username,input.version);if(result.status==='READY')reports.bindTicket(input.reportId,input.version,input.username,result.ticket);return result;});}
