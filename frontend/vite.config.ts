@@ -16,6 +16,8 @@ export default defineConfig({
    }
   }
  }],
- server:{proxy:{'/api':'http://localhost:8080'}},
+ // Preserve the browser-facing Host so the backend can compare it with Origin.
+ // Vite's string shorthand enables changeOrigin and replaces Host with localhost:8080.
+ server:{proxy:{'/api':{target:'http://localhost:8080',changeOrigin:false}}},
  build:{outDir:resolve(frontendDirectory,'dist'),emptyOutDir:true}
 })
