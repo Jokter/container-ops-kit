@@ -1,3 +1,4 @@
+import {initializePersonalTools} from './auth/tool-setup.js';
 import {DatabaseSync} from 'node:sqlite';
 import {existsSync,lstatSync,realpathSync} from 'node:fs';
 import {usage,taskPage,taskDomains} from './auth/admin.js';
@@ -27,6 +28,7 @@ export async function createApp(config:Config) {
   let pending=tenants.get(account);if(pending)return pending;
   lock.putRecord('user-registry',account,{account});
   pending=(async()=>{const workspace=makeWorkspace(account,dirname(config.database),config.workRoot,config.remoteWorkRoot);
+   try{await initializePersonalTools(workspace);}catch{console.warn('个人工具配置自动初始化未完成，请运行 setup-user-tools.bat 检查；已有配置保留。');}
    return inWorkspace(workspace,async()=>{let db:DatabaseSync|undefined;const child=await createWorkspaceApp({...config,database:join(workspace.dataRoot,'tasks.sqlite')},value=>{db=value;});await child.ready();if(!db)throw Error('用户数据库未初始化');return {app:child,workspace,db};});})();
   tenants.set(account,pending);pending.catch(()=>{if(tenants.get(account)===pending)tenants.delete(account);});return pending;
  };

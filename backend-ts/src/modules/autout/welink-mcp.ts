@@ -1,7 +1,8 @@
+import {welinkMcpEnvironment,UvRuntimeError} from '../../infrastructure/uv-runtime.js';
 import {FileLogs,type LogSink} from '../../infrastructure/file-logs.js';
 import {join} from 'node:path';
 import {randomUUID} from 'node:crypto';
-import {processEnvironment,currentWorkspace} from '../../auth/workspace.js';
+import {currentWorkspace} from '../../auth/workspace.js';
 import {spawn,type ChildProcessWithoutNullStreams} from 'node:child_process';
 import {z} from 'zod';
 
@@ -60,7 +61,7 @@ export class WelinkMcpError extends Error {
 }
 function launchReason(error:unknown){const code=error&&typeof error==='object'&&'code' in error?error.code:undefined;return code==='ENOENT'?'找不到 uvx 可执行文件':code==='EACCES'||code==='EPERM'?'无权启动 uvx 可执行文件':'MCP 进程启动失败';}
 export class WelinkMcp {
- constructor(private readonly launch:(token:string)=>ChildProcessWithoutNullStreams=token=>spawn(process.platform==='win32'?'uvx.exe':'uvx',args(),{windowsHide:true,detached:process.platform!=='win32',stdio:['pipe','pipe','pipe'],env:{...processEnvironment(),WELINK_TOKEN:token}}),private readonly timeoutMs=120000,args:()=>string[]=()=>welinkMcpArgs(),private readonly diagnosticLogs?:LogSink){}
+ constructor(private readonly launch:((token:string)=>ChildProcessWithoutNullStreams)|undefined=undefined,private readonly timeoutMs=120000,private readonly args:()=>string[]=()=>welinkMcpArgs(),private readonly diagnosticLogs?:LogSink){}
  async send(receiver:string,content:string,token:string,signal?:AbortSignal){
   if(!/^[a-z][a-z0-9._-]{1,79}$/.test(receiver))throw Error('WeLink MCP 接收者工号格式不正确');
   signal?.throwIfAborted();const workspace=currentWorkspace(),logs=this.diagnosticLogs??new FileLogs(workspace?join(workspace.dataRoot,'logs'):undefined),diagnosticId=randomUUID(),started=Date.now();
@@ -68,7 +69,7 @@ export class WelinkMcp {
   const log=(status:string,reason?:string)=>logs.task('automation','welink-mcp',{time:new Date().toISOString(),diagnosticId,stage,status,dispatched,elapsedMs:Date.now()-started,exitCode,stderrChars,hints:[...hints],reason});
   const move=(next:McpStage)=>{stage=next;log('started');};
   log('started');let child:ChildProcessWithoutNullStreams;
-  try{child=this.launch(token);}catch(error){const reason=launchReason(error);log('failed',reason);throw new WelinkMcpError(stage,false,reason,diagnosticId);}
+  try{if(this.launch)child=this.launch(token);else{const env=await welinkMcpEnvironment();signal?.throwIfAborted();child=spawn(process.platform==='win32'?'uvx.exe':'uvx',this.args(),{windowsHide:true,detached:process.platform!=='win32',stdio:['pipe','pipe','pipe'],env:{...env,WELINK_TOKEN:token}});}}catch(error){const reason=error instanceof UvRuntimeError?error.message:launchReason(error);log('failed',reason);throw new WelinkMcpError(stage,false,reason,diagnosticId);}
   let sequence=0,buffer='',failure:Error|undefined;
   const pending=new Map<number,{resolve:(v:unknown)=>void;reject:(e:Error)=>void}>();
   const fail=(message:string)=>{failure??=Error(message);for(const p of pending.values())p.reject(failure);pending.clear();};

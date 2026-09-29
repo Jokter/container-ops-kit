@@ -110,3 +110,19 @@ SSH 用户名仍按环境类型固定：构建环境使用 `huawei`，容器环�
 ### WeLink 诊断日志
 
 用户日志位于 `data/platform/users/<账号>/logs/automation/`（自定义数据目录时随之变化）。`group-mr-monitor.jsonl` 记录群监听，`group-mr-errors.jsonl` 记录监听和 MR 处理错误；`welink-mcp.jsonl` 记录 MCP 启动、初始化、工具查询和发送确认阶段。MCP 页面失败提示附诊断编号，可以据此定位日志。日志只记录阶段、耗时、退出码和固定类别的错误提示，不记录 Token、消息正文或 MCP 原始输出。初始化失败会注明尚未提交发送请求，发送后的异常仍按结果未确认处理，不自动重发。
+
+WeLink MCP 在独立用户 HOME 下运行，同时通过 `uv cache dir` / `uv python dir` 复用启动后端的系统用户已经安装的 uv 包缓存和 Python 运行时。仅共享这两个运行环境目录，WeLink Token、用户配置和 CLI 登录缓存仍按账号隔离。可在启动后端前设置 `UV_CACHE_DIR`、`UV_PYTHON_INSTALL_DIR` 覆盖路径；未设置时自动探测，探测不安装依赖、不发送消息。需保证后端与手动验证 uvx 的终端使用同一系统用户。
+
+### 外部工具的个人配置
+
+平台登录只识别账号，不会自动生成 SSH 私钥或完成外部系统认证。已指定本机配置归属账号 `w00789509`：该账号首次初始化工作空间时自动补齐本机 SSH、Agent 和 Git 作者信息，完成后写入标记，不在每次启动时重复导入。其他账号不会自动继承本机凭据。后端必须由原工具配置所属的系统用户运行；缺少的凭据仍需本人配置。手动检查或补充配置时，请关闭后端，在原系统用户下运行 `setup-user-tools.bat w00789509`：先检查程序和个人配置，再按需选择导入本人配置或登录 WeLink CLI。其他账号必须用各自的凭据配置，不能把同一人的密钥批量导入白名单。
+
+导入操作只向指定账号的 HOME 补齐 `.ssh`、`.pi/agent` 和 Git `user.name` / `user.email`。包括本人 SSH 密钥、已核验主机列表及 Agent 认证；不删除源文件、不覆盖已有文件、不复制符号链接或历史 Agent 会话。仅在目标账号属于当前系统用户本人时选择导入。Git 凭据助手、外部 include 路径不会从全局 Git 配置直接复制。
+
+- Git SSH 显式使用个人 `.ssh/config`、`known_hosts` 和标准命名的密钥，不依赖 Windows 对 HOME 的隐式解析；严格主机校验始终开启，不自动接受或删除主机密钥。非标准密钥需在个人 SSH 配置中指定绝对路径。
+- 后台不能弹出私钥口令框。加密私钥需由管理员为该账号指定独立代理：`PLATFORM_SSH_AUTH_SOCK_<大写账号>`；默认不继承机器共享 SSH agent。已知主机校验通过不代表 SSH 公钥已有仓库权限。
+- WeLink CLI 可通过配置脚本的登录选项在个人 HOME 下完成登录。CodeHub、WeLink MCP、DTS 的 Token 仍通过当前账号页面保存，不能互相代替；CodeHub API Token 不等于 Git SSH 密钥。
+- Agent 配置位于个人 HOME 的 `.pi/agent`；导入只补配置，不会启动 Agent 或发送消息。外部扩展中写死的绝对路径需自行核对。
+- Maven 继续使用仓库内 `.ci/settings.xml` 和已有任务命令；Java/Maven 安装及本地依赖仓不是平台账号，当前修改不重写构建参数。Git 提交身份单独检查，避免克隆通过后在 commit 阶段才失败。
+
+命令行也可分别执行：`node scripts/user-tools.mjs <账号> check`、`node scripts/user-tools.mjs <账号> import-local`、`node scripts/user-tools.mjs <账号> welink-login`。只有最后一项执行交互式认证；检查和导入不访问仓库、不发送消息、不创建工单。
