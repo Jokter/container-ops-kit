@@ -267,3 +267,10 @@ test('UT 多组配置保存，所有语言展示并可按组和语言筛选',asy
   const team=d.querySelector('[data-ut-plan-filter="planTeam"]');team.value='Access_网络优化开放组';team.dispatchEvent(new dom.window.Event('change'));assert.equal(d.querySelectorAll('[data-report-select]').length,1);assert.match(d.querySelector('.qw-repo').textContent,/OtherJava/);
  }finally{await pause();dom.window.close();}
 });
+
+test('HTTP 局域网缺少 randomUUID 时仍可生成合法建单编号',async()=>{
+ const f=utFixture();try{Object.defineProperty(f.dom.window.crypto,'randomUUID',{value:undefined,configurable:true});const d=open(f.dom,'auto-ut');await pause();d.querySelector('[data-ut-create="R27C10"]').click();await pause();await pause();assert.equal(f.creates.length,1);assert.match(f.creates[0].requestId,/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);}finally{await pause();f.dom.window.close();}
+});
+test('建单准备阶段失败显示错误且不会提交工单',async()=>{
+ const f=utFixture();try{Object.defineProperty(f.dom.window.crypto,'randomUUID',{value:undefined,configurable:true});Object.defineProperty(f.dom.window.crypto,'getRandomValues',{value:undefined,configurable:true});const d=open(f.dom,'auto-ut');await pause();d.querySelector('[data-ut-create="R27C10"]').click();await pause();assert.equal(f.creates.length,0);assert.match(d.querySelector('.ut-error-summary').textContent,/建单准备失败.*无法生成建单请求编号/);assert.equal(d.querySelector('[data-ut-create="R27C10"]').disabled,false);}finally{await pause();f.dom.window.close();}
+});

@@ -1,4 +1,7 @@
-import {processEnvironment} from '../../auth/workspace.js';
+import {FileLogs,type LogSink} from '../../infrastructure/file-logs.js';
+import {join} from 'node:path';
+import {randomUUID} from 'node:crypto';
+import {processEnvironment,currentWorkspace} from '../../auth/workspace.js';
 import {spawn,type ChildProcessWithoutNullStreams} from 'node:child_process';
 import {z} from 'zod';
 
@@ -50,40 +53,64 @@ export function confirmedWelinkResult(value:unknown):boolean{
  }
  return confirmed;
 }
+type McpStage='launch'|'initialize'|'tools/list'|'tools/call'|'acknowledgement';
+const stageNames:Record<McpStage,string>={launch:'启动 uvx',initialize:'初始化 MCP','tools/list':'查询 MCP 工具','tools/call':'发送消息',acknowledgement:'确认发送结果'};
+export class WelinkMcpError extends Error {
+ constructor(readonly stage:McpStage,readonly dispatched:boolean,reason:string,readonly diagnosticId:string){super(`WeLink MCP ${stageNames[stage]}失败：${reason}。${dispatched?'发送结果未确认，请核对 WeLink 后再操作，勿重复发送':'尚未提交发送请求'}。诊断编号：${diagnosticId}`);}
+}
+function launchReason(error:unknown){const code=error&&typeof error==='object'&&'code' in error?error.code:undefined;return code==='ENOENT'?'找不到 uvx 可执行文件':code==='EACCES'||code==='EPERM'?'无权启动 uvx 可执行文件':'MCP 进程启动失败';}
 export class WelinkMcp {
- constructor(private readonly launch:(token:string)=>ChildProcessWithoutNullStreams=token=>spawn(process.platform==='win32'?'uvx.exe':'uvx',args(),{windowsHide:true,detached:process.platform!=='win32',stdio:['pipe','pipe','pipe'],env:{...processEnvironment(),WELINK_TOKEN:token}}),private readonly timeoutMs=120000,args:()=>string[]=()=>welinkMcpArgs()){}
+ constructor(private readonly launch:(token:string)=>ChildProcessWithoutNullStreams=token=>spawn(process.platform==='win32'?'uvx.exe':'uvx',args(),{windowsHide:true,detached:process.platform!=='win32',stdio:['pipe','pipe','pipe'],env:{...processEnvironment(),WELINK_TOKEN:token}}),private readonly timeoutMs=120000,args:()=>string[]=()=>welinkMcpArgs(),private readonly diagnosticLogs?:LogSink){}
  async send(receiver:string,content:string,token:string,signal?:AbortSignal){
   if(!/^[a-z][a-z0-9._-]{1,79}$/.test(receiver))throw Error('WeLink MCP 接收者工号格式不正确');
-  signal?.throwIfAborted();const child=this.launch(token);let sequence=0,buffer='',failure:Error|undefined;
+  signal?.throwIfAborted();const workspace=currentWorkspace(),logs=this.diagnosticLogs??new FileLogs(workspace?join(workspace.dataRoot,'logs'):undefined),diagnosticId=randomUUID(),started=Date.now();
+  let stage:McpStage='launch',dispatched=false,exitCode:number|null=null,stderrChars=0;const hints=new Set<string>();
+  const log=(status:string,reason?:string)=>logs.task('automation','welink-mcp',{time:new Date().toISOString(),diagnosticId,stage,status,dispatched,elapsedMs:Date.now()-started,exitCode,stderrChars,hints:[...hints],reason});
+  const move=(next:McpStage)=>{stage=next;log('started');};
+  log('started');let child:ChildProcessWithoutNullStreams;
+  try{child=this.launch(token);}catch(error){const reason=launchReason(error);log('failed',reason);throw new WelinkMcpError(stage,false,reason,diagnosticId);}
+  let sequence=0,buffer='',failure:Error|undefined;
   const pending=new Map<number,{resolve:(v:unknown)=>void;reject:(e:Error)=>void}>();
   const fail=(message:string)=>{failure??=Error(message);for(const p of pending.values())p.reject(failure);pending.clear();};
-  const abort=()=>fail('WeLink MCP 通知已中断，发送结果待确认');
-  const timer=setTimeout(()=>fail('WeLink MCP 超时，发送结果待确认，请核对后再手动重发'),this.timeoutMs);
-  child.stderr.resume(); // Never persist server output: it may contain credentials or message bodies.
-  child.on('error',()=>fail('WeLink MCP 无法启动，请确认 uvx 已安装且内网可达'));
-  child.on('exit',()=>fail('WeLink MCP 提前退出，发送结果待确认'));
-  child.stdin.on('error',()=>fail('WeLink MCP 输入中断，发送结果待确认'));
+  const abort=()=>fail('WeLink MCP 通知已中断');
+  const timer=setTimeout(()=>fail('WeLink MCP 超时'),this.timeoutMs);
+  // Classify bounded stderr in memory; never persist raw output or message bodies.
+  let tail='';child.stderr.setEncoding('utf8');child.stderr.on('data',(chunk:string)=>{stderrChars+=chunk.length;const value=tail+chunk;tail=value.slice(-256);
+   for(const [pattern,hint] of [[/certificate|CERTIFICATE_VERIFY_FAILED|SSL/i,'证书校验失败'],[/failed to download|failed to fetch|name resolution|connection refused|network is unreachable|timed out/i,'依赖下载或内网连接失败'],[/no interpreter|python.*not found|failed to.*python/i,'Python 运行环境不可用'],[/401|403|unauthorized|forbidden|invalid token|token.*expired/i,'远端认证或权限失败']] as const)if(pattern.test(value))hints.add(hint);
+  });
+  child.on('error',error=>{stage='launch';fail(launchReason(error));});
+  child.on('exit',code=>{exitCode=code;fail('MCP 进程提前退出');});
+  child.stdin.on('error',()=>fail('WeLink MCP 输入中断'));
   child.stdout.setEncoding('utf8');child.stdout.on('data',(chunk:string)=>{
-   buffer+=chunk;if(buffer.length>1048576){fail('WeLink MCP 返回过大，发送结果待确认');return;}
+   buffer+=chunk;if(buffer.length>1048576){fail('WeLink MCP 返回过大');return;}
    let boundary:number;while((boundary=buffer.indexOf('\n'))>=0){const line=buffer.slice(0,boundary).trim();buffer=buffer.slice(boundary+1);if(!line)continue;
     let value:unknown;try{value=JSON.parse(line);}catch{continue;} // Ignore startup banners, as in the reference client; never log them.
     const parsed=object.safeParse(value);if(!parsed.success)continue;const message=parsed.data;
     if(message.jsonrpc!=='2.0'||typeof message.id!=='number')continue;const p=pending.get(message.id);if(!p)continue;pending.delete(message.id);
-    if(message.error)p.reject(Error('WeLink MCP 调用失败，发送结果待确认'));else p.resolve(message.result);
+    if(message.error)p.reject(Error('WeLink MCP 调用失败'));else p.resolve(message.result);
    }
   });
   signal?.addEventListener('abort',abort,{once:true});if(signal?.aborted)abort();
   const write=(message:unknown)=>child.stdin.write(JSON.stringify(message)+'\n');
-  const call=(method:string,params:Record<string,unknown>)=>new Promise<unknown>((resolve,reject)=>{if(failure){reject(failure);return;}const id=++sequence;pending.set(id,{resolve,reject});write({jsonrpc:'2.0',id,method,params});});
+  const call=(method:string,params:Record<string,unknown>)=>new Promise<unknown>((resolve,reject)=>{if(failure){reject(failure);return;}const id=++sequence;pending.set(id,{resolve,reject});if(method==='tools/call')dispatched=true;write({jsonrpc:'2.0',id,method,params});});
   try{
+   move('initialize');
    const initialized=object.parse(await call('initialize',{protocolVersion:'2024-11-05',capabilities:{},clientInfo:{name:'ops-studio',version:'1.0'}}));
    if(typeof initialized.protocolVersion!=='string')throw Error('WeLink MCP 初始化失败');
    write({jsonrpc:'2.0',method:'notifications/initialized'});
+   move('tools/list');
    const listed=z.object({tools:z.array(z.object({name:z.string()}))}).parse(await call('tools/list',{}));
    const name=listed.tools.find(t=>t.name==='send_welink_message'||t.name==='mcp__welink-msg__send_welink_message')?.name;
    if(!name)throw Error('WeLink MCP 未提供 send_welink_message 工具');
+   move('tools/call');
    const result=await call('tools/call',{name,arguments:{content,receiver}});
+   move('acknowledgement');
    if(!confirmedWelinkResult(result))throw Error('WeLink MCP 未返回明确的发送成功结果，请核对消息后手动处理');
+   log('succeeded');
+  }catch(error){
+   // All recognized messages below are locally generated, never remote error bodies.
+   const known=error instanceof Error&&/^(?:WeLink MCP |MCP 进程提前退出|找不到 uvx |无权启动 uvx |MCP 进程启动失败)/.test(error.message);
+   const reason=[known?error.message:'MCP 协议响应无效',...hints].join('；');log('failed',reason);throw new WelinkMcpError(stage,dispatched,reason,diagnosticId);
   }finally{
    clearTimeout(timer);signal?.removeEventListener('abort',abort);child.stdin.destroy();
    if(child.pid){if(process.platform==='win32'){await new Promise<void>(resolve=>{const killer=spawn('taskkill',['/pid',String(child.pid),'/T','/F'],{windowsHide:true,stdio:'ignore'});killer.once('error',()=>resolve());killer.once('close',()=>resolve());});}else{try{process.kill(-child.pid,'SIGKILL');}catch{child.kill('SIGKILL');}}}

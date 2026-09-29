@@ -1014,7 +1014,7 @@
         : state.platformDomain === 'automation'
           ? automationContent()
           : `<section class="panel platform-placeholder"><div class="platform-placeholder-content"><div class="platform-placeholder-symbol">${placeholder[0]}</div><h1>${placeholder[1]}</h1><p>${placeholder[2]}</p><span class="platform-boundary">平台边界已预留</span></div></section>`;
-      return `<div class="variant-a-shell studio-shell"><header class="studio-topbar"><div class="studio-brand">${taiji}<strong>Ops Studio</strong><span class="studio-divider">/</span></div>${platformSwitch}<span class="studio-product">统一基础设施工作台</span>${window.opsAuth?.user?`<span style="font-size:13px;margin-left:auto">${escapeHtml(window.opsAuth.user.account)}</span>${window.opsAuth.user.isAdmin?'<button class="button" data-ops-admin>用户管理</button>':''}<button class="button" data-ops-logout>退出登录</button>`:''}</header><aside class="variant-a-sidebar">${state.platformDomain==='container'?nav:state.platformDomain==='automation'?automationNav():''}<div class="studio-sidebar-bottom">${state.platformDomain==='automation'?'<button class="studio-settings-link" data-automation-nav="settings">连接与设置</button>':''}<div class="variant-a-user">V0.2.126</div></div></aside><main class="variant-a-main">${content}</main></div>`;
+      return `<div class="variant-a-shell studio-shell"><header class="studio-topbar"><div class="studio-brand">${taiji}<strong>Ops Studio</strong><span class="studio-divider">/</span></div>${platformSwitch}<span class="studio-product">统一基础设施工作台</span>${window.opsAuth?.user?`<span style="font-size:13px;margin-left:auto">${escapeHtml(window.opsAuth.user.account)}</span>${window.opsAuth.user.isAdmin?'<button class="button" data-ops-admin>用户管理</button>':''}<button class="button" data-ops-logout>退出登录</button>`:''}</header><aside class="variant-a-sidebar">${state.platformDomain==='container'?nav:state.platformDomain==='automation'?automationNav():''}<div class="studio-sidebar-bottom">${state.platformDomain==='automation'?'<button class="studio-settings-link" data-automation-nav="settings">连接与设置</button>':''}<div class="variant-a-user">V0.2.127</div></div></aside><main class="variant-a-main">${content}</main></div>`;
 
     }
 
@@ -1706,7 +1706,7 @@
       if(document.getElementById('welink-token')?.value.trim()||welinkMcpSettings&&Object.entries(welinkMcpSettings.config).some(([key,value])=>document.getElementById('welink-mcp-'+key)?.value.trim()!==value)){welinkTest.message='配置已修改，请先保存 Token 或 MCP 配置再测试。';update();return;}
       welinkTest.busy=true;welinkTest.message='正在发送测试消息，请稍候…';update();
       try{const value=await autoUtCall('/api/auto-ut/welink-mcp-settings/test',jsonOptions('POST',{receiver}));welinkTest.message=value.message;}
-      catch(e){welinkTest.message='发送未确认：'+e.message+' 请先核对 WeLink 是否收到，避免重复发送。';}
+      catch(e){welinkTest.message=e.message;}
       finally{welinkTest.busy=false;update();}
     }
     let welinkMcpSettings=null;
@@ -1770,6 +1770,13 @@
       catch(e){workspaceUi.drawerError=e.message;}
       finally{workspaceUi.drawerBusy=false;render(false);}
     }
+    function newTicketRequestId(){
+      if(typeof crypto.randomUUID==='function')return crypto.randomUUID();
+      // HTTP LAN pages may lack randomUUID; getRandomValues works outside secure contexts.
+      if(typeof crypto.getRandomValues!=='function')throw Error('浏览器无法生成建单请求编号，请更换浏览器或使用 HTTPS / localhost 访问。');
+      const bytes=crypto.getRandomValues(new Uint8Array(16));bytes[6]=(bytes[6]&15)|64;bytes[8]=(bytes[8]&63)|128;
+      const hex=Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join('');return [hex.slice(0,8),hex.slice(8,12),hex.slice(12,16),hex.slice(16,20),hex.slice(20)].join('-');
+    }
     async function createAutoUtTicket(versionArg){
       if(typeof versionArg==='string'){selectedTicketVersion=versionArg;syncVersionTicket();}
       const block=utCreateBlock(currentTicketVersion().version);if(block){utError(block);render(false);return;}
@@ -1779,10 +1786,10 @@
       if(state.autoUtTicket){workspaceUi.drawerError='已有问题单号；如需新建，请先清空单号。';render(false);return;}
       const version=currentTicketVersion().version;
       const key='ut-dts-request:'+state.autoUtUsername+':'+version;
-      let requestId=(window.opsAuth?.storage.session||sessionStorage).getItem(key);
-      if(!requestId){requestId=crypto.randomUUID();(window.opsAuth?.storage.session||sessionStorage).setItem(key,requestId);}
       workspaceUi.drawerBusy=true;workspaceUi.ticketBusy=true;workspaceUi.drawerError='';render(false);
       try{
+        const storage=window.opsAuth?.storage.session||sessionStorage;
+        let requestId;try{requestId=storage.getItem(key);if(!requestId){requestId=newTicketRequestId();storage.setItem(key,requestId);}}catch(e){throw Error('建单准备失败：'+e.message);}
         await saveReportSettings();
         const result=await autoUtCall('/api/auto-ut/tickets',jsonOptions('POST',{requestId,username:state.autoUtUsername,version,reportId:utVersionRun(version).id}));
         dtsTicketResult=result;

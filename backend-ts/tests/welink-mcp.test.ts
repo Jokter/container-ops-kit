@@ -106,3 +106,20 @@ test('test-message API validates recipient, sends once, blocks concurrent sends 
   delete process.env.WELINK_TOKEN;assert.equal((await app.inject({method:'POST',url,payload:{receiver:'w12345678'}})).statusCode,400);assert.equal(calls,2);
  }finally{release();await app.close();store.close();if(previous===undefined)delete process.env.WELINK_TOKEN;else process.env.WELINK_TOKEN=previous;}
 });
+
+test('startup diagnostics classify stderr and record exit code without leaking credentials or content',async()=>{
+ const events:unknown[]=[];
+ const source="process.stderr.write('CERTIFICATE_VERIFY_FAILED private-secret private-body\\n');setTimeout(()=>process.exit(7),50)";
+ const client=new WelinkMcp(()=>spawn(process.execPath,['-e',source],{detached:process.platform!=='win32',stdio:['pipe','pipe','pipe']}),5000,()=>[],{task:(_category,_id,event)=>events.push(event)});
+ await assert.rejects(client.send('w00789509','private-body','private-secret'),error=>error instanceof Error&&/证书校验失败/.test(error.message)&&/尚未提交发送请求/.test(error.message)&&!/private-secret|private-body/.test(error.message));
+ const serialized=JSON.stringify(events);assert.match(serialized,/"exitCode":7/);assert.match(serialized,/"dispatched":false/);assert.doesNotMatch(serialized,/private-secret|private-body|CERTIFICATE_VERIFY_FAILED/);
+});
+test('send failures report uncertainty once with correlated diagnostic ID and safe stage',async()=>{
+ const events:unknown[]=[];let calls=0;const childSource=server.replace("result={isError:!initialized", "process.stderr.write('tool-call\\n');result={isError:true||!initialized");
+ const client=new WelinkMcp(token=>{const child=spawn(process.execPath,['-e',childSource],{detached:process.platform!=='win32',stdio:['pipe','pipe','pipe'],env:{...process.env,WELINK_TOKEN:token}});child.stderr.on('data',chunk=>{calls+=String(chunk).split('tool-call').length-1;});return child;},5000,()=>[],{task:(_category,_id,event)=>events.push(event)});
+ await assert.rejects(client.send('w00789509','test message','test-only-token'),error=>{assert.ok(error instanceof Error);assert.match(error.message,/发送结果未确认/);assert.match(error.message,/诊断编号/);return true;});assert.equal(calls,1);assert.match(JSON.stringify(events),/"stage":"acknowledgement"/);assert.doesNotMatch(JSON.stringify(events),/test-only-token|test message/);
+});
+test('missing executable produces an actionable failure before sending',async()=>{
+ const events:unknown[]=[];const client=new WelinkMcp(()=>spawn('ops-nonexistent-uvx-test',[],{stdio:['pipe','pipe','pipe']}),5000,()=>[],{task:(_category,_id,event)=>events.push(event)});
+ await assert.rejects(client.send('w00789509','body','secret'),/找不到 uvx.*尚未提交发送请求/);assert.match(JSON.stringify(events),/"stage":"launch","status":"failed"/);
+});
