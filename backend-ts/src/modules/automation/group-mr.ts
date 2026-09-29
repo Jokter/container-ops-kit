@@ -464,9 +464,9 @@ ${scope}
 完成后简要说明实际检视范围（增量或全量及回退原因）、旧意见复核结果（引用 ID）、新增问题数量。最后严格输出一个结构化结果：<ops-studio-review-result>{"sha":"${e.sha}","assessments":[{"id":"意见ID","status":"FIXED|UNFIXED|UNCERTAIN","reason":"代码依据"}]}</ops-studio-review-result>。没有待复核意见时 assessments 返回空数组。`;
 
   const stream=piReplyStream();const input=JSON.stringify({id:'group-mr-'+e.id,type:'prompt',message:prompt})+'\n';
-  const startedAt=Date.now();this.diagnostic={command:'pi --mode rpc',timeoutMs:15*60_000};this.activeCommand='pi --mode rpc';this.recordLog('info','开始 Agent 检视');
+  const startedAt=Date.now();this.diagnostic={command:'pi --mode rpc',timeoutMs:60*60_000};this.activeCommand='pi --mode rpc';this.recordLog('info','开始 Agent 检视');
   e.writePending='Pi 提交检视意见';this.save(e);
-  let result;try{result=await this.execute(['pi','--mode','rpc','--no-session','--no-context-files','--no-prompt-templates','--thinking','medium'],process.cwd(),15*60_000,undefined,stream.line,input,this.controller.signal);}finally{this.activeCommand='';}
+  let result;try{result=await this.execute(['pi','--mode','rpc','--no-session','--no-context-files','--no-prompt-templates','--thinking','medium'],process.cwd(),60*60_000,undefined,stream.line,input,this.controller.signal);}finally{this.activeCommand='';}
   const answer=stream.answer();delete e.reviewAssessment;e.piOutput=answer.replace(/<ops-studio-review-result>[\s\S]*?<\/ops-studio-review-result>/g,'').trim().slice(0,12000);this.save(e);
   this.diagnostic={...this.diagnostic,elapsedMs:Date.now()-startedAt,exitCode:result.exitCode,answerBytes:Buffer.byteLength(answer),response:responseDiagnostic(result.output)};
   this.recordLog(result.exitCode===0&&stream.completed()&&!stream.failed()?'info':'error',result.exitCode===0&&stream.completed()&&!stream.failed()?'Agent 执行结束，待查询 CodeHub 意见':'Agent 检视未完成');
