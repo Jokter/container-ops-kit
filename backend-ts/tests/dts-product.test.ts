@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {resolveDtsProduct,dtsProductNames} from '../src/modules/autout/dts-product.js';
 test('按完整名称查询 B001，校验 C/R 父级，忽略相似版本',async()=>{
- for(const version of ['R27C00','R27C10']){
+ for(const version of ['R27C00','R27C10','R27C11']){
   const names=dtsProductNames(version),bNo=version==='R27C00'?'267286537':'268147646',cNo=version==='R27C00'?'266443346':'267987198',calls:string[]=[];
   const result=await resolveDtsProduct(version,async name=>{calls.push(name);return [{pbiName:name+'extra',pbiId:'9',parentId:'8'},{pbiName:name,pbiId:name===names.b?Number(bNo):name===names.c?cNo:'266443320',parentId:name===names.b?cNo:name===names.c?'266443320':'261222267'}];});
   assert.deepEqual(result,{rNo:'266443320',cNo,bNo});assert.deepEqual(calls,[names.b,names.c,names.r]);

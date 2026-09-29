@@ -1,5 +1,5 @@
 import {z} from 'zod';
-export const dtsVersion=z.string().trim().toUpperCase().regex(/^R\d{2}C(?:00|10)$/);
+export const dtsVersion=z.string().trim().toUpperCase().regex(/^R\d{2}C\d{2}$/);
 const productId=z.string().trim().regex(/^\d+$/);
 export const dtsProduct=z.object({rNo:productId,cNo:productId,bNo:productId});
 export type DtsProduct=z.infer<typeof dtsProduct>;

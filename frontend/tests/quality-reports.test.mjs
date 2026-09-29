@@ -264,3 +264,14 @@ test('UT 页面可多选自定义团队并保存查询范围，展示真实语�
   assert.match(d.body.textContent,/Cpp · Access_智能监控组/);assert.match(d.body.textContent,/不适用/);assert.match(d.body.textContent,/当前语言暂不支持自动修复/);assert.equal(d.querySelector('[data-report-select]').disabled,true);assert.deepEqual([...d.querySelector('#qw-plan-language').options].map(o=>o.value),['','Cpp']);assert.deepEqual([...d.querySelector('#qw-plan-team').options].map(o=>o.value),['','Access_智能监控组']);
  }finally{await pause();dom.window.close();}
 });
+
+test('质量检查支持添加 R27C11 并传入查询及定时计划',async()=>{
+ let query,schedule;const dom=page((path,o)=>{
+  if(path==='/api/quality/jobs'&&o?.method==='POST'){query=JSON.parse(o.body);return{id:'c11',input:query,status:'SUCCEEDED',createdAt:'now',parts:[]};}
+  if(path==='/api/automation/schedules'&&o?.method==='POST'){schedule=JSON.parse(o.body);return{id:'c11-schedule',...schedule};}
+ });
+ try{const d=open(dom,'quality');await pause();d.querySelector('#qw-add-versions').value='r27c11';d.querySelector('[data-qw-add="versions"]').click();assert.equal(d.querySelector('[data-qw-pick="versions"][value="R27C11"]').checked,true);
+  d.querySelector('[data-q-fetch]').click();await pause();assert.ok(query.versions.includes('R27C11'));
+  d.querySelector('[data-schedule-new="quality"]').click();d.querySelector('[data-qw-save]').click();await pause();assert.ok(schedule.task.query.versions.includes('R27C11'));
+ }finally{await pause();dom.window.close();}
+});

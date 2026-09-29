@@ -4,7 +4,7 @@ import type {FastifyInstance} from 'fastify';
 import type {TaskStore} from '../../platform/store.js';
 import {noFileLogs,type LogSink} from '../../infrastructure/file-logs.js';
 
-export const releaseVersion=z.string().trim().toUpperCase().regex(/^R\d{2}C(?:00|10)$/);
+export const releaseVersion=z.string().trim().toUpperCase().regex(/^R\d{2}C\d{2}$/);
 const label=z.string().trim().min(1).max(120).regex(/^[\p{L}\p{N}_. -]+$/u);
 export const qualityInput=z.object({versions:z.array(releaseVersion).min(1).max(10).refine(v=>new Set(v).size===v.length),date:z.iso.date(),latest:z.boolean().default(false),domain:label.default('Access'),teams:z.array(label).min(1).max(30),kinds:z.array(z.enum(['ut','api','static'])).min(1).max(3).refine(v=>new Set(v).size===v.length)});
 export type QualityInput=z.infer<typeof qualityInput>;

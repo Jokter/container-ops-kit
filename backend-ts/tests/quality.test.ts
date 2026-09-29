@@ -156,3 +156,10 @@ test('旧 UT 配置补齐范围，空团队拒绝保存，范围变化后旧报�
   await assert.rejects(reports.start(run.id,'MANUAL',undefined,true),/查询范围已变化/);assert.equal(auto.calls.length,0);
  }finally{await quality.close();await reports.close();auto.close();store.close();}
 });
+
+test('R27C11 可用于质量查询与 UT 配置，版本仍限制为 RxxCxx',()=>{
+ const parsed=qualityInput.parse({...input,versions:[' r27c11 ']});assert.deepEqual(parsed.versions,['R27C11']);
+ for(const kind of ['ut','api','static'] as const){const sql=qualitySql(parsed,'R27C11',kind);assert.match(sql,/R27C11/);}
+ assert.equal(reportConfig.parse({...config(),versions:[{version:'R27C11',baseBranch:'release/R27C11'}]}).versions[0]!.version,'R27C11');
+ for(const version of ['R27C1','R27C111','R2C11','R27C11;DROP'])assert.throws(()=>qualityInput.parse({...input,versions:[version]}));
+});
