@@ -1,7 +1,10 @@
+import {DatabaseSync} from 'node:sqlite';
+import {existsSync,lstatSync,realpathSync} from 'node:fs';
+import {usage,taskPage,taskDomains} from './auth/admin.js';
 import Fastify from 'fastify';
 import type {FastifyInstance} from 'fastify';
 import type {ServerResponse} from 'node:http';
-import {dirname,join} from 'node:path';
+import {dirname,join,relative} from 'node:path';
 import {z} from 'zod';
 import type {Config} from './config.js';
 import {createWorkspaceApp} from './workspace-app.js';
@@ -16,14 +19,15 @@ export async function createApp(config:Config) {
  // Lock the legacy database as the process-wide lock; never assign its records to a random user.
  const lock=new TaskStore(config.database);
  const app=Fastify({bodyLimit:16*1024,forceCloseConnections:true,logger:false});
- const tenants=new Map<string,Promise<{app:FastifyInstance;workspace:Workspace}>>();
+ const tenants=new Map<string,Promise<{app:FastifyInstance;workspace:Workspace;db:DatabaseSync}>>();
  const connections=new Map<string,Set<ServerResponse>>();
  const disconnect=(token:string)=>{for(const response of connections.get(token)??[])response.destroy();connections.delete(token);};
  let closing=false;
  const tenant=(account:string)=>{
   let pending=tenants.get(account);if(pending)return pending;
+  lock.putRecord('user-registry',account,{account});
   pending=(async()=>{const workspace=makeWorkspace(account,dirname(config.database),config.workRoot,config.remoteWorkRoot);
-   return inWorkspace(workspace,async()=>{const child=await createWorkspaceApp({...config,database:join(workspace.dataRoot,'tasks.sqlite')});await child.ready();return {app:child,workspace};});})();
+   return inWorkspace(workspace,async()=>{let db:DatabaseSync|undefined;const child=await createWorkspaceApp({...config,database:join(workspace.dataRoot,'tasks.sqlite')},value=>{db=value;});await child.ready();if(!db)throw Error('用户数据库未初始化');return {app:child,workspace,db};});})();
   tenants.set(account,pending);pending.catch(()=>{if(tenants.get(account)===pending)tenants.delete(account);});return pending;
  };
  const stopTenant=async(account:string)=>{const pending=tenants.get(account);if(!pending)return;const value=await pending;await inWorkspace(value.workspace,()=>value.app.close());if(tenants.get(account)===pending)tenants.delete(account);};
@@ -44,6 +48,7 @@ export async function createApp(config:Config) {
   if(!session)return reply.code(401).send({message:'请先登录'});
   const expected=request.headers['x-ops-account']??new URL(request.url,'http://localhost').searchParams.get('_account');
   if(expected&&expected!==session.account)return reply.code(401).send({message:'登录账号已变化，请重新登录'});
+  if(path?.startsWith('/api/admin/')){if(!auth.adminAccounts.includes(session.account))return reply.code(403).send({message:'仅管理员可查看所有用户'});return;}
   if(path==='/api/auth/me')return;
   if(!path?.startsWith('/api/'))return reply.code(404).send({message:'接口不存在'});
   if(closing)return reply.code(503).send({message:'服务正在关闭'});
@@ -65,10 +70,33 @@ export async function createApp(config:Config) {
   if(!passwordMatches(password,auth.defaultPassword)||!auth.allowedAccounts.includes(account))return reply.code(401).send({message:'账号未获授权或密码不正确'});
   const child=await tenant(account);const previous=sessions.token(request.headers.cookie);sessions.revoke(previous);disconnect(previous);
   reply.header('Set-Cookie',cookie(sessions.issue(account,auth),request.protocol==='https'));
-  return {account,workDirectory:child.workspace.workRoot,remoteWorkDirectory:child.workspace.remoteRoot};
+  const previousUsage=lock.getRecord<{loginCount:number}>('user-usage',account);lock.putRecord('user-usage',account,{lastLoginAt:new Date().toISOString(),loginCount:(previousUsage?.loginCount??0)+1});
+  return {account,isAdmin:auth.adminAccounts.includes(account),workDirectory:child.workspace.workRoot,remoteWorkDirectory:child.workspace.remoteRoot};
  });
- app.get('/api/auth/me',async request=>{const session=sessions.get(sessions.token(request.headers.cookie),readAuthConfig(config.authFile))!;const child=await tenant(session.account);return {account:session.account,workDirectory:child.workspace.workRoot,remoteWorkDirectory:child.workspace.remoteRoot};});
+ app.get('/api/auth/me',async request=>{const session=sessions.get(sessions.token(request.headers.cookie),readAuthConfig(config.authFile))!;const child=await tenant(session.account);return {account:session.account,isAdmin:readAuthConfig(config.authFile).adminAccounts.includes(session.account),workDirectory:child.workspace.workRoot,remoteWorkDirectory:child.workspace.remoteRoot};});
  app.post('/api/auth/logout',async(request,reply)=>{const token=sessions.token(request.headers.cookie);sessions.revoke(token);disconnect(token);return reply.header('Set-Cookie',cookie('',request.protocol==='https',0)).code(204).send();});
+ const userRoot=join(dirname(config.database),'users');
+ const accounts=()=>[...new Set([...readAuthConfig(config.authFile).allowedAccounts,...lock.records<{account:string}>('user-registry').map(row=>row.account).filter(account=>accountSchema.safeParse(account).success)])].sort();
+ const readUser=async<T>(account:string,read:(db:DatabaseSync)=>T):Promise<T|null>=>{
+  const active=tenants.get(account);if(active)return read((await active).db);
+  const file=join(userRoot,account,'tasks.sqlite');if(!existsSync(file))return null;
+  if(lstatSync(join(userRoot,account)).isSymbolicLink()||lstatSync(file).isSymbolicLink()||relative(realpathSync(userRoot),realpathSync(file))!==join(account,'tasks.sqlite'))throw Error('用户目录不合法');
+  const db=new DatabaseSync(file,{readOnly:true});try{return read(db);}finally{db.close();}
+ };
+ app.get('/api/admin/users',async()=>{
+  const auth=readAuthConfig(config.authFile),users=[];
+  for(const account of accounts()){
+   const login=lock.getRecord<{lastLoginAt:string;loginCount:number}>('user-usage',account);
+   const base={account,allowed:auth.allowedAccounts.includes(account),isAdmin:auth.adminAccounts.includes(account),lastLoginAt:login?.lastLoginAt??null,loginCount:login?.loginCount??0};
+   try{users.push({...base,...await readUser(account,usage),error:null});}catch{users.push({...base,error:'用户数据暂不可读'});}
+  }
+  return {users};
+ });
+ app.get('/api/admin/tasks',async request=>{
+  const query=z.object({account:accountSchema,kind:z.enum(['all','platform',...taskDomains]).default('all'),page:z.coerce.number().int().min(1).max(100000).default(1),pageSize:z.coerce.number().int().min(1).max(100).default(30)}).strict().parse(request.query);
+  if(!accounts().includes(query.account))throw Object.assign(Error('用户不存在'),{statusCode:404});
+  return await readUser(query.account,db=>taskPage(db,query.kind,query.page,query.pageSize))??{page:query.page,pageSize:query.pageSize,total:0,items:[]};
+ });
  app.get('/api/health',async()=>({status:'UP'}));app.get('/api/platform/health',async()=>({status:'UP',backend:'typescript',migrationStage:'complete'}));
  // Existing users' timers restart without waiting for a browser login. No missed jobs replay.
  try{for(const account of initial.allowedAccounts)await tenant(account);}catch(error){await app.close();throw error;}

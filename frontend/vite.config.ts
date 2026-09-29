@@ -12,7 +12,7 @@ export default defineConfig({
   transformIndexHtml:{
    order:'pre',
    handler(html){
-    return html.replace('<script src="/frontend/src/auth-runtime.js"></script>',()=>'<script>'+readFileSync(resolve(frontendDirectory,'src/auth-runtime.js'),'utf8')+'</script>').replace('</body>','<script type="module" src="/frontend/src/prototype-runtime.js"></script><script type="module" src="/frontend/src/container-resource-runtime.js"></script></body>')
+    return html.replace('<script src="/frontend/src/auth-runtime.js"></script>',()=>'<script>'+readFileSync(resolve(frontendDirectory,'src/auth-runtime.js'),'utf8')+'</script>').replace('<script src="/frontend/src/admin-runtime.js"></script>',()=>'<script>'+readFileSync(resolve(frontendDirectory,'src/admin-runtime.js'),'utf8')+'</script>').replace('</body>','<script type="module" src="/frontend/src/prototype-runtime.js"></script><script type="module" src="/frontend/src/container-resource-runtime.js"></script></body>')
    }
   }
  }],

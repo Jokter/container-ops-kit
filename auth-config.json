@@ -2,5 +2,8 @@
   "defaultPassword": "",
   "allowedAccounts": [
     "w00789509"
+  ],
+  "adminAccounts": [
+    "w00789509"
   ]
 }

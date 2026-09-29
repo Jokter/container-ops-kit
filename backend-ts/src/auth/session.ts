@@ -3,7 +3,7 @@ import {createHash,randomBytes,timingSafeEqual} from 'node:crypto';
 import {z} from 'zod';
 
 export const accountSchema=z.string().trim().toLowerCase().regex(/^[a-z][a-z0-9_-]{1,39}$/);
-const schema=z.object({defaultPassword:z.string().min(1).max(256),allowedAccounts:z.array(accountSchema).max(500).refine(v=>new Set(v).size===v.length,'白名单账号不能重复')}).strict();
+const schema=z.object({defaultPassword:z.string().min(1).max(256),allowedAccounts:z.array(accountSchema).max(500).refine(v=>new Set(v).size===v.length,'白名单账号不能重复'),adminAccounts:z.array(accountSchema).max(500).default([])}).strict().refine(v=>v.adminAccounts.every(account=>v.allowedAccounts.includes(account)),'管理员账号必须在白名单中');
 export function readAuthConfig(path:string){try{return schema.parse(JSON.parse(readFileSync(path,'utf8')));}catch{throw Object.assign(Error('登录配置不可用，请管理员检查 auth-config.json'),{statusCode:503});}}
 export type AuthConfig=ReturnType<typeof readAuthConfig>;
 const digest=(value:string)=>createHash('sha256').update(value).digest();

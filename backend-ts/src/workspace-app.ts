@@ -25,7 +25,7 @@ import {QualityService,qualityRoutes} from './modules/quality/quality.js';
 import {AutoUtReports,autoUtReportRoutes} from './modules/autout/reports.js';
 import {FileLogs} from './infrastructure/file-logs.js';
 
-export async function createWorkspaceApp(config: Config) {
+export async function createWorkspaceApp(config: Config,onDatabase?:(db:TaskStore['db'])=>void) {
   const logs=new FileLogs(currentWorkspace()?join(currentWorkspace()!.dataRoot,'logs'):undefined);
   const app = Fastify({bodyLimit: 1024 * 1024, forceCloseConnections: true, logger: {
     level: 'info', redact: ['req.headers.authorization', 'req.headers.cookie'],
@@ -55,5 +55,6 @@ export async function createWorkspaceApp(config: Config) {
   dtsRoutes(app,store,reports);welinkSettingsRoutes(app,store);codehubSettingsRoutes(app,store);
   languageSettingsRoutes(app,autoUt.languageSettings);
   environmentRoutes(app,environments,ssh);buildRoutes(app,builds);await autoUtRoutes(app,autoUt,schedules);containerResourceRoutes(app,containers);deploymentRoutes(app,deployments);
+  onDatabase?.(store.db);
   return app;
 }
