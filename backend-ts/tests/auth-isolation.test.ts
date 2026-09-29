@@ -71,3 +71,22 @@ test('per-user settings persist across restart while sessions expire',async t=>{
  const restarted=await createApp(f.config);
  try{assert.equal((await restarted.inject({url:'/api/auth/me',headers:{cookie:f.alice}})).statusCode,401);const login=await restarted.inject({method:'POST',url:'/api/auth/login',payload:{account:'alice',password:'test-password'}});const cookie=String(login.headers['set-cookie']).split(';')[0]!;assert.equal((await restarted.inject({url:'/api/automation/codehub-settings',headers:{cookie}})).json().configured,true);}finally{await restarted.close();}
 });
+
+test('migrated UT history outside user work root allows startup and login but not filesystem access',async t=>{
+ const {TaskStore}=await import('../src/platform/store.js');
+ const root=await mkdtemp(join(tmpdir(),'ops-migrated-startup-')),authFile=join(root,'auth.json');
+ await writeFile(authFile,JSON.stringify({defaultPassword:'test-password',allowedAccounts:['w00789509']}));
+ const config={...readConfig({}),authFile,database:join(root,'data','tasks.sqlite'),workRoot:join(root,'work')};
+ const oldRoot=join(root,'legacy-work'),oldPath=join(oldRoot,'R27C10','demo');await mkdir(oldPath,{recursive:true});
+ const store=new TaskStore(join(root,'data','users','w00789509','tasks.sqlite'));
+ const now=new Date().toISOString();
+ store.putRecord('auto-ut-task','11111111-1111-4111-8111-111111111111',{id:'11111111-1111-4111-8111-111111111111',repository:'Demo',reportVersion:'R27C10',username:'w00789509',ticket:'DTS1',baseBranch:'main',repairBranch:'repair',reportedFailedTests:1,lineGoal:.8,branchGoal:.7,workspaceRoot:oldRoot,workspacePath:oldPath,executionMode:'MANUAL',status:'RESOLVED',nextStage:'DONE',progress:100,attempts:1,message:'历史任务',pullRequestUrl:'',createdAt:now,updatedAt:now,history:[],liveEvents:[],liveSequence:0});store.close();
+ const app=await createApp(config);t.after(async()=>{await app.close();await rm(root,{recursive:true,force:true});});
+ const login=await app.inject({method:'POST',url:'/api/auth/login',payload:{account:'w00789509',password:'test-password'}});assert.equal(login.statusCode,200,login.body);
+ const headers={cookie:String(login.headers['set-cookie']).split(';')[0]!};
+ const list=await app.inject({url:'/api/auto-ut/tasks',headers});assert.equal(list.statusCode,200,list.body);assert.equal(list.json()[0].workspacePath,oldPath);
+ const detail=await app.inject({url:'/api/auto-ut/tasks/11111111-1111-4111-8111-111111111111',headers});assert.equal(detail.statusCode,200,detail.body);
+ const deletion=await app.inject({method:'DELETE',url:'/api/auto-ut/tasks/11111111-1111-4111-8111-111111111111',headers});assert.equal(deletion.statusCode,403,deletion.body);
+ const {stat}=await import('node:fs/promises');assert.ok((await stat(oldPath)).isDirectory());
+ const after=await app.inject({url:'/api/auto-ut/tasks',headers});assert.equal(after.json().length,1);
+});
