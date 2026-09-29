@@ -14,7 +14,7 @@
 /data/deployment-preparations/
 /data/logs/
 
-# Local account allowlist and password; never commit credentials.
-/auth-config.json
+# Optional local credential override.
+/auth-config.local.json
 
 /data/workspaces/
