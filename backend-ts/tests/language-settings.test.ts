@@ -5,7 +5,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {TaskStore} from '../src/platform/store.js';
 import {AutomationLanguageSettings} from '../src/modules/automation/language-settings.js';
-import {createApp} from '../src/app.js';
+import {createWorkspaceApp as createApp} from '../src/workspace-app.js';
 import {readConfig} from '../src/config.js';
 
 test('Java Maven 搜索配置持久化，支持修改清除，不应用到其他语言',async()=>{

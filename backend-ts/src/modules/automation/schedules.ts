@@ -1,3 +1,4 @@
+import {currentWorkspace,workspacePath} from '../../auth/workspace.js';
 import {randomUUID} from 'node:crypto';
 import {z} from 'zod';
 import type {FastifyInstance} from 'fastify';
@@ -35,7 +36,8 @@ export class UnifiedSchedules{
  runs(id?:string){return this.store.records<ScheduleRun>('automation-schedule-run').filter(r=>!id||r.scheduleId===id);}
  private put(s:ManagedSchedule){s.updatedAt=new Date().toISOString();this.store.putRecord('automation-schedule',s.id,s,s.createdAt);}
  private saveRun(r:ScheduleRun){this.store.putRecord('automation-schedule-run',r.id,r,r.createdAt);this.logs.task('automation',r.id,{time:new Date().toISOString(),scheduleId:r.scheduleId,status:r.status,message:r.message,taskIds:r.taskIds});}
- private parse(value:unknown,previous?:ManagedSchedule){const base=z.object({task:z.object({kind:z.enum(['quality','auto-ut','auto-ut-cleanup','csv'])})}).parse(value);if(base.task.kind==='csv'){if(previous?.task.kind!=='csv')throw error('CSV 计划仅支持迁移已有配置',400);const obj=z.record(z.string(),z.unknown()).parse(value),task=z.record(z.string(),z.unknown()).parse(obj.task);return scheduleInput.parse({...obj,task:{...task,report:previous.task.report}});}return scheduleInput.parse(value);}
+ private parseRaw(value:unknown,previous?:ManagedSchedule){const base=z.object({task:z.object({kind:z.enum(['quality','auto-ut','auto-ut-cleanup','csv'])})}).parse(value);if(base.task.kind==='csv'){if(previous?.task.kind!=='csv')throw error('CSV 计划仅支持迁移已有配置',400);const obj=z.record(z.string(),z.unknown()).parse(value),task=z.record(z.string(),z.unknown()).parse(obj.task);return scheduleInput.parse({...obj,task:{...task,report:previous.task.report}});}return scheduleInput.parse(value);}
+ private parse(value:unknown,previous?:ManagedSchedule){const input=this.parseRaw(value,previous),workspace=currentWorkspace();if(workspace){if(input.task.kind==='auto-ut'){input.task.config.username=workspace.account;input.task.config.workspaceRoot=workspacePath(input.task.config.workspaceRoot);}else if(input.task.kind==='csv'){input.task.username=workspace.account;input.task.workspaceRoot=workspacePath(input.task.workspaceRoot);}}return input;}
  create(value:unknown){const input=this.parse(value),now=new Date().toISOString(),s:ManagedSchedule={...input,id:randomUUID(),createdAt:now,updatedAt:now,nextRunAt:input.enabled?scheduleTime(input):null,revision:1};this.put(s);return this.get(s.id);}
  update(id:string,value:unknown,revision:number){const prior=this.raw(id);if(prior.revision!==revision)throw error('计划已被修改，请刷新后重试');const input=this.parse(value,prior);if(input.task.kind!==prior.task.kind)throw error('不能修改任务类型',400);const s={...prior,...input,revision:prior.revision+1,nextRunAt:input.enabled?scheduleTime(input):null};this.put(s);this.mirror(s);return this.get(id);}
  toggle(id:string,enabled:boolean,revision:number){const s=this.raw(id);return this.update(id,{...s,enabled},revision);}

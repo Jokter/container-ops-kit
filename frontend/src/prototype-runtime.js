@@ -3,6 +3,7 @@ import {loadDeploymentSelection, saveDeploymentSelection as persistDeploymentSel
 import {canConvertFailedQuickDeploymentToReview, canDeployReviewedTask, deploymentProgress, deploymentReviewBlockers, deploymentReviewWarnings} from './deployment-presentation.js'
 
 (function () {
+  const userStorage=window.opsAuth?.storage.local||localStorage
   const statusMap = {UNTESTED: 'untested', REACHABLE: 'online', FAILED: 'error'}
   const typeMap = {BUILD: 'build', CONTAINER: 'container'}
 
@@ -644,7 +645,7 @@ import {canConvertFailedQuickDeploymentToReview, canDeployReviewedTask, deployme
       }))
       buildRuntime.latestMessage = task.error || (task.status === 'SUCCEEDED' ? '构建任务执行成功' : '历史任务详情')
       state.buildTab = task.mode === 'COMPARE' ? 'compare' : 'single'
-      localStorage.setItem('container-ops-kit.active-build-task', task.id)
+      userStorage.setItem('container-ops-kit.active-build-task', task.id)
       render()
     } catch (error) {
       showToast(error.message || '任务详情加载失败')
@@ -661,7 +662,7 @@ import {canConvertFailedQuickDeploymentToReview, canDeployReviewedTask, deployme
       if (buildRuntime.task?.id === id) {
         buildRuntime.task = null
         buildRuntime.logs = []
-        localStorage.removeItem('container-ops-kit.active-build-task')
+        userStorage.removeItem('container-ops-kit.active-build-task')
       }
       await loadBuildHistory()
       await loadDeploymentArtifacts()
@@ -672,7 +673,7 @@ import {canConvertFailedQuickDeploymentToReview, canDeployReviewedTask, deployme
   }
 
   async function restoreActiveBuildTask() {
-    const id = localStorage.getItem('container-ops-kit.active-build-task')
+    const id = userStorage.getItem('container-ops-kit.active-build-task')
     if (!id) return
     try {
       const task = await request('/api/build-tasks/' + id)
@@ -687,7 +688,7 @@ import {canConvertFailedQuickDeploymentToReview, canDeployReviewedTask, deployme
       render(false)
       if (task.status === 'RUNNING' || task.status === 'PENDING') subscribeBuildTask(task.id)
     } catch {
-      localStorage.removeItem('container-ops-kit.active-build-task')
+      userStorage.removeItem('container-ops-kit.active-build-task')
     }
   }
 
@@ -718,7 +719,7 @@ import {canConvertFailedQuickDeploymentToReview, canDeployReviewedTask, deployme
     render(false)
     try {
       buildRuntime.task = await request('/api/build-tasks', {method: 'POST', body: JSON.stringify(body)})
-      localStorage.setItem('container-ops-kit.active-build-task', buildRuntime.task.id)
+      userStorage.setItem('container-ops-kit.active-build-task', buildRuntime.task.id)
       tasks.unshift({_apiId: buildRuntime.task.id, id: 'build-' + buildRuntime.task.id.slice(0, 8), kind: 'build', input: mode === 'compare' ? '双分支对比构建' : '单分支构建', environment: environment.name, status: 'running', statusLabel: '执行中', updated: '刚刚'})
       subscribeBuildTask(buildRuntime.task.id)
       loadBuildHistory()
@@ -806,7 +807,7 @@ import {canConvertFailedQuickDeploymentToReview, canDeployReviewedTask, deployme
     const environment = environments.find(item => item.id === state.selectedContainerEnvironment) || environments.find(item => item.type === 'container')
     const module = deploymentRuntime.candidates?.module || deploymentRuntime.artifacts.find(item => String(item.id) === String(deploymentRuntime.artifactId))?.module
     if (!environment?._apiId || !module || !deploymentRuntime.namespace) return
-    persistDeploymentSelection(localStorage, {
+    persistDeploymentSelection(userStorage, {
       environmentId: environment._apiId,
       module,
       namespace: deploymentRuntime.namespace,
@@ -818,7 +819,7 @@ import {canConvertFailedQuickDeploymentToReview, canDeployReviewedTask, deployme
     const environment = environments.find(item => item.id === state.selectedContainerEnvironment) || environments.find(item => item.type === 'container')
     const module = deploymentRuntime.artifacts.find(item => String(item.id) === String(deploymentRuntime.artifactId))?.module
     if (deploymentRuntime.task || !environment?._apiId || !module || !namespace) return
-    const saved = loadDeploymentSelection(localStorage, environment._apiId, module)
+    const saved = loadDeploymentSelection(userStorage, environment._apiId, module)
     if (!saved || saved.namespace !== namespace) return
     const deployable = new Set((deploymentRuntime.candidates?.workloads || []).filter(item => item.deployable).map(item => item.name))
     saved.services.filter(item => deployable.has(item)).forEach(item => deploymentRuntime.selectedServices.add(item))
@@ -972,9 +973,9 @@ import {canConvertFailedQuickDeploymentToReview, canDeployReviewedTask, deployme
     render(false)
     try {
       deploymentRuntime.task = await request('/api/deployment-tasks', {method: 'POST', body: JSON.stringify({mode, artifactId, environmentId: environment._apiId, namespace, services})})
-      localStorage.setItem(activeDeploymentTaskKey, deploymentRuntime.task.id)
-      localStorage.removeItem(deploymentEventSequenceKey(deploymentRuntime.task.id))
-      localStorage.removeItem(deploymentEventLogKey(deploymentRuntime.task.id))
+      userStorage.setItem(activeDeploymentTaskKey, deploymentRuntime.task.id)
+      userStorage.removeItem(deploymentEventSequenceKey(deploymentRuntime.task.id))
+      userStorage.removeItem(deploymentEventLogKey(deploymentRuntime.task.id))
       deploymentRuntime.activeService = services[0]
       deploymentRuntime.logs = []
       subscribeDeployment(deploymentRuntime.task.id)
@@ -999,8 +1000,8 @@ import {canConvertFailedQuickDeploymentToReview, canDeployReviewedTask, deployme
     }
     deploymentRefreshInFlight = true
     deploymentRefreshQueuedId = ''
-    if (pendingDeploymentEventSequence) localStorage.setItem(deploymentEventSequenceKey(id), pendingDeploymentEventSequence)
-    localStorage.setItem(deploymentEventLogKey(id), JSON.stringify(deploymentRuntime.logs))
+    if (pendingDeploymentEventSequence) userStorage.setItem(deploymentEventSequenceKey(id), pendingDeploymentEventSequence)
+    userStorage.setItem(deploymentEventLogKey(id), JSON.stringify(deploymentRuntime.logs))
     try {
       const value = await request('/api/deployment-tasks/' + id)
       if (deploymentRuntime.task?.id === id) deploymentRuntime.task = value
@@ -1030,7 +1031,7 @@ import {canConvertFailedQuickDeploymentToReview, canDeployReviewedTask, deployme
     if (deploymentLiveRefreshTimer) clearTimeout(deploymentLiveRefreshTimer)
     deploymentLiveRefreshTimer = null
     deploymentRefreshQueuedId = ''
-    const afterSequence = localStorage.getItem(deploymentEventSequenceKey(id)) || '0'
+    const afterSequence = userStorage.getItem(deploymentEventSequenceKey(id)) || '0'
     pendingDeploymentEventSequence = afterSequence
     const source = new EventSource('/api/deployment-tasks/' + id + '/events?afterSequence=' + encodeURIComponent(afterSequence))
     deploymentRuntime.eventSource = source
@@ -1050,16 +1051,16 @@ import {canConvertFailedQuickDeploymentToReview, canDeployReviewedTask, deployme
       deploymentRefreshQueuedId = ''
       deploymentRuntime.task = null
       deploymentRuntime.logs = []
-      localStorage.removeItem(activeDeploymentTaskKey)
-      localStorage.removeItem(deploymentEventSequenceKey(id))
-      localStorage.removeItem(deploymentEventLogKey(id))
+      userStorage.removeItem(activeDeploymentTaskKey)
+      userStorage.removeItem(deploymentEventSequenceKey(id))
+      userStorage.removeItem(deploymentEventLogKey(id))
       render(false)
       showToast(event.data || '服务已重启，请重新分析')
     })
   }
 
   async function restoreActiveDeploymentTask() {
-    const id = localStorage.getItem(activeDeploymentTaskKey)
+    const id = userStorage.getItem(activeDeploymentTaskKey)
     if (!id) return
     try {
       const task = await request('/api/deployment-tasks/' + id)
@@ -1068,11 +1069,11 @@ import {canConvertFailedQuickDeploymentToReview, canDeployReviewedTask, deployme
       deploymentRuntime.namespace = task.namespace
       deploymentRuntime.selectedServices = new Set(Object.keys(task.services))
       deploymentRuntime.activeService = Object.keys(task.services)[0] || ''
-      deploymentRuntime.logs = JSON.parse(localStorage.getItem(deploymentEventLogKey(id)) || '[]')
+      deploymentRuntime.logs = JSON.parse(userStorage.getItem(deploymentEventLogKey(id)) || '[]')
       subscribeDeployment(id)
       render(false)
     } catch {
-      localStorage.removeItem(activeDeploymentTaskKey)
+      userStorage.removeItem(activeDeploymentTaskKey)
     }
   }
 
@@ -1215,9 +1216,9 @@ import {canConvertFailedQuickDeploymentToReview, canDeployReviewedTask, deployme
       deploymentRuntime.eventSource?.close()
       deploymentRuntime.task = null
       deploymentRuntime.logs = []
-      localStorage.removeItem(activeDeploymentTaskKey)
-      if (id) localStorage.removeItem(deploymentEventSequenceKey(id))
-      if (id) localStorage.removeItem(deploymentEventLogKey(id))
+      userStorage.removeItem(activeDeploymentTaskKey)
+      if (id) userStorage.removeItem(deploymentEventSequenceKey(id))
+      if (id) userStorage.removeItem(deploymentEventLogKey(id))
       render(false)
       return startDeployment('REVIEW')
     }
@@ -1226,9 +1227,9 @@ import {canConvertFailedQuickDeploymentToReview, canDeployReviewedTask, deployme
       deploymentRuntime.eventSource?.close()
       deploymentRuntime.task = null
       deploymentRuntime.logs = []
-      localStorage.removeItem(activeDeploymentTaskKey)
-      if (id) localStorage.removeItem(deploymentEventSequenceKey(id))
-      if (id) localStorage.removeItem(deploymentEventLogKey(id))
+      userStorage.removeItem(activeDeploymentTaskKey)
+      if (id) userStorage.removeItem(deploymentEventSequenceKey(id))
+      if (id) userStorage.removeItem(deploymentEventLogKey(id))
       render(false)
       return
     }
@@ -1306,9 +1307,12 @@ import {canConvertFailedQuickDeploymentToReview, canDeployReviewedTask, deployme
 
   new MutationObserver(patchEnvironmentForm).observe(document.querySelector('#app'), {childList: true, subtree: true})
   render(false)
+  const initialize=()=>{
   loadResources()
   loadBuildConfiguration()
   loadBuildHistory()
   loadDeploymentArtifacts().then(restoreActiveDeploymentTask)
   restoreActiveBuildTask()
+  }
+  if(window.opsAuth)window.opsAuth.ready.then(initialize);else initialize()
 })()

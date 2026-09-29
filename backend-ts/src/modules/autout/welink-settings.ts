@@ -16,11 +16,11 @@ import type {TaskStore} from '../../platform/store.js';
 
 interface Secret {iv:string;tag:string;encrypted:string}
 export class WelinkSettings {
- constructor(private readonly store:TaskStore,private readonly keyPath=join(homedir(),'.container-ops-kit','welink.key')){}
+ constructor(private readonly store:TaskStore,private readonly keyPath=join(store.workspace?.home??homedir(),'.container-ops-kit','welink.key')){}
  mcpArgs(){const saved=this.store.getRecord<McpConfig>('welink-settings','mcp');return saved?configArgs(mcpSchema.parse(saved)):welinkMcpArgs();}
  mcpStatus(){return {config:argsConfig(this.mcpArgs()),defaults:argsConfig(welinkMcpArgs({})),source:this.store.getRecord('welink-settings','mcp')?'saved':'runtime'};}
  saveMcp(value:unknown){const config=mcpSchema.parse(value);try{configArgs(config);}catch{throw Object.assign(Error('WeLink MCP 配置无效：地址须为 HTTP(S)，不能包含账号密码；主机用逗号分隔。'),{statusCode:400});}this.store.putRecord('welink-settings','mcp',config);return this.mcpStatus();}
- status(){return{configured:!!this.store.getRecord<Secret>('welink-settings','token')||!!process.env.WELINK_TOKEN?.trim()};}
+ status(){return{configured:!!this.store.getRecord<Secret>('welink-settings','token')||(!this.store.workspace&&!!process.env.WELINK_TOKEN?.trim())};}
  private key(create=false){
   if(create){mkdirSync(dirname(this.keyPath),{recursive:true,mode:0o700});try{writeFileSync(this.keyPath,randomBytes(32),{flag:'wx',mode:0o600});}catch(error){if(!(error instanceof Error&&'code' in error&&error.code==='EEXIST'))throw error;}}
   const key=readFileSync(this.keyPath);if(key.length!==32)throw Error('Invalid key');return key;
@@ -33,7 +33,7 @@ export class WelinkSettings {
  }
  clear(){this.store.deleteRecord('welink-settings','token');return this.status();}
  token(){
-  const secret=this.store.getRecord<Secret>('welink-settings','token');if(!secret){const token=process.env.WELINK_TOKEN?.trim();if(token)return token;throw Error('请在连接设置中配置 WeLink Token，或设置 WELINK_TOKEN。');}
+  const secret=this.store.getRecord<Secret>('welink-settings','token');if(!secret){const token=this.store.workspace?undefined:process.env.WELINK_TOKEN?.trim();if(token)return token;throw Error('请在连接设置中配置 WeLink Token，或设置 WELINK_TOKEN。');}
   try{const decipher=createDecipheriv('aes-256-gcm',this.key(),Buffer.from(secret.iv,'base64'));decipher.setAuthTag(Buffer.from(secret.tag,'base64'));return Buffer.concat([decipher.update(Buffer.from(secret.encrypted,'base64')),decipher.final()]).toString('utf8');}
   catch{throw Error('WeLink Token 无法解密，请在连接设置中重新配置。');}
  }
@@ -48,7 +48,7 @@ export function welinkSettingsRoutes(app:import('fastify').FastifyInstance,store
   if(testing)return reply.code(409).send({message:'测试消息正在发送，请等待结果，勿重复发送。'});
   let token:string;try{token=settings.token();settings.mcpArgs();}catch(error){return reply.code(400).send({message:error instanceof Error?error.message:'请检查 WeLink 配置。'});}
   testing=true;
-  try{await client.send(parsed.data.receiver,'Ops Studio：这是一条 WeLink MCP 连接测试消息，收到即表示消息链路正常。',token);return{message:'MCP 已确认发送成功，请在 WeLink 中查收测试消息。'};}
+  try{await client.send(store.workspace?.account??parsed.data.receiver,'Ops Studio：这是一条 WeLink MCP 连接测试消息，收到即表示消息链路正常。',token);return{message:'MCP 已确认发送成功，请在 WeLink 中查收测试消息。'};}
   catch{return reply.code(502).send({message:'测试消息发送未确认。请先核对 WeLink 是否收到，避免重复发送；检查 Token、uvx、内网连接及 MCP 配置。'});}
   finally{testing=false;}
  });

@@ -1,3 +1,4 @@
+import {accountValue} from '../../auth/workspace.js';
 import {AsyncLocalStorage} from 'node:async_hooks';
 import {intervention} from './interventions.js';
 import {ReviewKnowledge,reviewInput,type HumanReview} from './review-knowledge.js';
@@ -149,8 +150,8 @@ export class GroupMrService {
   },5000);this.timer.unref();
  }
  async close(){this.closing=true;clearInterval(this.timer);this.controller.abort();for(const job of this.queue.splice(0)){job.entry.queued=false;this.mark(job.entry,'INTERRUPTED','服务停止，排队任务未执行，请重新发送 MR 链接');this.reserved.delete(job.entry.repo+':'+job.entry.iid);job.reject(Error('服务正在停止'));}await this.pollPromise;await Promise.allSettled(this.background);await this.knowledge.close();}
- configuration(){return {...defaults,...this.store.getRecord<Configuration>('group-mr-config','main')};}
- configure(value:unknown){const config=configSchema.parse(value),previous=this.configuration();this.store.putRecord('group-mr-config','main',config);this.initialised=false;this.lastPoll=0;const message=config.enabled?'监听已开启，等待下一次轮询':'监听已暂停，已开始的 MR 处理将继续完成';this.updateMonitor({...(previous.groupId!==config.groupId?monitorDefaults:{}),state:'waiting',error:'',message});this.recordLog('info',message);return config;}
+ configuration(){return {...defaults,...this.store.getRecord<Configuration>('group-mr-config','main'),...(this.store.workspace?{authorizedSender:this.store.workspace.account}:{})};}
+ configure(value:unknown){const config=accountValue(configSchema.parse(value),'authorizedSender'),previous=this.configuration();this.store.putRecord('group-mr-config','main',config);this.initialised=false;this.lastPoll=0;const message=config.enabled?'监听已开启，等待下一次轮询':'监听已暂停，已开始的 MR 处理将继续完成';this.updateMonitor({...(previous.groupId!==config.groupId?monitorDefaults:{}),state:'waiting',error:'',message});this.recordLog('info',message);return config;}
  private monitor(){return {...monitorDefaults,...this.store.getRecord<Partial<Monitor>>('group-mr-monitor','main')};}
  private updateMonitor(update:Partial<Monitor>){this.store.putRecord('group-mr-monitor','main',{...this.monitor(),...update,at:new Date().toISOString()});}
  private recordLog(level:MonitorEvent['level'],message:string){this.trace.push({time:new Date().toISOString(),level,message,phase:this.currentEntry?.phase,diagnostic:{...this.diagnostic}});this.trace=this.trace.slice(-80);const event:MonitorEvent={time:new Date().toISOString(),level,message};const events=this.store.getRecord<MonitorEvent[]>('group-mr-log','main')??[];this.store.putRecord('group-mr-log','main',[...events,event].slice(-100));this.logs.task('automation','group-mr-monitor',event);if(level==='error')this.errorLog('command-or-monitor',message);}

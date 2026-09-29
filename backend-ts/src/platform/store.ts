@@ -1,3 +1,4 @@
+import {currentWorkspace} from '../auth/workspace.js';
 import {DatabaseSync} from 'node:sqlite';
 import {mkdirSync} from 'node:fs';
 import {dirname} from 'node:path';
@@ -9,6 +10,7 @@ import type {LogSink} from '../infrastructure/file-logs.js';
 
 export class TaskStore {
   readonly db: DatabaseSync;
+  readonly workspace=currentWorkspace();
   constructor(filename: string,private readonly logs:LogSink=noFileLogs) {
     if (filename !== ':memory:') mkdirSync(dirname(filename), {recursive: true});
     this.db = new DatabaseSync(filename);

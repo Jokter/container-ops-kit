@@ -1,0 +1,16 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
+import {JSDOM} from 'jsdom';
+const source=await readFile(new URL('../src/auth-runtime.js',import.meta.url),'utf8');
+const tick=()=>new Promise(resolve=>setTimeout(resolve,20));
+test('login is required before API calls; errors, account defaults and per-user browser state work',async()=>{
+ const requests=[],dom=new JSDOM('<div id="app"></div>',{url:'http://localhost/',runScripts:'outside-only'}),w=dom.window;
+ w.Headers=Headers;w.Request=Request;w.fetch=async(url,options={})=>{requests.push({url,options});if(url==='/api/auth/me')return{ok:false,status:401};if(url==='/api/auth/login'){const input=JSON.parse(options.body);return input.password==='test-password'?{ok:true,status:200,json:async()=>({account:input.account,workDirectory:'/usr1/wytest/'+input.account})}:{ok:false,status:401,json:async()=>({message:'账号未获授权或密码不正确'})};}return{ok:true,status:200,json:async()=>[]};};
+ try{w.eval(source);await tick();const shadow=w.document.getElementById('ops-login').shadowRoot;assert.equal(w.document.getElementById('app').hidden,true);assert.match(shadow.textContent,/统一管理运维与自动化任务/);assert.doesNotMatch(shadow.textContent,/\/usr1\/wytest|演示账号|交互预览/);
+ const pending=w.fetch('/api/environments');await tick();assert.equal(requests.some(r=>r.url==='/api/environments'),false);
+ shadow.getElementById('account').value='alice';shadow.getElementById('password').value='wrong';shadow.getElementById('login-form').dispatchEvent(new w.Event('submit',{cancelable:true}));await tick();assert.match(shadow.getElementById('error').textContent,/密码/);
+ shadow.getElementById('password').value='test-password';shadow.getElementById('login-form').dispatchEvent(new w.Event('submit',{cancelable:true}));await pending;assert.equal(w.opsAuth.user.account,'alice');assert.equal(w.document.getElementById('app').hidden,false);assert.equal(requests.at(-1).options.headers.get('X-Ops-Account'),'alice');
+ w.opsAuth.storage.local.setItem('task','alice-task');w.opsAuth.user={account:'bob'};assert.equal(w.opsAuth.storage.local.getItem('task'),null);w.opsAuth.storage.local.setItem('task','bob-task');w.opsAuth.user={account:'alice'};assert.equal(w.opsAuth.storage.local.getItem('task'),'alice-task');
+ }finally{w.close();}
+});

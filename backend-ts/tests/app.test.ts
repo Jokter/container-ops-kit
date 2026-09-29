@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {tmpdir} from 'node:os';
 import {readConfig} from '../src/config.js';
-import {createApp} from '../src/app.js';
+import {createWorkspaceApp as createApp} from '../src/workspace-app.js';
 import type {Task} from '../../shared/contracts.js';
 
 test('native service exposes health and validates environment API', async t => {

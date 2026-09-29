@@ -13,3 +13,8 @@
 /data/auto-ut/
 /data/deployment-preparations/
 /data/logs/
+
+# Local account allowlist and password; never commit credentials.
+/auth-config.json
+
+/data/workspaces/
