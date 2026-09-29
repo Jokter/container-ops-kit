@@ -130,3 +130,29 @@ test('用户停止查询后不重试',async()=>{
  const service=new QualityService(store,undefined,async(_url,init)=>{calls++;return new Promise<Response>((_resolve,reject)=>init?.signal?.addEventListener('abort',()=>reject(new DOMException('aborted','AbortError')),{once:true}));});
  try{const job=service.start({...input,versions:['R27C10']});await service.stop(job.id);const done=await service.wait(job.id);assert.equal(calls,1);assert.equal(done.status,'INTERRUPTED');assert.equal(done.parts[0]!.message,'查询已停止');}finally{await service.close();store.close();}
 });
+
+test('UT 查询持久化团队和业务域，保留全部语言，Cpp 空分支指标不导致整份报告失败',async()=>{
+ const store=new TaskStore(':memory:');const team='Access_网络优化开放组';let sql='';
+ const quality=new QualityService(store,undefined,async(_url,init)=>{sql=String(init?.body);return Response.json(payload([
+  ['OtherJava','Java',team,1,.5,.8,.5,.7,100,20],
+  ['Native','Cpp',team,1,.5,.8,null,null,100,null],
+  ['Script','Python',team,0,.5,.8,.5,.7,100,20],
+ ]));}),auto=new FakeAutoUt(store),reports=new AutoUtReports(store,quality,auto);
+ try{
+  const c={...config(),domain:'FMEMate',teams:[team],versions:[config().versions[0]!]};reports.configure(c);
+  assert.deepEqual(reports.configuration().config.teams,[team]);
+  const run=await ready(reports,reports.fetchReport().id);assert.equal(run.status,'READY');assert.match(sql,/FMEMate/);assert.match(sql,/Access_网络优化开放组/);assert.doesNotMatch(sql,/Access_智能驾舱组/);
+  assert.deepEqual(run.plan.map(p=>p.language),['Java','Cpp','Python']);assert.equal(run.plan[1]!.branchGoal,0);
+  await reports.start(run.id,'MANUAL');assert.equal(auto.calls.length,1);assert.match(auto.calls[0]!.report.toString(),/Access_网络优化开放组/);assert.equal(auto.parseReport(auto.calls[0]!.report).length,1);
+  assert.deepEqual(reports.get(run.id).claimed,['R27C10/OtherJava']);
+ }finally{await quality.close();await reports.close();auto.close();store.close();}
+});
+test('旧 UT 配置补齐范围，空团队拒绝保存，范围变化后旧报告禁止执行',async()=>{
+ const store=new TaskStore(':memory:'),quality=new QualityService(store,undefined,async()=>Response.json(payload([row]))),auto=new FakeAutoUt(store),reports=new AutoUtReports(store,quality,auto);
+ try{
+  const {domain,teams,...legacy}=config();store.putRecord('auto-ut-report-config','main',{config:legacy,nextRunAt:null});assert.equal(reports.configuration().config.domain,domain);assert.deepEqual(reports.configuration().config.teams,teams);
+  assert.throws(()=>reports.configure({...config(),teams:[]}));
+  const run=await ready(reports,reports.fetchReport().id);reports.configure({...config(),teams:['Access_智能监控组']});
+  await assert.rejects(reports.start(run.id,'MANUAL',undefined,true),/查询范围已变化/);assert.equal(auto.calls.length,0);
+ }finally{await quality.close();await reports.close();auto.close();store.close();}
+});

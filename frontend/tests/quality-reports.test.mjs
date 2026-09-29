@@ -253,3 +253,14 @@ test('已有旧定时计划仍可见且可以暂停删除，不再提供新建�
  assert.match(d.body.textContent,/历史计划 · 定期清理/);assert.equal(d.querySelector('[data-schedule-toggle="legacy-clean"]').textContent,'暂停');assert.equal(d.querySelector('[data-schedule-toggle="legacy-clean"]').disabled,false);assert.equal(d.querySelector('[data-schedule-run="legacy-clean"]').disabled,true);assert.equal(d.querySelector('[data-schedule-edit="legacy-clean"]'),null);assert.ok(d.querySelector('[data-schedule-delete="legacy-clean"]'));
  }finally{await pause();dom.window.close();}
 });
+
+test('UT 页面可多选自定义团队并保存查询范围，展示真实语言和团队',async()=>{
+ let saved;const scope={...config,domain:'Access',teams:['Access_智能驾舱组','Access_智能监控组','Access_自定义组']};
+ const run={id:'multi',status:'READY',createdAt:'2026-09-29',config:scope,claimed:[],taskIds:[],messages:[],plan:[{version:'R27C10',repository:'Native',language:'Cpp',team:'Access_智能监控组',repairSupported:false,configured:true,baseBranch:'release/27',failedTests:1,lineCoverage:.5,lineGoal:.8,branchCoverage:1,branchGoal:0}]};
+ const dom=page((path,o)=>{if(path==='/api/auto-ut/report-settings'&&o?.method==='PUT'){saved=JSON.parse(o.body);return{config:saved};}if(path==='/api/auto-ut/reports'&&o?.method==='POST')return run;});
+ try{const d=open(dom,'auto-ut');await pause();const checkbox=d.querySelector('[data-qw-pick="utTeams"][value="Access_智能监控组"]');checkbox.checked=true;checkbox.dispatchEvent(new dom.window.Event('change'));
+  d.querySelector('#qw-add-utTeams').value='Access_自定义组';d.querySelector('[data-qw-add="utTeams"]').click();
+  const domain=d.querySelector('[data-ut-domain]');domain.value='Access';domain.dispatchEvent(new dom.window.Event('input'));d.querySelector('[data-report-fetch]').click();await pause();assert.deepEqual(saved.teams,scope.teams);assert.equal(saved.domain,'Access');
+  assert.match(d.body.textContent,/Cpp · Access_智能监控组/);assert.match(d.body.textContent,/不适用/);assert.match(d.body.textContent,/当前语言暂不支持自动修复/);assert.equal(d.querySelector('[data-report-select]').disabled,true);assert.deepEqual([...d.querySelector('#qw-plan-language').options].map(o=>o.value),['','Cpp']);assert.deepEqual([...d.querySelector('#qw-plan-team').options].map(o=>o.value),['','Access_智能监控组']);
+ }finally{await pause();dom.window.close();}
+});
