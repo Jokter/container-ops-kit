@@ -90,3 +90,12 @@ test('migrated UT history outside user work root allows startup and login but no
  const {stat}=await import('node:fs/promises');assert.ok((await stat(oldPath)).isDirectory());
  const after=await app.inject({url:'/api/auto-ut/tasks',headers});assert.equal(after.json().length,1);
 });
+
+test('public login config reveals only the shared password and follows configuration updates',async t=>{
+ const f=await fixture(t);
+ const initial=await f.app.inject('/api/auth/login-config');assert.equal(initial.statusCode,200);assert.equal(initial.headers['cache-control'],'no-store');assert.deepEqual(initial.json(),{defaultPassword:'test-password'});
+ await f.write(['alice'],'updated-public-password');const updated=await f.app.inject('/api/auth/login-config');assert.deepEqual(updated.json(),{defaultPassword:'updated-public-password'});
+ assert.equal((await f.login('mallory',updated.json().defaultPassword)).statusCode,401);
+ assert.equal((await f.login('alice',updated.json().defaultPassword)).statusCode,200);
+ await writeFile(f.config.authFile,'invalid');assert.equal((await f.app.inject('/api/auth/login-config')).statusCode,503);
+});

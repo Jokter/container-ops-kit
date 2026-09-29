@@ -39,7 +39,7 @@ export async function createApp(config:Config) {
    const origin=request.headers.origin;
    if(request.headers['sec-fetch-site']==='cross-site'||origin&&origin!==`${request.protocol}://${request.headers.host}`)return reply.code(403).send({message:'请求来源不受信任'});
   }
-  if(path==='/api/auth/login'||path==='/api/auth/logout'||path==='/api/health'||path==='/api/platform/health')return;
+  if(path==='/api/auth/login-config'||path==='/api/auth/login'||path==='/api/auth/logout'||path==='/api/health'||path==='/api/platform/health')return;
   const auth=readAuthConfig(config.authFile),session=sessions.get(sessions.token(request.headers.cookie),auth);
   if(!session)return reply.code(401).send({message:'请先登录'});
   const expected=request.headers['x-ops-account']??new URL(request.url,'http://localhost').searchParams.get('_account');
@@ -57,6 +57,8 @@ export async function createApp(config:Config) {
   inWorkspace(child.workspace,()=>child.app.routing(request.raw,reply.raw));
  });
  const cookie=(token:string,secure:boolean,seconds=43200)=>`ops_session=${token}; Path=/api; HttpOnly; SameSite=Strict; Max-Age=${seconds}${secure?'; Secure':''}`;
+ // The shared login password is intentionally public; the account whitelist still gates access.
+ app.get('/api/auth/login-config',async()=>({defaultPassword:readAuthConfig(config.authFile).defaultPassword}));
  app.post('/api/auth/login',async(request,reply)=>{
   if(!sessions.allow(request.ip))return reply.code(429).send({message:'尝试次数过多，请一分钟后重试'});
   const {account,password}=z.object({account:accountSchema,password:z.string().min(1).max(256)}).strict().parse(request.body),auth=readAuthConfig(config.authFile);
