@@ -253,3 +253,17 @@ test('已有旧定时计划仍可见且可以暂停删除，不再提供新建�
  assert.match(d.body.textContent,/历史计划 · 定期清理/);assert.equal(d.querySelector('[data-schedule-toggle="legacy-clean"]').textContent,'暂停');assert.equal(d.querySelector('[data-schedule-toggle="legacy-clean"]').disabled,false);assert.equal(d.querySelector('[data-schedule-run="legacy-clean"]').disabled,true);assert.equal(d.querySelector('[data-schedule-edit="legacy-clean"]'),null);assert.ok(d.querySelector('[data-schedule-delete="legacy-clean"]'));
  }finally{await pause();dom.window.close();}
 });
+
+test('UT 多组配置保存，所有语言展示并可按组和语言筛选',async()=>{
+ let captured;const scoped={...config,teams:['Access_网络优化开放组','Access_智能监控组'],domain:'Access'};
+ const run={id:'scope',status:'READY',createdAt:'2026-09-29',config:scoped,messages:[],claimed:[],taskIds:[],plan:[['OtherJava','Java','Access_网络优化开放组'],['CppRepo','Cpp','Access_智能监控组'],['PythonRepo','Python','Access_智能监控组']].map(([repository,language,team])=>({repository,language,team,version:'R27C10',baseBranch:'release/27',configured:true,failedTests:1,lineCoverage:.5,lineGoal:.8,branchCoverage:.5,branchGoal:.7,branchApplicable:language!=='Cpp'}))};
+ const dom=page((path,o)=>{if(path==='/api/auto-ut/report-settings'){if(o?.method==='PUT')captured=JSON.parse(o.body);return {config:captured??structuredClone(scoped),nextRunAt:null};}if(path==='/api/auto-ut/reports')return o?.method==='POST'?run:[run];});
+ try{
+  const d=open(dom,'auto-ut');await pause();assert.equal(d.querySelectorAll('[data-qw-pick="utTeams"]:checked').length,2);
+  d.querySelector('[data-report-fetch]').click();await pause();assert.deepEqual(captured.teams,scoped.teams);
+  assert.equal(d.querySelectorAll('[data-report-select]').length,3);assert.equal(d.querySelectorAll('[data-report-select]:not(:disabled)').length,1);assert.match(d.body.textContent,/仅查看报告/);
+  const language=d.querySelector('[data-ut-plan-filter="planLanguage"]');language.value='Cpp';language.dispatchEvent(new dom.window.Event('change'));assert.equal(d.querySelectorAll('[data-report-select]').length,1);assert.match(d.querySelector('.qw-repo').textContent,/CppRepo/);
+  const reset=d.querySelector('[data-ut-plan-filter="planLanguage"]');reset.value='';reset.dispatchEvent(new dom.window.Event('change'));
+  const team=d.querySelector('[data-ut-plan-filter="planTeam"]');team.value='Access_网络优化开放组';team.dispatchEvent(new dom.window.Event('change'));assert.equal(d.querySelectorAll('[data-report-select]').length,1);assert.match(d.querySelector('.qw-repo').textContent,/OtherJava/);
+ }finally{await pause();dom.window.close();}
+});

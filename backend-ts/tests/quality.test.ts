@@ -130,3 +130,26 @@ test('用户停止查询后不重试',async()=>{
  const service=new QualityService(store,undefined,async(_url,init)=>{calls++;return new Promise<Response>((_resolve,reject)=>init?.signal?.addEventListener('abort',()=>reject(new DOMException('aborted','AbortError')),{once:true}));});
  try{const job=service.start({...input,versions:['R27C10']});await service.stop(job.id);const done=await service.wait(job.id);assert.equal(calls,1);assert.equal(done.status,'INTERRUPTED');assert.equal(done.parts[0]!.message,'查询已停止');}finally{await service.close();store.close();}
 });
+
+test('UT 查询范围支持多组及全部语言，非 Java 不进入自动治理',async()=>{
+ const store=new TaskStore(':memory:');
+ const quality=new QualityService(store,undefined,async(_url,init)=>{const sql=JSON.parse(String(init?.body)).queries[0].rawSql as string;assert.match(sql,/Access_网络优化开放组/);assert.match(sql,/Access_智能监控组/);return Response.json(payload([
+ ['OtherJava','Java','Access_网络优化开放组',1,.5,.8,.5,.7,100,20],
+ ['CppRepo','Cpp','Access_智能监控组',1,.5,.8,null,null,100,null],
+ ['PythonRepo','Python','Access_智能监控组',1,.5,.8,.5,.7,100,20],
+ ['Outside','Java','Outside',1,.5,.8,.5,.7,100,20]
+ ]));}),auto=new FakeAutoUt(store),reports=new AutoUtReports(store,quality,auto);
+ try{
+  const c={...config(),teams:['Access_网络优化开放组','Access_智能监控组'],domain:'Access'};reports.configure(c);
+  const run=await reports.wait(reports.fetchReport('MANUAL',undefined,['R27C10']).id);
+  assert.equal(run.plan.length,3);assert.deepEqual(run.plan.map(p=>p.language),['Java','Cpp','Python']);assert.equal(run.plan[1]!.branchApplicable,false);
+  await reports.start(run.id,'AUTOMATIC',['R27C10/CppRepo']);assert.equal(auto.calls.length,0);
+  await reports.start(run.id,'AUTOMATIC');assert.equal(auto.calls.length,1);assert.match(auto.calls[0]!.report.toString(),/Access_网络优化开放组/);
+  reports.configure({...c,teams:['Access_智能驾舱组']});await assert.rejects(reports.start(run.id,'AUTOMATIC',undefined,true),/查询范围/);
+  assert.throws(()=>reports.configure({...c,teams:[] }));
+ }finally{await reports.close();await quality.close();auto.close();store.close();}
+});
+test('Java CSV 不再限定智能驾舱组，仍排除非 Java',()=>{
+ const store=new TaskStore(':memory:'),auto=new AutoUtService(store);
+ try{const data=Buffer.from('代码仓,语言,PL组,失败用例,行覆盖率,行覆盖率目标,分支覆盖率,分支覆盖率目标\nDemo,Java,Access_网络优化开放组,1,0.5,0.8,0.5,0.7\nOther,Python,Access_智能监控组,1,0.5,0.8,0.5,0.7');assert.deepEqual(auto.parseReport(data).map(p=>p.repository),['Demo']);}finally{auto.close();store.close();}
+});
