@@ -13,7 +13,7 @@ export function ticketFields(full:boolean,username:string,version:string,product
  const names=dtsProductNames(version);
  const replacements:Record<string,{value:string;valueName:string}>={sProdRNo:{value:product.rNo,valueName:names.r},sProdCNo:{value:product.cNo,valueName:names.c},sProdBNo:{value:product.bNo,valueName:names.b}};
  const prodInfo=(full?template.PROD_INFO_FULL:template.PROD_INFO_DRAFT).map(field=>({...field,...replacements[field.key]}));
- const fields:Record<string,unknown>={...template.TEMPLATE_DEFAULTS,sBriefDescription:'【历史问题】UT修复',sDetailDescription:'<p>UT治理：修复实际失败用例，按质量报告补充测试，回归通过后提交 MR。</p>',sConfigFlowType:template.FLOW_CONFIG_TYPE,prodInfo,dDefectOccurTime:full?Date.now():null,sHandlers:full?username:''};
+ const fields:Record<string,unknown>={...template.TEMPLATE_DEFAULTS,sBriefDescription:'【继承功能测试】【历史问题】UT修复',sDetailDescription:'<p>UT治理：修复实际失败用例，按质量报告补充测试，回归通过后提交 MR。</p>',sConfigFlowType:template.FLOW_CONFIG_TYPE,prodInfo,dDefectOccurTime:full?Date.now():null,sHandlers:full?username:''};
  return Object.entries(fields).map(([fieldId,value])=>({fieldId,value}));
 }
 class DtsAuthError extends Error {}
