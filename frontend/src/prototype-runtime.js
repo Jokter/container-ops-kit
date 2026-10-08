@@ -1,3 +1,4 @@
+import {createDeploymentHistory} from './deployment-history.js'
 import {createBuildResults} from './build-results.js'
 import {loadDeploymentSelection, saveDeploymentSelection as persistDeploymentSelection} from './deployment-selection.js'
 import {canConvertFailedQuickDeploymentToReview, canDeployReviewedTask, deploymentProgress, deploymentReviewBlockers, deploymentReviewWarnings} from './deployment-presentation.js'
@@ -893,8 +894,9 @@ import {canConvertFailedQuickDeploymentToReview, canDeployReviewedTask, deployme
   }
 
   function deploymentContent() {
+    if(deploymentHistory.state.open)return pageTitle('部署','查看与管理已保存的部署任务。')+deploymentHistory.tabs()+deploymentHistory.html()
     const environment = environments.find(item => item.id === state.selectedContainerEnvironment) || environments.find(item => item.type === 'container')
-    if (!environment) return pageTitle('部署', '选择成功产物和容器环境，完成校验后部署。') + '<section class="panel empty"><div><h2>尚未配置容器环境</h2><button class="button primary" style="margin-top:18px" data-page="resources">打开资源中心</button></div></section>'
+    if (!environment) return pageTitle('部署', '选择成功产物和容器环境，完成校验后部署。') + deploymentHistory.tabs() + '<section class="panel empty"><div><h2>尚未配置容器环境</h2><button class="button primary" style="margin-top:18px" data-page="resources">打开资源中心</button></div></section>'
     if (!environments.some(item => item.id === state.selectedContainerEnvironment)) state.selectedContainerEnvironment = environment.id
     const artifactOptions = deploymentRuntime.artifacts.map(item => '<option value="' + item.id + '" ' + (String(item.id) === String(deploymentRuntime.artifactId) ? 'selected' : '') + '>' + escapeHtml(item.buildTaskId.slice(0, 8)) + ' · ' + escapeHtml(item.module) + ' · ' + escapeHtml(item.archDesignBranch) + ' · ' + new Date(item.createdAt).toLocaleString('zh-CN') + '</option>').join('')
     const candidate = deploymentRuntime.candidates
@@ -912,7 +914,7 @@ import {canConvertFailedQuickDeploymentToReview, canDeployReviewedTask, deployme
     const visibleLogs = deploymentRuntime.logs.slice(-500)
     const logs = visibleLogs.length ? visibleLogs.map(item => '<div class="deployment-log-line"><b>' + escapeHtml(item.time) + '</b><span class="deployment-log-stage">' + escapeHtml(item.stage) + '</span><span>' + escapeHtml((item.service ? item.service + ' · ' : '') + item.message) + '</span></div>').join('') : '<div class="deployment-log-empty">部署阶段日志将在这里显示</div>'
     const inputPanel = '<section class="panel"><div class="panel-head"><div><h2>部署输入</h2><p style="color:var(--muted);margin-top:3px;font-size:12px">先连接当前容器环境，再选择实际命名空间</p></div><span class="badge red">uninstall → install</span></div><div class="panel-body"><div class="form-grid"><div class="field wide"><label>成功构建产物</label><select id="deployment-artifact" ' + (deploymentRuntime.busy ? 'disabled' : '') + '><option value="">请选择</option>' + artifactOptions + '</select></div><div class="field"><label>模块</label><input readonly value="' + escapeHtml(candidate?.module || deploymentRuntime.artifacts.find(item => String(item.id) === String(deploymentRuntime.artifactId))?.module || '—') + '"></div><div class="field"><label>命名空间</label><select id="deployment-namespace" ' + (!candidate ? 'disabled' : '') + '><option value="">请选择命名空间</option>' + namespaces + '</select></div></div><div style="display:flex;justify-content:flex-end;margin-top:14px"><button class="button" data-deployment-candidates ' + (!deploymentRuntime.artifactId || deploymentRuntime.busy ? 'disabled' : '') + '>连接环境并读取命名空间</button></div>' + serviceSelection + '</div></section>'
-    return pageTitle('部署', '从成功构建产物生成 Chart，校验后执行覆盖式重装。') + containerEnvironmentBar()
+    return pageTitle('部署', '从成功构建产物生成 Chart，校验后执行覆盖式重装。') + containerEnvironmentBar() + deploymentHistory.tabs()
       + (task ? '' : inputPanel)
       + (task ? '<section class="panel deployment-overview"><div class="panel-head"><div><h2>' + (task.mode === 'QUICK' ? '快速部署' : '审阅部署') + '</h2><p class="mono">任务 ' + escapeHtml(task.id) + '</p></div><span class="badge">' + escapeHtml(deploymentStatusPresentation[task.status] || task.status) + ' · revision ' + task.revision + '</span></div><div class="panel-body"><div class="deployment-progress"><div><strong>' + escapeHtml(progress.label) + '</strong><span>' + progress.percent + '%</span></div><progress max="100" value="' + progress.percent + '"></progress></div><div class="deployment-actions">' + (task.status === 'AWAITING_REVIEW' ? '<button class="button primary" data-deployment-action ' + (!canDeploy || deploymentRuntime.busy ? 'disabled' : '') + '>部署已选服务（' + deploymentRuntime.selectedServices.size + '）</button>' + (reviewBlockers.length ? '<div class="deployment-blockers"><strong>暂不能部署已选服务</strong>' + reviewBlockers.map(item => '<span>' + escapeHtml(item) + '</span>').join('') + '</div>' : '<div class="deployment-ready">已选服务可以部署。未解析的可选版本将在 Helm 渲染阶段继续校验。</div>') + (reviewWarnings.length ? '<div class="deployment-warnings"><strong>提示</strong>' + reviewWarnings.map(item => '<span>' + escapeHtml(item) + '</span>').join('') + '</div>' : '') : '') + (canReviewFailure ? '<button class="button primary" data-review-failed-deployment>转为审阅部署</button>' : '') + (['SUCCEEDED', 'FAILED'].includes(task.status) ? '<button class="button" data-repeat-deployment>使用相同输入重新部署</button>' : '') + '</div></div></section><div class="deployment-workspace ' + (task.mode === 'QUICK' ? 'quick' : '') + '"><section class="panel deployment-services-panel"><div class="panel-head"><h2>服务进度</h2><span>' + (task.status === 'AWAITING_REVIEW' ? '已选 ' + deploymentRuntime.selectedServices.size + ' / ' : '') + Object.keys(task.services).length + ' 个服务</span></div><div class="panel-body"><div class="deployment-service-list">' + deploymentServiceRows(task) + '</div></div></section>' + deploymentDetails() + '</div><section class="panel deployment-log-panel"><div class="panel-head"><div><h2>执行日志</h2><p>持续显示分析、渲染和安装进度</p></div><div class="deployment-log-actions"><span>' + visibleLogs.length + ' 条</span><button class="button small ghost" data-copy-deployment-logs ' + (!visibleLogs.length ? 'disabled' : '') + '>复制日志</button></div></div><div class="panel-body"><div id="deployment-log-terminal" class="terminal deployment-log-terminal">' + logs + '</div></div></section>' : '')
   }
@@ -1076,24 +1078,21 @@ import {canConvertFailedQuickDeploymentToReview, canDeployReviewedTask, deployme
     }
   }
 
+  const deploymentHistory=createDeploymentHistory({request,render,escapeHtml,openTask:async id=>{await openDeploymentTask(id)},removed:id=>{
+    localStorage.removeItem(deploymentEventSequenceKey(id));localStorage.removeItem(deploymentEventLogKey(id));
+    if(localStorage.getItem(activeDeploymentTaskKey)===id)localStorage.removeItem(activeDeploymentTaskKey);
+    if(deploymentRuntime.task?.id===id){deploymentRuntime.eventSource?.close();deploymentRuntime.eventSource=null;clearTimeout(deploymentLiveRefreshTimer);deploymentLiveRefreshTimer=null;deploymentRefreshQueuedId='';deploymentRuntime.task=null;deploymentRuntime.logs=[];}
+  }})
+  async function openDeploymentTask(id){
+    try{const task=await request('/api/deployment-tasks/'+id);deploymentRuntime.task=task;const target=environments.find(e=>e._apiId===task.environmentId&&e.type==='container');if(target)state.selectedContainerEnvironment=target.id;deploymentRuntime.artifactId=String(task.artifactId);deploymentRuntime.namespace=task.namespace;deploymentRuntime.selectedServices=new Set(Object.keys(task.services));deploymentRuntime.activeService=Object.keys(task.services)[0]||'';deploymentRuntime.logs=JSON.parse(localStorage.getItem(deploymentEventLogKey(id))||'[]');localStorage.setItem(activeDeploymentTaskKey,id);subscribeDeployment(id);deploymentHistory.state.open=false;render(false)}catch(error){showToast(error.message||'部署任务详情读取失败')}
+  }
   // Navigation from the global overview loads an existing task; it never starts or retries one.
   document.addEventListener('platform-open-delivery-task', async event => {
     const {kind,id}=event.detail || {}
     if(typeof id!=='string'||!/^[a-f0-9-]{36}$/i.test(id))return
     if(kind==='build')return viewBuildTask(id)
     if(kind!=='deploy')return
-    try {
-      const task=await request('/api/deployment-tasks/'+id)
-      deploymentRuntime.task=task
-      deploymentRuntime.artifactId=String(task.artifactId)
-      deploymentRuntime.namespace=task.namespace
-      deploymentRuntime.selectedServices=new Set(Object.keys(task.services))
-      deploymentRuntime.activeService=Object.keys(task.services)[0] || ''
-      deploymentRuntime.logs=JSON.parse(localStorage.getItem(deploymentEventLogKey(id)) || '[]')
-      localStorage.setItem(activeDeploymentTaskKey,id)
-      subscribeDeployment(id)
-      render(false)
-    } catch(error) {showToast(error.message || '部署任务详情读取失败')}
+    await openDeploymentTask(id)
   })
 
   createDeployTask = event => startDeployment(event?.currentTarget?.dataset?.createDeployTask || 'REVIEW')
