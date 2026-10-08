@@ -30,7 +30,7 @@ test('旧单继续流转补齐是否漏洞字段且不重复建单',async()=>{
 test('DTS 使用固定标题，建单流转确认后回填，重复请求不重复建单',async()=>{
  const store=testStore();const names:string[]=[];
  const service=new DtsTickets(store,async()=>async(method,params)=>{if(method==='initialize')return{};if(params.name==='queryPbiLikeName')return pbiReply(params);names.push(String(params.name));return reply(params.name==='createTicket'?'DTS2609220015806':params.name==='batchQueryTicket'?{datas:[{dtsBizNo:'DTS2609220015806',dtsStatus:'DTS009',currentHandler:'w00789509'}]}:{});},async()=>{});
- try{const result=await service.create('request1','w00789509','R27C10');assert.equal(result.status,'READY');assert.equal(result.ticket,'DTS2609220015806');await service.create('request1','w00789509','R27C10');assert.deepEqual(names,['createTicket','executeTicket','batchQueryTicket']);assert.equal(ticketFields(true,'tester','R27C10',product).find(x=>x.fieldId==='sBriefDescription')?.value,'【继承功能测试】【历史问题】UT修复');assert.equal(ticketFields(true,'tester','R27C10',product).find(x=>x.fieldId==='sHandlers')?.value,'tester');}finally{store.close();}
+ try{const result=await service.create('request1','w00789509','R27C10');assert.equal(result.status,'READY');assert.equal(result.ticket,'DTS2609220015806');await service.create('request1','w00789509','R27C10');assert.deepEqual(names,['createTicket','executeTicket','batchQueryTicket']);assert.equal(ticketFields(true,'tester','R27C10',product).find(x=>x.fieldId==='sBriefDescription')?.value,'【开发自提单】【代码检视】【历史问题】UT治理');assert.equal(ticketFields(true,'tester','R27C10',product).find(x=>x.fieldId==='sHandlers')?.value,'tester');}finally{store.close();}
 });
 test('草稿建单后流转失败仍保存单号，新请求和重启都不重复建单',async()=>{
  const store=testStore();let creates=0;
