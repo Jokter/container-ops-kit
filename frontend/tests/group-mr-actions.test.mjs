@@ -45,3 +45,17 @@ test('批量合入明确确认、跳过未审核项、逐项结果与历史跳�
  d.querySelector('[data-mr-panel-submit]').click();await flush();assert.equal(calls.length,2);assert.deepEqual(calls.map(c=>c.url.split('/').at(-2)),['3','4']);for(const c of calls)assert.deepEqual(c.data,{sha,confirmed:true})
  assert.match(d.querySelector('.mr-complete-message').textContent,/1 条已合入，1 条未完成/);assert.match(d.querySelector('.mr-targets').textContent,/无合并权限/);d.querySelector('[data-mr-panel-results]').click();assert.equal(d.querySelector('.mr-action-overlay'),null);assert.ok(d.querySelector('[data-group-mr-record="3"]'))
 })
+
+test('MR 分栏保留全部列表字段，刷新保留详情滚动，切换 MR 重置详情位置',async t=>{
+ const {dom,d}=await setup(t)
+ assert.ok(d.querySelector('.workspace-layout .mr-split > .qw-table-wrap'))
+ assert.ok(d.querySelector('.mr-split > .group-mr-detail-section'))
+ assert.equal(d.querySelector('[data-group-mr-record="1"]').children.length,7)
+ d.querySelector('.group-mr-detail-section').scrollTop=180
+ await dom.window.eval('loadGroupMr()')
+ assert.equal(d.querySelector('.group-mr-detail-section').scrollTop,180)
+ d.querySelector('[data-group-mr-record="2"] td:nth-child(3)').click()
+ assert.equal(d.querySelector('.group-mr-detail-section').dataset.mrDetailId,'2')
+ assert.equal(d.querySelector('.group-mr-detail-section').scrollTop,0)
+ assert.ok(d.querySelector('[data-human-review="2"] [value="reject"]'))
+})
