@@ -1076,6 +1076,26 @@ import {canConvertFailedQuickDeploymentToReview, canDeployReviewedTask, deployme
     }
   }
 
+  // Navigation from the global overview loads an existing task; it never starts or retries one.
+  document.addEventListener('platform-open-delivery-task', async event => {
+    const {kind,id}=event.detail || {}
+    if(typeof id!=='string'||!/^[a-f0-9-]{36}$/i.test(id))return
+    if(kind==='build')return viewBuildTask(id)
+    if(kind!=='deploy')return
+    try {
+      const task=await request('/api/deployment-tasks/'+id)
+      deploymentRuntime.task=task
+      deploymentRuntime.artifactId=String(task.artifactId)
+      deploymentRuntime.namespace=task.namespace
+      deploymentRuntime.selectedServices=new Set(Object.keys(task.services))
+      deploymentRuntime.activeService=Object.keys(task.services)[0] || ''
+      deploymentRuntime.logs=JSON.parse(localStorage.getItem(deploymentEventLogKey(id)) || '[]')
+      localStorage.setItem(activeDeploymentTaskKey,id)
+      subscribeDeployment(id)
+      render(false)
+    } catch(error) {showToast(error.message || '部署任务详情读取失败')}
+  })
+
   createDeployTask = event => startDeployment(event?.currentTarget?.dataset?.createDeployTask || 'REVIEW')
 
   async function deploymentAction() {

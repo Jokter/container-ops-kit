@@ -10,10 +10,10 @@ const 项目配置 = JSON.parse(await readFile(new URL('../../package.json', imp
 function 打开页面(请求, 事件源) {
   return new JSDOM(页面, {
     runScripts: 'dangerously',
-    url: 'http://localhost/',
+    url: 'http://localhost/#/automation',
     beforeParse(窗口) {
       窗口.scrollTo = () => {}
-      if (请求) 窗口.fetch = 请求
+      if (请求) 窗口.fetch = (地址, 配置) => 地址 === '/api/platform/applications' ? Promise.resolve({ok: true, status: 200, json: async () => []}) : 请求(地址, 配置)
       if (事件源) 窗口.EventSource = 事件源
     }
   })
@@ -30,15 +30,15 @@ test('左下角展示与项目配置一致的版本号', () => {
   页面实例.window.close()
 })
 
-test('正式页面可以在三个平台域之间切换', () => {
+test('正式页面可以在四个工作空间之间切换', () => {
   const 页面实例 = 打开页面()
   const 文档 = 页面实例.window.document
 
   assert.deepEqual(
     [...文档.querySelectorAll('[data-platform-domain]')].map(入口 => 入口.dataset.platformDomain),
-    ['automation', 'container', 'virtualization']
+    ['automation', 'container', 'virtualization', 'applications']
   )
-  assert.equal(文档.querySelector('.platform-switch').tagName, 'NAV')
+  assert.equal(文档.querySelector('.pr-switch-menu').tagName, 'NAV')
   assert.equal(文档.querySelector('[data-platform-domain="automation"]').getAttribute('aria-current'), 'page')
   assert.equal(页面实例.window.location.hash, '#/automation')
   assert.equal(文档.querySelector('[data-automation-nav="catalog"]').getAttribute('aria-current'), 'page')
@@ -366,8 +366,9 @@ test('工作台恢复原图标，分组不伪装成按钮，入口跳转且不�
  try {
   const d=dom.window.document;
   d.querySelector('[data-platform-domain="container"]').click();
-  assert.ok(d.querySelector('.studio-brand .taiji svg'));
-  assert.equal(d.querySelector('.studio-brand strong').textContent,'Ops Studio');
+  d.querySelector('[data-page="dashboard"]').click();
+  assert.ok(d.querySelector('.pr-brand .taiji svg'));
+  assert.equal(d.querySelector('.pr-brand strong').textContent,'Ops Studio');
   assert.equal(d.querySelectorAll('.home-shortcut').length,4);
   assert.ok(d.querySelector('.home-empty'));
   assert.doesNotMatch(d.querySelector('.home-workbench').textContent,/build-1048|release-0828|production-mae/);

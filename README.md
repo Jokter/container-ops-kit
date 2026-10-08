@@ -25,6 +25,12 @@ npm ci --prefix frontend
 npm run dev --prefix frontend -- --host 127.0.0.1
 ```
 
+## 页面入口
+
+首页为工具中心（`#/home/tools`），全局概览（`#/home/overview`）只汇总已保存的任务和环境状态。自动化、容器运维的原有页面地址继续可用；虚机运维保持预留状态。
+
+应用中心（`#/applications`）可创建、编辑和删除 HTTP/HTTPS 工具入口，填写地址、功能说明并关联工作空间。应用配置保存在现有 SQLite 中，全平台共享；收藏仅保存在当前浏览器。站内打开使用 iframe，目标网站不允许嵌入时可选择新标签页打开。后端不会代理访问目标网站，也不增加账号或权限体系。
+
 ## 结构
 
 - `backend-ts/src/modules/environment`：环境配置和 SSH 连接测试

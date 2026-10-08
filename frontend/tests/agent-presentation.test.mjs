@@ -8,11 +8,11 @@ const pause=()=>new Promise(resolve=>setTimeout(resolve,170))
 async function setup({events=[],saved}={}){
   const task={id:'agent-ui',repository:'ExampleService',reportVersion:'R27C00',status:'REPAIRING',nextStage:'REPAIR',progress:45,message:'正在修复',lineGoal:0.8,branchGoal:0.7,liveEvents:events}
   const streams=[]
-  const dom=new JSDOM(html,{url:'http://localhost/',runScripts:'dangerously',beforeParse(window){
+  const dom=new JSDOM(html,{url:'http://localhost/#/automation',runScripts:'dangerously',beforeParse(window){
     window.scrollTo=()=>{}
     if(saved)window.sessionStorage.setItem('ut-view:agent-ui',saved)
     window.EventSource=class{constructor(){streams.push(this)}close(){}}
-    window.fetch=async url=>({ok:true,status:200,json:async()=>url==='/api/auto-ut/tasks'?JSON.parse(JSON.stringify([task])):{}})
+    window.fetch=async url=>({ok:true,status:200,json:async()=>url==='/api/auto-ut/tasks'?JSON.parse(JSON.stringify([task])):url==='/api/platform/applications'?[]:{}})
   }})
   const d=dom.window.document
   d.querySelector('[data-platform-domain="automation"]').click()

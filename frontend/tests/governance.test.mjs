@@ -49,7 +49,7 @@ test('概览聚合三类任务，成果下钻沿用版本与时间范围，记�
   assert.ok(d.querySelector('.studio-record-filters [data-cleanup-records]'));
   assert.equal(d.querySelectorAll('.studio-record-table tbody tr').length,1);
   assert.ok(d.querySelector('[data-studio-record="quality"]'));
-  const switcher=d.querySelector('.ops-space-tabs');assert.ok(switcher);assert.equal(switcher.querySelectorAll('button').length,3);
+  const switcher=d.querySelector('.pr-switch-menu');assert.ok(switcher);assert.equal(switcher.querySelectorAll('[data-platform-domain]').length,4);
   assert.equal(switcher.querySelector('[data-platform-domain="automation"]').getAttribute('aria-current'),'page');
  }finally{await pause();dom.window.close();}
 });

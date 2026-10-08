@@ -349,11 +349,12 @@
   <link rel="stylesheet" href="/frontend/src/quality-workspace.css">
   <link rel="stylesheet" href="/frontend/src/studio-workspace.css">
   <link rel="stylesheet" href="/frontend/src/home-workbench.css">
+  <link rel="stylesheet" href="/frontend/src/platform-workspace.css">
 </head>
 <body>
   <div id="app"></div>
   <script>
-    const state = { platformDomain: 'automation', page: 'dashboard', automationPage: 'catalog', buildTab: 'single', resourceVersion: 'r27c10', resourceType: 'build', resourceStatus: 'all', resourceQuery: '', resourceDrawer: null, batch: null, selectedBuildEnvironment: 'build-27b-01', selectedContainerEnvironment: 'container-27b-01', autoUtUsername: '', autoUtTicket: '', autoUtWorkspace: '', autoUtPlan: [], autoUtTasks: [], autoUtBusy: false, autoUtDirectory: null, autoUtDirectoryPath: '', autoUtDirectoryError: '', autoUtDirectoryBusy: false, autoUtLive: {} };
+    const state = { platformDomain: 'portal', portalPage: 'tools', applicationId: '', page: 'resources', automationPage: 'catalog', buildTab: 'single', resourceVersion: 'r27c10', resourceType: 'build', resourceStatus: 'all', resourceQuery: '', resourceDrawer: null, batch: null, selectedBuildEnvironment: 'build-27b-01', selectedContainerEnvironment: 'container-27b-01', autoUtUsername: '', autoUtTicket: '', autoUtWorkspace: '', autoUtPlan: [], autoUtTasks: [], autoUtBusy: false, autoUtDirectory: null, autoUtDirectoryPath: '', autoUtDirectoryError: '', autoUtDirectoryBusy: false, autoUtLive: {} };
 
     const releaseVersions = [
       { id: 'r27c10', code: 'R27C10', name: '27B', locked: false },
@@ -581,6 +582,7 @@
     }
 
     function resourceContent() {
+      if(!selectedReleaseVersion())return '<section class="panel pr-no-data"><h3>环境数据尚未加载</h3><p>请确认后端正常运行后刷新页面。</p></section>';
       const buildCount = versionEnvironments('build').length;
       const containerCount = versionEnvironments('container').length;
       const batch = state.batch ? `<div class="batch-progress"><strong>正在测试 ${state.batch.completed}/${state.batch.total}</strong><div class="batch-progress-track"><span style="width:${state.batch.total ? state.batch.completed / state.batch.total * 100 : 0}%"></span></div><span>${state.batch.passed} 成功 · ${state.batch.failed} 失败</span></div>` : '';
@@ -1000,20 +1002,11 @@
     }
 
     function variantA() {
-      const platformSwitch = `<nav class="platform-switch ops-space-tabs" aria-label="工作空间切换">${[['automation','自动化空间','tools'],['container','容器运维','operations'],['virtualization','虚机运维','resources']].map(([id,title,icon])=>`<button type="button" class="${state.platformDomain===id?'active':''}" data-platform-domain="${id}" ${state.platformDomain===id?'aria-current="page"':''}>${navIcon(icon)}<span>${title}</span></button>`).join('')}</nav>`;
-      const navItem=(id,title,icon)=>`<button data-page="${id}" class="${state.page===id?'active':''}" ${state.page===id?'aria-current="page"':''}>${navIcon(icon)}<span>${title}</span></button>`;
-      const nav = `<nav class="variant-a-nav" aria-label="容器运维导航">${navItem('dashboard','工作台','home')}<div class="nav-section">研发流程</div>${navItem('build','构建','build')}${navItem('deploy','部署','deploy')}<div class="nav-section">容器运维</div>${navItem('operations','服务资源','operations')}<div class="nav-section">系统管理</div>${navItem('resources','环境管理','resources')}</nav>`;
-      const placeholders = {
-        virtualization: ['虚', '虚机运维', '这里先作为独立平台域预留，不提前定义功能和页面。']
-      };
-      const placeholder = placeholders[state.platformDomain];
-      const content = state.platformDomain === 'container'
-        ? (state.page === 'dashboard' ? dashboardA() : commonPage(state.page))
-        : state.platformDomain === 'automation'
-          ? automationContent()
-          : `<section class="panel platform-placeholder"><div class="platform-placeholder-content"><div class="platform-placeholder-symbol">${placeholder[0]}</div><h1>${placeholder[1]}</h1><p>${placeholder[2]}</p><span class="platform-boundary">平台边界已预留</span></div></section>`;
-      return `<div class="variant-a-shell studio-shell"><header class="studio-topbar"><div class="studio-brand">${taiji}<strong>Ops Studio</strong><span class="studio-divider">/</span></div>${platformSwitch}<span class="studio-product">统一基础设施工作台</span></header><aside class="variant-a-sidebar">${state.platformDomain==='container'?nav:state.platformDomain==='automation'?automationNav():''}<div class="studio-sidebar-bottom">${state.platformDomain==='automation'?'<button class="studio-settings-link" data-automation-nav="settings">连接与设置</button>':''}<div class="variant-a-user">V0.2.124</div></div></aside><main class="variant-a-main">${content}</main></div>`;
-
+      const navItem=(id,title,icon)=>`<button data-page="${id}" class="${state.page===id&&!state.applicationId?'active':''}" ${state.page===id&&!state.applicationId?'aria-current="page"':''}>${navIcon(icon)}<span>${title}</span></button>`;
+      const nav=`<nav class="variant-a-nav" aria-label="容器运维导航">${navItem('dashboard','工作台','home')}<div class="nav-section">研发流程</div>${navItem('build','构建','build')}${navItem('deploy','部署','deploy')}<div class="nav-section">容器运维</div>${navItem('operations','服务资源','operations')}<div class="nav-section">系统管理</div>${navItem('resources','环境管理','resources')}</nav>`;
+      const portal=state.platformDomain==='portal';
+      const content=state.applicationId?applicationEmbeddedContent():portal?(state.portalPage==='overview'?platformOverview():platformTools()):state.platformDomain==='applications'?applicationContent():state.platformDomain==='container'?(state.page==='dashboard'?dashboardA():commonPage(state.page)):state.platformDomain==='automation'?automationContent():`<section class="panel platform-placeholder"><div class="platform-placeholder-content"><div class="platform-placeholder-symbol">虚</div><h1>虚机运维</h1><p>这里先作为独立平台域预留，不提前定义功能和页面。</p><span class="platform-boundary">平台边界已预留</span></div></section>`;
+      return `<div class="variant-a-shell studio-shell ${portal?'pr-portal-shell':''}">${platformHeader()}${portal?'':`<aside class="variant-a-sidebar">${state.platformDomain==='container'?nav:state.platformDomain==='automation'?automationNav():state.platformDomain==='applications'?applicationNav():''}${platformRelated()}<div class="studio-sidebar-bottom"><button class="studio-settings-link" data-portal-page="tools">← 返回工具中心</button>${state.platformDomain==='automation'?'<button class="studio-settings-link" data-automation-nav="settings">连接与设置</button>':''}<div class="variant-a-user">V0.2.125</div></div></aside>`}<main class="variant-a-main">${content}</main>${portal?'<div class="pr-home-version">V0.2.125</div>':''}</div>`;
     }
 
     let toastTimer;
@@ -1187,7 +1180,7 @@
     }
 
     function bindInteractions() {
-      document.querySelectorAll('[data-platform-domain]').forEach(item => item.addEventListener('click', () => navigateApp(item.dataset.platformDomain,item.dataset.platformDomain==='automation'?state.automationPage:state.page)));
+      document.querySelectorAll('[data-platform-domain]').forEach(item => item.addEventListener('click', () => navigateApp(item.dataset.platformDomain,platformDefaultPage(item.dataset.platformDomain))));
       document.querySelectorAll('[data-page]').forEach(item => item.addEventListener('click', () => navigateApp('container',item.dataset.page)));
       document.querySelectorAll('[data-build-tab]').forEach(item => item.addEventListener('click', () => { state.buildTab = item.dataset.buildTab; render(); }));
       document.querySelector('#build-environment-selector')?.addEventListener('change', event => { state.selectedBuildEnvironment = event.target.value; render(false); });
@@ -1238,10 +1231,14 @@
       bindWorkspaceInteractions();
       bindSchedules();
       bindResourceInteractions();
+      bindPlatformInteractions();
     }
 
     function render(resetScroll = true) {
       captureAutoUtView();
+      const currentApplicationFrame=document.querySelector('#ac-frame');
+      const currentApplication=appCenter.items.find(a=>a.id===state.applicationId);
+      if(!resetScroll&&currentApplicationFrame?.dataset.route===appRoute()&&currentApplication&&currentApplicationFrame.getAttribute('src')===validApplicationAddress(currentApplication.url))return;
       const scrollPosition = window.scrollY;
       const focused = document.activeElement?.closest('.quality-workspace') ? document.activeElement : null;
       const focusKey = focused?.id ? ['id',focused.id] : [...(focused?.attributes||[])].filter(a=>a.name.startsWith('data-')).map(a=>[a.name,a.value])[0];
@@ -1253,8 +1250,10 @@
         { top: element.scrollTop, follow: element.scrollHeight - element.clientHeight - element.scrollTop < 32 }
       ]));
       document.querySelector('#app').innerHTML = variantA();
+      const nextApplicationFrame=document.querySelector('#ac-frame');
+      if(nextApplicationFrame)nextApplicationFrame.dataset.route=appRoute();
       bindInteractions();
-      document.body.style.overflow = document.querySelector('.qw-backdrop,.mr-action-overlay') ? 'hidden' : '';
+      document.body.style.overflow = document.querySelector('.qw-backdrop,.mr-action-overlay,.ac-overlay') ? 'hidden' : '';
       document.querySelectorAll('[data-qw-open]').forEach(el=>{if(opened.has(el.dataset.qwOpen))el.open=opened.get(el.dataset.qwOpen);});
       document.querySelectorAll('.qw-drawer-body,.qw-table-wrap,.mr-action-body').forEach((el,i)=>{if(uiScroll[i]){el.scrollTop=uiScroll[i][0];el.scrollLeft=uiScroll[i][1];}});
       if(!resetScroll&&focusKey){const target=[...document.querySelectorAll('input,textarea,select,button,summary,a')].find(el=>el.getAttribute(focusKey[0])===focusKey[1]);if(target){target.focus({preventScroll:true});if(selection&&target.setSelectionRange)try{target.setSelectionRange(...selection);}catch{}}}
@@ -1859,14 +1858,43 @@
     const schedulerUi={items:[],kind:'',status:'',query:'',draft:null,editing:null,runs:[],busy:false,poll:null};
     const schedulerNames={quality:'质量检查','auto-ut':'UT 治理','auto-ut-cleanup':'历史计划 · 定期清理',csv:'历史计划 · CSV 导入'};
     function automationNav(){return `<nav class="variant-a-nav" aria-label="自动化工具导航"><div class="nav-section">工作台</div>${[['catalog','概览'],['tools','工具'],['tasks','执行记录'],['schedules','定时计划']].map(([p,n])=>`<button data-automation-nav="${p}" class="${state.automationPage===p||(p==='tools'&&['auto-ut','quality','group-mr'].includes(state.automationPage))?'active':''}" ${state.automationPage===p?'aria-current="page"':''}>${navIcon(p==='catalog'?'home':p)}<span>${n}</span></button>`).join('')}</nav>`;}
-    function appRoute(){return state.platformDomain==='automation'?'#/automation'+(state.automationPage==='catalog'?'':'/'+state.automationPage):state.platformDomain==='container'?'#/container/'+state.page:'#/virtualization';}
-    function parseAppRoute(hash){const m=hash.match(/^#\/automation(?:\/(quality|auto-ut|group-mr|schedules|tools|tasks|settings|knowledge))?$/);if(m)return{domain:'automation',page:m[1]||'catalog'};const c=hash.match(/^#\/container\/(dashboard|build|deploy|operations|resources)$/);if(c)return{domain:'container',page:c[1]};if(hash==='#/virtualization')return{domain:'virtualization',page:''};return{domain:'automation',page:'catalog'};}
-    function loadNavigationPage(){if(typeof fetch!=='function')return Promise.resolve();const key=appRoute();if(navUi.loads.has(key))return navUi.loads.get(key);if(navUi.loaded.has(key))return Promise.resolve();navUi.loaded.add(key);let work=Promise.resolve();if(state.platformDomain==='automation'){
-      work=Promise.all([loadAutoUtTasks(),loadReportSettings(),loadQuality(),loadSchedules(),loadGroupMr(),loadReviewData()]);
-    }navUi.loads.set(key,work);return work.finally(()=>navUi.loads.delete(key));}
-    function navigateApp(domain,page,{push=true,load=true}={}){if(workspaceUi.drawerBusy)return;document.querySelector('.studio-workspace')?.removeAttribute('open');captureAutoUtInputs();navUi.scroll.set(navUi.route||appRoute(),window.scrollY);if(workspaceUi.drawer)qwClose();state.autoUtDirectory=null;closeAutoUtStreams();state.platformDomain=domain;if(domain==='automation')state.automationPage=page||'catalog';else if(domain==='container')state.page=page||'dashboard';const route=appRoute();if(push&&location.hash!==route)history.pushState({},'',route);navUi.route=route;render(false);window.scrollTo(0,navUi.scroll.get(route)||0);if(load)void loadNavigationPage();scheduleAutoUtPolling();scheduleGroupMrPolling();}
+    function appRoute(){
+      if(state.applicationId)return '#/'+state.platformDomain+'/app/'+state.applicationId;
+      if(state.platformDomain==='portal')return '#/home/'+state.portalPage;
+      if(state.platformDomain==='applications')return '#/applications';
+      return state.platformDomain==='automation'?'#/automation'+(state.automationPage==='catalog'?'':'/'+state.automationPage):state.platformDomain==='container'?'#/container/'+state.page:'#/virtualization';
+    }
+    function parseAppRoute(hash){
+      const home=hash.match(/^#\/home\/(overview|tools)$/);if(home)return{domain:'portal',page:home[1]};
+      const embed=hash.match(/^#\/(automation|container|virtualization|applications)\/(app\/[a-f0-9-]{36})$/i);if(embed)return{domain:embed[1],page:embed[2]};
+      if(hash==='#/applications')return{domain:'applications',page:''};
+      const m=hash.match(/^#\/automation(?:\/(quality|auto-ut|group-mr|schedules|tools|tasks|settings|knowledge))?$/);if(m)return{domain:'automation',page:m[1]||'catalog'};
+      const c=hash.match(/^#\/container\/(dashboard|build|deploy|operations|resources)$/);if(c)return{domain:'container',page:c[1]};
+      if(hash==='#/virtualization')return{domain:'virtualization',page:''};return{domain:'portal',page:'tools'};
+    }
+    function loadNavigationPage(){
+      if(typeof fetch!=='function')return Promise.resolve();
+      void loadApplications();
+      if(state.applicationId||state.platformDomain==='applications')return loadApplications();
+      if(state.platformDomain==='portal')return state.portalPage==='overview'?loadPlatformOverview():loadApplications();
+      const key=appRoute();if(navUi.loads.has(key))return navUi.loads.get(key);if(navUi.loaded.has(key))return Promise.resolve();navUi.loaded.add(key);let work=Promise.resolve();if(state.platformDomain==='automation'){
+        work=Promise.all([loadAutoUtTasks(),loadReportSettings(),loadQuality(),loadSchedules(),loadGroupMr(),loadReviewData()]);
+      }navUi.loads.set(key,work);return work.finally(()=>navUi.loads.delete(key));
+    }
+    function setNavigationState(domain,page){
+      state.platformDomain=domain;state.applicationId=page?.startsWith('app/')?page.slice(4):'';
+      if(state.applicationId)return;
+      if(domain==='automation')state.automationPage=page||'catalog';else if(domain==='container')state.page=page||'resources';else if(domain==='portal')state.portalPage=page||'tools';
+    }
+    function navigateApp(domain,page,{push=true,load=true}={}){
+      if(workspaceUi.drawerBusy||appCenter.busy)return;
+      document.querySelector('.studio-workspace')?.removeAttribute('open');document.querySelector('.pr-switch')?.removeAttribute('open');
+      captureAutoUtInputs();navUi.scroll.set(navUi.route||appRoute(),window.scrollY);if(workspaceUi.drawer)qwClose();state.autoUtDirectory=null;closeAutoUtStreams();
+      setNavigationState(domain,page);const route=appRoute();if(push&&location.hash!==route)history.pushState({},'',route);navUi.route=route;
+      render(false);window.scrollTo(0,navUi.scroll.get(route)||0);if(load)void loadNavigationPage();scheduleAutoUtPolling();scheduleGroupMrPolling();
+    }
     function navigateAutomation(page,options){navigateApp('automation',page,options);}
-    function initNavigation(){const target=parseAppRoute(location.hash);state.platformDomain=target.domain;if(target.domain==='automation')state.automationPage=target.page;else if(target.domain==='container')state.page=target.page;navUi.route=appRoute();if(!location.hash)history.replaceState({},'',navUi.route);render();void loadNavigationPage();}
+    function initNavigation(){const target=parseAppRoute(location.hash);setNavigationState(target.domain,target.page);navUi.route=appRoute();if(!location.hash)history.replaceState({},'',navUi.route);render();void loadNavigationPage();}
     document.addEventListener('click',event=>{if(!event.target.closest('.studio-workspace'))document.querySelector('.studio-workspace')?.removeAttribute('open');});
     document.addEventListener('keydown',event=>{if(event.key==='Escape'){const menu=document.querySelector('.studio-workspace[open]');if(menu){menu.removeAttribute('open');menu.querySelector('summary')?.focus();}}});
     window.addEventListener('popstate',()=>{const t=parseAppRoute(location.hash);navigateApp(t.domain,t.page,{push:false});});
@@ -1934,6 +1962,140 @@
       if(b.dataset.knowledgeRetry){await autoUtCall('/api/automation/knowledge/reviews/'+b.dataset.knowledgeRetry+'/retry',jsonOptions('POST',{}));await loadReviewData();return;}
       const id=b.dataset.knowledgeEdit||b.dataset.knowledgeToggle;if(id){const k=reviewUi.items.find(k=>k.id===id);if(!k)return;let content=k.content,status=k.status;if(b.dataset.knowledgeEdit){const value=await studioPrompt('编辑知识内容（当前：'+k.content+'）');if(!value?.trim())return;content=value.trim();}else status=k.status==='active'?'disabled':'active';await autoUtCall('/api/automation/knowledge/'+id,jsonOptions('PUT',{title:k.title,content,scope:k.scope,status,revision:k.revision}));await loadReviewData();}
     }catch(error){showToast(error.message);}});
+
+    // Shared platform shell and link applications. Existing business pages retain their handlers.
+    const platformSpaces=[
+      {id:'automation',name:'自动化空间',icon:'tools',tag:'研发自动化',desc:'从质量检查到问题修复、MR 检视与合入，让重复工作持续自动完成。',links:[['auto-ut','UT 治理'],['group-mr','群组 MR 检视与合入'],['quality','质量检查']]},
+      {id:'container',name:'容器运维',icon:'operations',tag:'环境与交付',desc:'统一管理环境，完成构建、部署与容器资源的日常运维。',links:[['resources','环境管理'],['build','构建'],['deploy','部署'],['operations','容器资源']]},
+      {id:'virtualization',name:'虚机运维',icon:'resources',tag:'基础设施',desc:'保留独立的虚机运维空间，随实际能力建设逐步扩展。',links:[]},
+      {id:'applications',name:'应用中心',icon:'settings',tag:'可配置接入',desc:'通过地址接入日志检索、监控看板与团队工具，支持站内和外部打开。',links:[]}
+    ];
+    const platformUi={query:'',summary:null,summaryLoading:false,summaryError:'',summaryRequest:null,applicationRequest:null};
+    const appCategories=['全部应用','日志检索','监控诊断','研发工具','其他应用'];
+    const appCenter={items:[],loaded:false,loading:false,error:'',query:'',category:'全部应用',favorite:false,favorites:new Set(),busy:false};
+    try{const ids=JSON.parse(localStorage.getItem('ops-application-favorites')||'[]');if(Array.isArray(ids))appCenter.favorites=new Set(ids.filter(id=>typeof id==='string'));}catch{}
+    function applicationFavorite(id){return appCenter.favorites.has(id);}
+    function saveApplicationFavorites(){try{localStorage.setItem('ops-application-favorites',JSON.stringify([...appCenter.favorites]))}catch{showToast('浏览器未允许保存收藏，本次选择仅在当前页面有效');}}
+    function validApplicationAddress(value){try{const u=new URL(value);return ['http:','https:'].includes(u.protocol)&&!u.username&&!u.password?u.href:'';}catch{return '';}}
+    function platformHeader(){
+      const space=platformSpaces.find(s=>s.id===state.platformDomain);
+      return `<header class="studio-topbar pr-top"><button class="pr-brand" data-portal-page="tools" aria-label="Ops Studio 工具中心">${taiji}<strong>Ops Studio</strong></button><nav class="pr-global" aria-label="平台导航"><button data-portal-page="overview" class="${state.platformDomain==='portal'&&state.portalPage==='overview'?'active':''}">概览</button><button data-portal-page="tools" class="${state.platformDomain==='portal'&&state.portalPage==='tools'?'active':''}">工具中心</button></nav>${space?`<span class="pr-div"></span><details class="pr-switch"><summary aria-label="切换工作空间">${navIcon(space.icon)}<span>${space.name}</span><span class="pr-chevron">⌄</span></summary><nav class="pr-switch-menu" aria-label="工作空间切换"><small>切换工作空间</small>${platformSpaces.map(s=>`<button data-platform-domain="${s.id}" class="${s.id===space.id?'active':''}" ${s.id===space.id?'aria-current="page"':''}>${navIcon(s.icon)}<span>${s.name}</span>${s.id===space.id?'<b>✓</b>':''}</button>`).join('')}<button class="pr-switch-home" data-portal-page="tools">返回工具中心 →</button></nav></details>`:''}<span class="pr-top-spacer"></span></header>`;
+    }
+    function platformApplicationNotice(){return appCenter.error?`<div class="qw-notice" role="alert">应用入口加载失败：${escapeHtml(appCenter.error)} <button class="qw-link" data-app-refresh>重新加载</button></div>`:'';}
+    async function loadApplications(force=false){
+      if(platformUi.applicationRequest)return platformUi.applicationRequest;
+      if(appCenter.loaded&&!force)return;
+      appCenter.loading=true;appCenter.error='';
+      platformUi.applicationRequest=(async()=>{try{
+        const rows=await autoUtCall('/api/platform/applications');if(!Array.isArray(rows))throw Error('应用列表返回格式不正确');
+        appCenter.items=rows;appCenter.loaded=true;
+      }catch(e){appCenter.error=e.message||'读取应用失败';}finally{appCenter.loading=false;platformUi.applicationRequest=null;render(false);}})();
+      return platformUi.applicationRequest;
+    }
+    async function loadPlatformOverview(){
+      if(platformUi.summaryRequest)return platformUi.summaryRequest;
+      platformUi.summaryLoading=true;platformUi.summaryError='';render(false);
+      platformUi.summaryRequest=(async()=>{try{platformUi.summary=await autoUtCall('/api/platform/overview');}catch(e){platformUi.summaryError=e.message||'概览读取失败';}finally{platformUi.summaryLoading=false;platformUi.summaryRequest=null;if(state.platformDomain==='portal'&&state.portalPage==='overview')render(false);}})();
+      return platformUi.summaryRequest;
+    }
+    function applicationNav(){return `<nav class="variant-a-nav" aria-label="应用导航"><div class="nav-section">应用管理</div><button class="${!appCenter.favorite?'active':''}" data-app-filter="all">${navIcon('tools')}<span>全部应用</span></button><button class="${appCenter.favorite?'active':''}" data-app-filter="favorite">${navIcon('home')}<span>我的收藏</span></button></nav>`;}
+    function platformRelated(){
+      const rows=appCenter.items.filter(a=>a.workspace===state.platformDomain);
+      if(!rows.length||state.platformDomain==='applications')return '';
+      return `<div class="pr-related"><div class="nav-section">关联应用</div>${rows.map(a=>`<button data-pr-app="${escapeHtml(a.id)}" title="${escapeHtml(a.description)}">${navIcon('tools')}<span>${escapeHtml(a.name)}</span><small>${a.openMode==='newtab'?'↗':'→'}</small></button>`).join('')}</div>`;
+    }
+    function applicationCards(){
+      const rows=appCenter.items.filter(a=>(appCenter.category==='全部应用'||a.category===appCenter.category)&&(!appCenter.favorite||applicationFavorite(a.id))&&[a.name,a.description,a.url,a.environment].join(' ').toLowerCase().includes(appCenter.query.toLowerCase()));
+      if(!appCenter.loaded)return `<section class="panel pr-no-data"><h3>${appCenter.loading?'正在加载应用…':'应用尚未加载'}</h3><button class="button" data-app-refresh ${appCenter.loading?'disabled':''}>重新加载</button></section>`;
+      return `<div class="ac-grid">${rows.map(a=>`<article class="panel ac-card"><div class="ac-card-top"><div class="ac-icon">${navIcon(a.category==='日志检索'?'tasks':a.category==='监控诊断'?'operations':'tools')}</div><span>${escapeHtml(a.category)}</span><button data-app-favorite="${escapeHtml(a.id)}" class="ac-star ${applicationFavorite(a.id)?'on':''}" aria-label="${applicationFavorite(a.id)?'取消收藏':'收藏'} ${escapeHtml(a.name)}" aria-pressed="${applicationFavorite(a.id)}">${applicationFavorite(a.id)?'★':'☆'}</button></div><h2>${escapeHtml(a.name)}</h2><p>${escapeHtml(a.description||'暂无功能说明')}</p><div class="ac-url" title="${escapeHtml(a.url)}">${escapeHtml(a.url)}</div><div class="ac-meta"><span>${escapeHtml(a.environment||'未关联环境')}</span><span>${escapeHtml(a.owner||'未填写维护人')}</span></div><div class="ac-card-actions"><button class="qw-link" data-pr-app="${escapeHtml(a.id)}">${a.openMode==='embedded'?'站内打开 →':'新标签页打开 ↗'}</button><button class="qw-link ac-secondary" data-app-edit="${escapeHtml(a.id)}">编辑</button></div></article>`).join('')}<button class="ac-add" data-app-create><span>＋</span><strong>${appCenter.items.length?'添加应用':'接入你的第一个应用'}</strong><small>填写地址与说明，即可接入常用工具</small></button></div>${!rows.length&&appCenter.items.length?'<p class="ac-empty">没有匹配的应用，可调整分类、收藏或搜索条件。</p>':''}`;
+    }
+    function applicationContent(){return `<div class="quality-workspace ac-workspace">${pageTitle('应用中心','统一管理日志检索、监控平台与常用网站入口。','<button class="button" data-app-refresh>刷新</button><button class="button primary" data-app-create>＋ 创建应用</button>')}${platformApplicationNotice()}<div class="ac-toolbar"><nav class="ac-categories">${appCategories.map(c=>`<button data-app-category="${c}" class="${appCenter.category===c?'active':''}">${c}<small>${appCenter.items.filter(a=>c==='全部应用'||a.category===c).length}</small></button>`).join('')}</nav><input id="ac-search" class="environment-search" placeholder="搜索名称、功能说明或 IP" aria-label="搜索应用" value="${escapeHtml(appCenter.query)}"></div><div id="ac-cards">${applicationCards()}</div><div class="ac-footer">${appCenter.items.length} 个应用 · 应用入口全平台共享，收藏保存在当前浏览器。</div></div>`;}
+    function applicationEmbeddedContent(){
+      const a=appCenter.items.find(x=>x.id===state.applicationId);
+      if(!a)return `<section class="panel pr-no-data"><h3>${appCenter.loading?'正在加载应用…':appCenter.error?'无法读取应用':'应用不存在或已被删除'}</h3>${platformApplicationNotice()}<button class="button" data-app-back>返回</button></section>`;
+      const url=validApplicationAddress(a.url);
+      return `<div class="quality-workspace"><div class="qw-crumb"><button data-app-back>${state.platformDomain==='applications'?'应用中心':'返回当前空间'}</button><span>/</span><span>${escapeHtml(a.name)}</span></div>${pageTitle(escapeHtml(a.name),escapeHtml(a.description),`<button class="button" data-app-back>返回</button><button class="button" data-app-reload>重新加载</button>${url?`<a class="button primary" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">新标签页打开 ↗</a>`:''}`)}<div class="ac-frame-address"><span>${escapeHtml(a.url)}</span><small>若目标网站不允许嵌入或无法登录，请在新标签页打开。</small></div>${url?`<iframe id="ac-frame" title="${escapeHtml(a.name)}" src="${escapeHtml(url)}" referrerpolicy="no-referrer" sandbox="allow-scripts allow-forms allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-downloads"></iframe>`:'<p role="alert">应用地址格式无效，请编辑后重试。</p>'}</div>`;
+    }
+    function openPlatformApplication(id){
+      const a=appCenter.items.find(x=>x.id===id);if(!a)return;const url=validApplicationAddress(a.url);if(!url)return showToast('应用地址格式无效');
+      if(a.openMode==='newtab'){window.open(url,'_blank','noopener,noreferrer');return;}
+      const domain=state.platformDomain==='portal'?'applications':state.platformDomain;
+      navigateApp(domain,'app/'+id);
+    }
+    let applicationEditorReturn;
+    function closeApplicationEditor(){if(appCenter.busy)return;document.querySelector('#ac-overlay')?.remove();document.body.style.overflow='';applicationEditorReturn?.focus();}
+    function openApplicationEditor(id){
+      if(appCenter.busy)return;document.querySelector('#ac-overlay')?.remove();applicationEditorReturn=document.activeElement;
+      const source=appCenter.items.find(x=>x.id===id);if(id&&!source)return;
+      const a=source||{name:'',url:'',description:'',category:'日志检索',openMode:'embedded',workspace:'',environment:'',owner:''};
+      const layer=document.createElement('div');layer.id='ac-overlay';layer.className='ac-overlay';
+      layer.innerHTML=`<form class="ac-drawer" id="ac-form" role="dialog" aria-modal="true" aria-labelledby="ac-title"><header><div><h2 id="ac-title">${id?'编辑应用':'创建应用'}</h2><p>接入一个已部署的网站或局域网工具。</p></div><button type="button" class="button ghost" data-app-close>关闭</button></header><section><label>应用名称<input name="name" required maxlength="60" value="${escapeHtml(a.name)}" placeholder="例如：研发日志检索"></label><label>应用地址<input name="url" type="url" required maxlength="2048" value="${escapeHtml(a.url)}" placeholder="http://IP:端口/路径"><small>支持 HTTP / HTTPS，不在地址中填写账号密码。</small></label><label>功能说明<textarea name="description" rows="3" maxlength="200" placeholder="介绍工具用途与使用场景">${escapeHtml(a.description)}</textarea></label><div class="ac-fields"><label>所属分类<select name="category">${appCategories.slice(1).map(c=>`<option ${c===a.category?'selected':''}>${c}</option>`).join('')}</select></label><label>关联环境<input name="environment" maxlength="80" value="${escapeHtml(a.environment)}" placeholder="可选，填写环境说明"></label></div><label>打开方式<select name="openMode"><option value="embedded" ${a.openMode==='embedded'?'selected':''}>站内嵌入 · 保留 Ops Studio 导航</option><option value="newtab" ${a.openMode==='newtab'?'selected':''}>新标签页 · 独立打开目标网站</option></select><small>目标网站需要允许嵌入；不支持时可新标签页打开。</small></label><label>关联工作空间<select name="workspace"><option value="">仅在应用中心展示</option>${platformSpaces.filter(s=>s.id!=='applications').map(s=>`<option value="${s.id}" ${a.workspace===s.id?'selected':''}>${s.name}</option>`).join('')}</select><small>入口会同时出现在所选工作空间的侧栏。</small></label><label>维护人<input name="owner" maxlength="80" value="${escapeHtml(a.owner)}" placeholder="可选，例如：运维团队"></label><div id="ac-form-error" role="alert"></div><div id="ac-delete-check" hidden>确认移除应用入口？不会删除目标工具。<button type="button" class="qw-link" data-app-delete-confirm>确认删除</button><button type="button" class="qw-link" data-app-delete-cancel>取消</button></div></section><footer>${id?'<button type="button" class="qw-link ac-danger" data-app-delete>删除应用</button>':''}<span style="flex:1"></span><button type="button" class="button" data-app-close>取消</button><button type="submit" class="button primary">保存应用</button></footer></form>`;
+      document.body.append(layer);document.body.style.overflow='hidden';layer.querySelector('[name=name]').focus();
+      function busy(value){appCenter.busy=value;layer.querySelectorAll('input,select,textarea,button').forEach(n=>n.disabled=value);}
+      async function mutate(remove=false){
+        if(appCenter.busy)return;
+        const form=layer.querySelector('form'),input=Object.fromEntries(new FormData(form));
+        if(!remove&&(!input.name.trim()||!validApplicationAddress(input.url))){layer.querySelector('#ac-form-error').textContent='请输入名称和有效的 HTTP / HTTPS 地址，地址不可包含账号密码。';return;}
+        busy(true);layer.querySelector('#ac-form-error').textContent='';
+        try{
+          if(remove){await autoUtCall('/api/platform/applications/'+id,jsonOptions('DELETE',{revision:a.revision}));appCenter.items=appCenter.items.filter(x=>x.id!==id);appCenter.favorites.delete(id);saveApplicationFavorites();}
+          else{const item=await autoUtCall('/api/platform/applications'+(id?'/'+id:''),jsonOptions(id?'PUT':'POST',id?{...input,revision:a.revision}:input));appCenter.items=[...appCenter.items.filter(x=>x.id!==item.id),item].sort((a,b)=>a.name.localeCompare(b.name,'zh-CN'));}
+          appCenter.loaded=true;busy(false);closeApplicationEditor();appCenter.category='全部应用';appCenter.query='';appCenter.favorite=false;
+          if(remove&&state.applicationId===id)return navigateApp('applications','');
+          render(false);showToast(remove?'应用入口已删除':'应用已保存');
+        }catch(e){layer.querySelector('#ac-form-error').textContent=(e.message||'保存失败')+'。请求未自动重试。';}
+        finally{busy(false);}
+      }
+      layer.querySelector('form').onsubmit=e=>{e.preventDefault();void mutate();};
+      layer.querySelector('[data-app-delete-confirm]').onclick=()=>void mutate(true);
+    }
+    function bindPlatformInteractions(){
+      document.querySelectorAll('[data-portal-page]').forEach(b=>b.onclick=()=>navigateApp('portal',b.dataset.portalPage));
+      document.querySelectorAll('[data-portal-space]').forEach(b=>b.onclick=()=>navigateApp(b.dataset.portalSpace,platformDefaultPage(b.dataset.portalSpace)));
+      document.querySelectorAll('[data-portal-target]').forEach(b=>b.onclick=()=>{const[d,p]=b.dataset.portalTarget.split(':');navigateApp(d,p);});
+      document.querySelectorAll('[data-pr-app]').forEach(b=>b.onclick=()=>openPlatformApplication(b.dataset.prApp));
+      document.querySelectorAll('[data-app-create]').forEach(b=>b.onclick=()=>openApplicationEditor());
+      document.querySelectorAll('[data-app-edit]').forEach(b=>b.onclick=()=>openApplicationEditor(b.dataset.appEdit));
+      document.querySelectorAll('[data-app-favorite]').forEach(b=>b.onclick=()=>{const id=b.dataset.appFavorite;if(applicationFavorite(id))appCenter.favorites.delete(id);else appCenter.favorites.add(id);saveApplicationFavorites();render(false);});
+      document.querySelectorAll('[data-app-filter]').forEach(b=>b.onclick=()=>{appCenter.favorite=b.dataset.appFilter==='favorite';navigateApp('applications','');});
+      document.querySelectorAll('[data-app-category]').forEach(b=>b.onclick=()=>{appCenter.category=b.dataset.appCategory;render(false);});
+      document.querySelectorAll('[data-app-refresh]').forEach(b=>b.onclick=()=>void loadApplications(true));
+      document.querySelectorAll('[data-app-back]').forEach(b=>b.onclick=()=>navigateApp(state.platformDomain,platformDefaultPage(state.platformDomain)));
+      document.querySelector('[data-app-reload]')?.addEventListener('click',()=>{const f=document.querySelector('#ac-frame');if(f)f.src=f.src;});
+      document.querySelector('[data-pr-refresh]')?.addEventListener('click',()=>void loadPlatformOverview());
+      document.querySelector('#pr-search')?.addEventListener('input',e=>{platformUi.query=e.target.value;const p=e.target.selectionStart;render(false);const n=document.querySelector('#pr-search');n.focus();n.setSelectionRange(p,p);});
+      document.querySelector('#ac-search')?.addEventListener('input',e=>{appCenter.query=e.target.value;const p=e.target.selectionStart;render(false);const n=document.querySelector('#ac-search');n.focus();n.setSelectionRange(p,p);});
+      document.querySelectorAll('[data-platform-todo]').forEach(b=>b.onclick=()=>openPlatformTodo(b.dataset.platformTodo));
+    }
+    function platformDefaultPage(domain){return domain==='automation'?state.automationPage:domain==='container'?state.page:domain==='portal'?state.portalPage:'';}
+    async function openPlatformTodo(key){
+      const item=platformUi.summary?.todos.find(x=>x.kind+':'+x.id===key);if(!item)return;
+      if(item.kind==='ut'&&!state.autoUtTasks.some(t=>t.id===item.id))await loadAutoUtTasks();
+      if(item.kind==='mr'){groupMrUi.selected=item.id;groupMrUi.tab='pending';}
+      if(item.kind==='ut'){workspaceUi.taskSearch='';workspaceUi.taskStatus='';workspaceUi.taskVersion='';workspaceUi.recordKind='ut';workspaceUi.recordDays=0;workspaceUi.recordOutcome='';workspaceUi.selectedTaskId=item.id;}
+      if(item.kind==='quality'||item.kind==='report'){workspaceUi.recordKind=item.kind;workspaceUi.taskSearch='';workspaceUi.taskStatus='';workspaceUi.taskVersion='';workspaceUi.recordDays=0;workspaceUi.recordOutcome='';}
+      navigateApp(item.domain,item.page);
+      // Existing delivery runtimes own loading task details; this event carries no execution action.
+      if(item.kind==='build'||item.kind==='deploy')document.dispatchEvent(new CustomEvent('platform-open-delivery-task',{detail:{kind:item.kind,id:item.id}}));
+    }
+    document.addEventListener('click',e=>{
+      if(!e.target.closest('.pr-switch'))document.querySelector('.pr-switch')?.removeAttribute('open');
+      if(e.target.closest('[data-app-close]'))closeApplicationEditor();
+      if(e.target.closest('[data-app-delete]'))document.querySelector('#ac-delete-check').hidden=false;
+      if(e.target.closest('[data-app-delete-cancel]'))document.querySelector('#ac-delete-check').hidden=true;
+    });
+    document.addEventListener('keydown',e=>{
+      if(e.key==='Escape'){const m=document.querySelector('.pr-switch[open]');if(m){m.removeAttribute('open');m.querySelector('summary').focus();}}
+      const layer=document.querySelector('#ac-overlay');if(!layer)return;
+      if(e.key==='Escape'){e.preventDefault();closeApplicationEditor();}
+      if(e.key==='Tab'){const ns=[...layer.querySelectorAll('button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled)')].filter(n=>!n.closest('[hidden]'));if(!ns.length){e.preventDefault();return;}if(e.shiftKey&&document.activeElement===ns[0]){e.preventDefault();ns.at(-1).focus();}else if(!e.shiftKey&&document.activeElement===ns.at(-1)){e.preventDefault();ns[0].focus();}}
+    });
+
+function platformTools(){const q=platformUi.query.toLowerCase();const list=platformSpaces.filter(s=>(s.name+s.desc+s.links.map(l=>l[1]).join('')).toLowerCase().includes(q));const favorites=appCenter.items.filter(a=>applicationFavorite(a.id));return `<div class="pr-home"><div class="pr-home-head"><div><div class="pr-eyebrow">WORKSPACE</div><h1>工具中心</h1><p>选择工作空间，或直接进入常用工具。</p></div><div class="pr-search"><span>⌕</span><input id="pr-search" placeholder="搜索工作空间或工具" value="${escapeHtml(platformUi.query)}" aria-label="搜索工具"></div></div>${platformApplicationNotice()}<div class="pr-space-grid">${list.map((s,i)=>`<article class="pr-space-card"><div class="pr-space-head"><span class="pr-space-icon tone-${s.id}">${navIcon(s.icon)}</span><span class="pr-space-tag">${s.tag}</span></div><h2><button data-portal-space="${s.id}">${s.name}</button></h2><p>${s.desc}</p><div class="pr-shortcuts">${s.links.map(([page,label])=>`<button data-portal-target="${s.id}:${page}">${label}<span>↗</span></button>`).join('')||`<span>${s.id==='applications'?appCenter.items.length+' 个已配置应用':'现有预留空间'}</span>`}</div><div class="pr-space-foot"><span>${s.id==='automation'?'治理 · 检视 · 调度':s.id==='container'?'环境 · 构建 · 部署':s.id==='applications'?'网站接入 · 关联空间':'按需扩展'}</span><button data-portal-space="${s.id}">进入空间 →</button></div></article>`).join('')||'<div class="pr-no-result">没有匹配的工作空间或工具</div>'}</div><div class="pr-section-head"><div><h2>常用入口</h2><p>跨空间直达，减少重复切换。</p></div><button class="qw-link" data-portal-space="applications">管理应用 →</button></div><div class="pr-quick-grid">${[['automation','auto-ut','UT 治理','自动化空间','tools'],['automation','group-mr','MR 检视与合入','自动化空间','tasks'],['container','resources','环境管理','容器运维','resources'],['container','deploy','部署','容器运维','deploy']].map(([d,p,n,s,icon])=>`<button class="pr-quick" data-portal-target="${d}:${p}">${navIcon(icon)}<span><strong>${n}</strong><small>${s}</small></span><b>→</b></button>`).join('')}</div><div class="pr-section-head"><div><h2>收藏的应用 <small>${favorites.length}</small></h2><p>在应用中心收藏后，入口会出现在这里。</p></div></div>${favorites.length?`<div class="pr-quick-grid">${favorites.map(a=>`<button class="pr-quick" data-pr-app="${a.id}">${navIcon('tools')}<span><strong>${escapeHtml(a.name)}</strong><small>${escapeHtml(a.category)}</small></span><b>${a.openMode==='newtab'?'↗':'→'}</b></button>`).join('')}</div>`:'<div class="pr-empty-favorite"><span>☆</span><div><strong>把常用的日志与监控入口放在手边</strong><p>创建应用后点击收藏，即可从这里直接打开。</p></div><button class="button" data-portal-space="applications">前往应用中心</button></div>'}</div>`}
+    function platformOverview(){
+      const s=platformUi.summary,unavailable=!s,error=platformUi.summaryError;
+      return `<div class="pr-home"><div class="pr-home-head"><div><div class="pr-eyebrow">PLATFORM OVERVIEW</div><h1>全局概览</h1><p>先看需要处理的事项，再进入对应工作空间。</p></div><button class="button" data-pr-refresh ${platformUi.summaryLoading?'disabled':''}>${platformUi.summaryLoading?'正在刷新…':'刷新状态'}</button></div>${error?`<div class="qw-notice" role="alert">概览读取失败：${escapeHtml(error)}${s?'；以下为上次成功读取的数据。':''}</div>`:''}<div class="pr-stats">${[['需要处理',s?.attention,'待审核 MR、失败或待确认任务'],['正在执行',s?.running,'自动化与构建部署任务'],['环境连接',s?s.environments.reachable+' / '+s.environments.total:null,'以最近一次连接测试为准'],['接入应用',s?.applications,'应用入口，不计入业务任务']].map(([n,v,sub])=>`<div class="pr-stat"><span>${n}</span><strong>${v??'—'}</strong><small>${sub}</small></div>`).join('')}</div><div class="pr-overview-cols"><section class="panel pr-panel"><div class="pr-section-head"><div><h2>待处理事项</h2><p>进入原有业务页面继续处理。</p></div><span class="badge">${unavailable?'未加载':s.attention+' 项'}</span></div>${s?.todos.length?s.todos.map(i=>`<div class="pr-todo"><span class="pr-todo-dot"></span><div><strong>${escapeHtml(i.title)}</strong><small>${i.domain==='automation'?'自动化空间':'容器运维'} · ${escapeHtml(i.reason)}</small></div><button class="qw-link" data-platform-todo="${escapeHtml(i.kind+':'+i.id)}">去处理 →</button></div>`).join(''):`<div class="pr-no-data"><span>◎</span><h3>${unavailable?(platformUi.summaryLoading?'正在加载真实任务状态…':'尚未读取任务状态'):'当前没有需要处理的事项'}</h3><p>${unavailable?'请确认后端正常运行后刷新。':'UT 治理、MR 审核和交付任务仍在各自空间中处理。'}</p><button class="button" data-portal-space="automation">进入自动化空间</button></div>`}${s&&s.attention>s.todos.length?'<p class="qw-muted">展示最近 100 条待处理事项，可进入对应空间查看全部。</p>':''}</section><div><section class="panel pr-panel"><h2>各空间概览</h2><p class="pr-panel-copy">保留专业视角，全局页面负责汇总与跳转。</p>${[['automation','catalog','自动化成果与待办','查看治理成果和 MR 指标'],['container','dashboard','容器运维工作台','查看环境与构建部署情况']].map(([d,p,n,c])=>`<button class="pr-context-row" data-portal-target="${d}:${p}"><span><strong>${n}</strong><small>${c}</small></span><b>→</b></button>`).join('')}</section><section class="panel pr-panel"><h2>执行与调度</h2><button class="pr-context-row" data-portal-target="automation:tasks"><span><strong>执行记录</strong><small>查看任务详情与处理结果</small></span><b>→</b></button><button class="pr-context-row" data-portal-target="automation:schedules"><span><strong>定时计划</strong><small>查看自动化任务的执行计划</small></span><b>→</b></button></section></div></div>${s?`<p class="pr-overview-updated">更新时间：${escapeHtml(new Date(s.updatedAt).toLocaleString('zh-CN'))}</p>`:''}</div>`;
+    }
 
     initNavigation();
   </script>
