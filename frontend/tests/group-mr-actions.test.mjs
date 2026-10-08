@@ -23,7 +23,6 @@ async function setup(t,{records=[row('1'),row('2'),row('3','NO_PERMISSION'),row(
  t.after(()=>dom.window.close());await flush();return {dom,d:dom.window.document,calls,records}
 }
 function select(d,...ids){for(const id of ids)d.querySelector('[data-group-mr-check="'+id+'"]').click()}
-function decide(dom,value,reason=''){const f=dom.window.document.querySelector('#mr-action-review-form');f.querySelector('[value="'+value+'"]').click();const r=f.querySelector('textarea');r.value=reason;r.dispatchEvent(new dom.window.Event('input',{bubbles:true}))}
 test('MR 标题打开真实链接，点击行仍可选详情，非法链接不呈现且操作表头左对齐',async t=>{
  const {dom,d}=await setup(t,{records:[row('1'),row('2'),{...row('3'),url:'javascript:alert(1)'},{...row('4','PI'),running:true}]})
  const a=d.querySelector('[data-group-mr-record-button="2"]');assert.equal(a.href,row('2').url);assert.equal(a.target,'_blank');assert.match(a.rel,/noopener/);a.addEventListener('click',e=>e.preventDefault());a.click();assert.equal(dom.window.eval('groupMrUi.selected'),'1')
@@ -31,16 +30,15 @@ test('MR 标题打开真实链接，点击行仍可选详情，非法链接不�
  assert.equal(d.querySelector('[data-group-mr-action="review"][data-record-id="1"]').disabled,false);assert.equal(d.querySelector('[data-group-mr-action="merge"][data-record-id="1"]').disabled,true);assert.equal(d.querySelector('[data-group-mr-check="4"]').disabled,true)
  const css=await readFile(new URL('../src/studio-workspace.css',import.meta.url),'utf8');assert.match(css,/th\.group-mr-action-cell\{text-align:left/)
 })
-test('批量审核校验结论和驳回理由，按提交保存并呈现部分失败与跳过',async t=>{
- const {dom,d,calls}=await setup(t);select(d,'1','2','3');d.querySelector('[data-group-mr-action="review"]:not([data-record-id])').click();assert.equal(calls.length,0);assert.match(d.querySelector('.mr-panel-count').textContent,/选中 3 条 · 可审核 2 条/)
- d.querySelector('[data-mr-panel-submit]').click();assert.match(d.querySelector('.mr-form-error').textContent,/请选择审核结论/);decide(dom,'reject');d.querySelector('[data-mr-panel-submit]').click();assert.match(d.querySelector('.mr-form-error').textContent,/请填写不通过原因/)
- decide(dom,'reject','业务边界需补充验证');d.querySelector('[data-mr-panel-submit]').click();await flush();assert.equal(calls.length,2);for(const c of calls)assert.deepEqual(c.data,{sha,decision:'reject',reason:'业务边界需补充验证',category:''})
+test('批量一键审核直接通过，按当前提交保存并呈现部分失败与跳过',async t=>{
+ const {d,calls}=await setup(t);select(d,'1','2','3');const button=d.querySelector('[data-group-mr-action="review"]:not([data-record-id])');assert.match(button.textContent,/批量一键审核/);button.click();
+ assert.equal(d.querySelector('#mr-action-review-form'),null);await flush();assert.equal(calls.length,2);for(const c of calls)assert.deepEqual(c.data,{sha,decision:'pass',reason:'',category:''})
  assert.match(d.querySelector('.mr-complete-message').textContent,/1 条审核已保存，1 条未完成/);assert.match(d.querySelector('.mr-targets').textContent,/提交已变化/);assert.match(d.querySelector('.mr-targets').textContent,/已跳过/)
 })
-test('审核取消无写入、刷新保留草稿、提交期间防重复并禁止关闭',async t=>{
+test('单条一键审核立即提交，进行中防重复，详情保留通过和不通过',async t=>{
  let release;const {dom,d,calls}=await setup(t,{write:(_url,data,response)=>new Promise(resolve=>release=()=>resolve(response({humanReview:data})))})
- d.querySelector('[data-group-mr-action="review"][data-record-id="1"]').click();decide(dom,'pass','验证通过');await dom.window.eval('loadGroupMr()');assert.equal(d.querySelector('#mr-action-reason').value,'验证通过');d.querySelector('[data-mr-panel-close]').click();assert.equal(calls.length,0)
- d.querySelector('[data-group-mr-action="review"][data-record-id="1"]').click();decide(dom,'pass');d.querySelector('[data-mr-panel-submit]').click();await dom.window.eval('submitGroupMrAction()');assert.equal(calls.length,1);assert.equal(d.querySelector('[data-mr-panel-close]').disabled,true);release();await flush();assert.match(d.querySelector('.mr-complete-message').textContent,/1 条审核已保存/)
+ const detail=d.querySelector('[data-human-review="1"]');assert.ok(detail.querySelector('[value="pass"]'));assert.ok(detail.querySelector('[value="reject"]'));assert.equal(calls.length,0)
+ const button=d.querySelector('[data-group-mr-action="review"][data-record-id="1"]');assert.equal(button.textContent,'一键审核');button.click();button.click();await dom.window.eval('submitGroupMrAction()');assert.equal(calls.length,1);assert.deepEqual(calls[0].data,{sha,decision:'pass',reason:'',category:''});assert.equal(d.querySelector('[data-mr-panel-close]').disabled,true);release();await flush();assert.match(d.querySelector('.mr-complete-message').textContent,/1 条审核已保存/)
 })
 test('批量合入明确确认、跳过未审核项、逐项结果与历史跳转',async t=>{
  const {d,calls}=await setup(t);select(d,'1','3','4');d.querySelector('[data-group-mr-action="merge"]:not([data-record-id])').click();assert.equal(calls.length,0);assert.match(d.querySelector('.mr-panel-count').textContent,/可合入 2 条/)
