@@ -35,7 +35,15 @@ export class AutoUtReports{
  async close(){this.closed=true;clearInterval(this.timer);await Promise.allSettled(this.pending);}
  configuration():SavedConfig{const saved=this.store.getRecord<SavedConfig>('auto-ut-report-config','main')??{config:structuredClone(defaults),nextRunAt:null};return {...saved,config:reportConfig.parse(saved.config)};}
  configure(value:unknown){const config=reportConfig.parse(value);for(const previous of this.configuration().config.versions){const next=config.versions.find(v=>v.version===previous.version);if(this.versionLocked(previous.version,previous.baseBranch)&&(!next||next.baseBranch!==previous.baseBranch))throw Object.assign(Error('已有 UT 修复任务的版本不能移除或修改基础分支'),{statusCode:409});}if(config.schedule.enabled&&config.schedule.action==='REPAIR'&&!executionReady(config))throw Object.assign(new Error('自动修复必须填写各版本分支、用户名、各版本独立单号和工作目录'),{statusCode:400});const saved={config,nextRunAt:config.schedule.enabled?nextRun(config):null};this.store.putRecord('auto-ut-report-config','main',saved);return saved;}
- list(){return this.store.records<ReportRun>('auto-ut-report-run').map(run=>this.releaseDeletedClaims(run));}get(id:string){const run=this.store.getRecord<ReportRun>('auto-ut-report-run',id);if(!run)throw Object.assign(new Error('报告获取记录不存在'),{statusCode:404});return this.releaseDeletedClaims(run);}
+ list(){return this.store.records<ReportRun>('auto-ut-report-run').map(run=>this.releaseDeletedClaims(this.currentCapabilities(run)));}get(id:string){const run=this.store.getRecord<ReportRun>('auto-ut-report-run',id);if(!run)throw Object.assign(new Error('报告获取记录不存在'),{statusCode:404});return this.releaseDeletedClaims(this.currentCapabilities(run));}
+ private currentCapabilities(run:ReportRun):ReportRun{
+  // Supported languages belong to this software version, not the saved report.
+  // Keep the report metrics and execution claims intact when upgrading.
+  return {...run,plan:(run.plan??[]).map(item=>{
+   const language=utLanguage(item.language),ticket=versionTicket(run.config,item.version);
+   return {...item,repairSupported:language!==undefined,...(language==='JS'?{repairBranch:item.baseBranch&&run.config.username&&ticket?utRepairBranch(item.baseBranch,run.config.username,ticket,language):''}:{})};
+  })};
+ }
  private releaseDeletedClaims(run:ReportRun){
   // Only release confirmed creations that were explicitly deleted. A failed or
   // interrupted launch remains claimed: reading a report must not replay it.
