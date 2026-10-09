@@ -35,14 +35,18 @@ test('JS 基线依次在 website 安装和运行 npm，恢复锁文件；拒绝�
  service['command']=async()=>{await writeFile(service['jsReport'](value),report(website));return{exitCode:124,output:'timeout'};};await assert.rejects(service['testEvidence'](value,[],root,'超时'),/未正常完成/);
  const logs=join(service['jsReport'](value),'..');assert.equal((await readdir(logs)).filter(name=>/^jest-results-.+\.json$/.test(name)).length,3);const trace=await readFile(join(logs,'diagnostics.jsonl'),'utf8');assert.match(trace,/jest_result/);assert.match(trace,/jest_blocked/);assert.match(trace,/jest_report_unavailable/);
 });
-test('同仓库 Java、JS 分别建任务、分支、目录；Python 不支持',async t=>{
+test('Java、JS 使用统一目录，分支与任务独立且禁止同时占用；Python 不支持',async t=>{
  const root=await mkdtemp(join(tmpdir(),'autout-mixed-')),store=new TaskStore(':memory:'),service=new AutoUtService(store,undefined,false);
  t.after(async()=>{await service.close();store.close();await rm(root,{recursive:true,force:true});});service['schedule']=()=>{};
  const csv=Buffer.from('代码仓,语言,PL组,失败用例,行覆盖率,行覆盖率目标,分支覆盖率,分支覆盖率目标\nMixed,Java,Access_智能驾舱组,1,.1,.8,.1,.7\nMixed,JS,Access_智能驾舱组,13,.1,.8,.1,.7\nMixed,Py,Access_智能驾舱组,1,.1,.8,.1,.7\n');
- const tasks=await service.start(csv,'tester','DTS1','main',root,'MANUAL',{version:'R27',reportId:'report'});assert.equal(tasks.length,2);
- const java=tasks[0]!,js=tasks[1]!;assert.notEqual(autoUtWorkspace(java),autoUtWorkspace(js));assert.notEqual(java.repairBranch,js.repairBranch);assert.equal(js.language,'JS');
+ const javaCsv=Buffer.from(csv.toString().split('\n').filter(line=>!line.includes(',JS,')).join('\n')),jsCsv=Buffer.from(csv.toString().split('\n').filter(line=>!line.includes(',Java,')).join('\n'));
+ const java=(await service.start(javaCsv,'tester','DTS1','main',root,'MANUAL',{version:'R27',reportId:'report'}))[0]!;
+ await assert.rejects(service.start(jsCsv,'tester','DTS1','main',root,'MANUAL',{version:'R27',reportId:'report'}),/依次治理/);
+ await service.deleteTask(java.id,false);
+ const js=(await service.start(jsCsv,'tester','DTS1','main',root,'MANUAL',{version:'R27',reportId:'report'}))[0]!;assert.equal(autoUtWorkspace(java),autoUtWorkspace(js));assert.equal(autoUtWorkspace(js),join(root,'R27','mixed'));assert.notEqual(java.repairBranch,js.repairBranch);assert.equal(js.language,'JS');
+ const legacy={...js,workspacePath:join(root,'.auto-ut-js','R27','mixed')};assert.equal(autoUtWorkspace(legacy),legacy.workspacePath);
  assert.equal(utPlanKey({version:'R27',repository:'Mixed'}),'R27/Mixed');assert.equal(utPlanKey({version:'R27',repository:'Mixed',language:'JS'}),'R27/Mixed/JS');assert.equal(utRepairBranch('main','tester','DTS1','JS'),js.repairBranch);
- assert.equal(service.blocksRepository('Mixed','R27','main','JS'),true);store.deleteRecord('auto-ut-task',js.id);store.deleteRecord('auto-ut-governance',js.id);assert.equal(service.blocksRepository('Mixed','R27','main','JS'),false);assert.equal(service.blocksRepository('Mixed','R27','main'),true);assert.equal(utLanguage('Python'),undefined);
+ assert.equal(service.blocksRepository('Mixed','R27','main','JS'),true);store.deleteRecord('auto-ut-task',js.id);store.deleteRecord('auto-ut-governance',js.id);assert.equal(service.blocksRepository('Mixed','R27','main','JS'),false);assert.equal(service.blocksRepository('Mixed','R27','main'),false);assert.equal(utLanguage('Python'),undefined);
 });
 test('JS 修改门禁接受 JSX 与 mock，拒绝源码、配置、快照、跳过和删断言',async t=>{
  for(const path of ['website/src/a.test.js','website/src/a.spec.jsx','website/src/__tests__/a.jsx','website/src/__mocks__/api.js'])assert.equal(utTestFile(path,'JS'),true);

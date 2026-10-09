@@ -176,7 +176,8 @@ test('混合语言报告 JS 可单独启动，不占用 Java 的选择与领取�
 test('删除未完成 UT 后释放原报告领取标记，隔离同仓库 JS，允许手动重新启动',async()=>{
  const store=new TaskStore(':memory:'),quality=new QualityService(store,undefined,async()=>Response.json(payload(['Java','JS'].map(language=>['Demo',language,'Access_智能驾舱组',1,.5,.8,.5,.7,100,20])))),auto=new AutoUtService(store,undefined,false),reports=new AutoUtReports(store,quality,auto,undefined,false);auto['schedule']=()=>{};
  try{reports.configure({...config(),versions:[config().versions[0]!]});const run=await ready(reports,reports.fetchReport().id);await reports.start(run.id,'MANUAL');
-  const java=auto.tasks().find(t=>t.language!=='JS')!,js=auto.tasks().find(t=>t.language==='JS')!;
+  const java=auto.tasks().find(t=>t.language!=='JS')!;assert.equal(auto.tasks().length,1);
+  const js={...java,id:'legacy-js-task',language:'JS' as const,workspacePath:'/tmp/.auto-ut-js/R27C10/demo'};auto['save'](js);const legacyRun=reports.get(run.id);legacyRun.claimed.push('R27C10/Demo/JS');legacyRun.taskIds.push(js.id);store.putRecord('auto-ut-report-run',run.id,legacyRun);
   await auto.deleteTask(java.id,false);
   assert.deepEqual(reports.get(run.id).claimed,['R27C10/Demo/JS']);assert.deepEqual(store.getRecord<{claimed:string[]}>('auto-ut-report-run',run.id)!.claimed,['R27C10/Demo/JS']);
   assert.equal(auto.tasks().length,1);assert.equal(auto.tasks()[0]!.id,js.id);

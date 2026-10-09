@@ -198,7 +198,7 @@ SSH 用户名仍按环境类型固定：构建环境使用 `huawei`，容器环�
 
 ### JavaScript UT 治理
 
-JS / JavaScript 报告可独立启动治理；同仓库的 Java、JS 使用独立任务、工作目录和修复分支。Python 等其他语言显示暂不支持自动修复。
+JS / JavaScript 报告可独立启动治理；同仓库的 Java、JS 使用独立任务和修复分支，工作目录统一为 `<工作根目录>/<版本>/<仓库名>`，同一目录需依次治理。升级前已创建的 JS 任务继续使用其原目录，避免丢失修复现场；新任务不再创建 `.auto-ut-js` 层级。Python 等其他语言显示暂不支持自动修复。
 
 克隆后必须已有 `website/package.json`，且 `scripts.test` 使用已支持的 Jest 执行入口（直接调用、npm 脚本别名，或 react-scripts / react-app-rewired test）。其他测试框架需接入相应结果解析，不能直接套用 Jest 参数。平台在 `website` 内依次执行：
 
