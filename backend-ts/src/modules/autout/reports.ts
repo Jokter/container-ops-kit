@@ -1,3 +1,4 @@
+import {utLanguage,utPlanKey,utRepairBranch} from './languages.js';
 import {dtsProduct} from './dts-product.js';
 import type {UnifiedSchedules} from '../automation/schedules.js';
 import {randomUUID} from 'node:crypto';
@@ -34,9 +35,21 @@ export class AutoUtReports{
  async close(){this.closed=true;clearInterval(this.timer);await Promise.allSettled(this.pending);}
  configuration():SavedConfig{const saved=this.store.getRecord<SavedConfig>('auto-ut-report-config','main')??{config:structuredClone(defaults),nextRunAt:null};return {...saved,config:reportConfig.parse(saved.config)};}
  configure(value:unknown){const config=reportConfig.parse(value);for(const previous of this.configuration().config.versions){const next=config.versions.find(v=>v.version===previous.version);if(this.versionLocked(previous.version,previous.baseBranch)&&(!next||next.baseBranch!==previous.baseBranch))throw Object.assign(Error('已有 UT 修复任务的版本不能移除或修改基础分支'),{statusCode:409});}if(config.schedule.enabled&&config.schedule.action==='REPAIR'&&!executionReady(config))throw Object.assign(new Error('自动修复必须填写各版本分支、用户名、各版本独立单号和工作目录'),{statusCode:400});const saved={config,nextRunAt:config.schedule.enabled?nextRun(config):null};this.store.putRecord('auto-ut-report-config','main',saved);return saved;}
- list(){return this.store.records<ReportRun>('auto-ut-report-run');}get(id:string){const run=this.store.getRecord<ReportRun>('auto-ut-report-run',id);if(!run)throw Object.assign(new Error('报告获取记录不存在'),{statusCode:404});return run;}
+ list(){return this.store.records<ReportRun>('auto-ut-report-run').map(run=>this.releaseDeletedClaims(run));}get(id:string){const run=this.store.getRecord<ReportRun>('auto-ut-report-run',id);if(!run)throw Object.assign(new Error('报告获取记录不存在'),{statusCode:404});return this.releaseDeletedClaims(run);}
+ private releaseDeletedClaims(run:ReportRun){
+  // Only release confirmed creations that were explicitly deleted. A failed or
+  // interrupted launch remains claimed: reading a report must not replay it.
+  if(this.starting||!run.claimed?.length||!run.taskIds?.some(id=>this.store.getRecord('automation-record-hidden',id)))return run;
+  const tasks=this.autoUt.tasks(),records=this.autoUt.governanceRecords();
+  const released=run.plan.filter(p=>run.claimed.includes(utPlanKey(p))&&run.messages.filter(message=>message.startsWith(utPlanKey(p)+'：')).at(-1)===`${utPlanKey(p)}：已创建修复任务`).filter(p=>{
+   const matches=(t:{repository:string;reportVersion?:string;baseBranch:string;language?:string})=>t.repository.toLowerCase()===p.repository.toLowerCase()&&utLanguage(t.language)===utLanguage(p.language)&&(t.reportVersion===p.version||!t.reportVersion&&t.baseBranch===p.baseBranch);
+   return !tasks.some(matches)&&!records.some(t=>run.taskIds.includes(t.id)&&matches(t))&&!this.autoUt.blocksRepository(p.repository,p.version,p.baseBranch,p.language);
+  }).map(utPlanKey);
+  if(released.length){run.claimed=run.claimed.filter(key=>!released.includes(key));run.messages.push(...released.map(key=>`${key}：未完成任务已删除，可手动重新开始治理`));this.save(run);}
+  return run;
+ }
  private save(run:ReportRun){this.store.putRecord('auto-ut-report-run',run.id,run,run.createdAt);this.logs.task('auto-ut',run.id,{time:new Date().toISOString(),status:run.status,message:run.messages.at(-1)??'开始获取报告',taskIds:run.taskIds});}
- versionLocked(version:string,baseBranch:string){return this.autoUt.tasks().some(t=>(t.reportVersion===version||!t.reportVersion&&t.baseBranch===baseBranch)&&this.autoUt.blocksRepository(t.repository,version,baseBranch))||this.autoUt.archivedMrBlockers().some(t=>t.reportVersion===version||!t.reportVersion&&t.baseBranch===baseBranch);}
+ versionLocked(version:string,baseBranch:string){return this.autoUt.tasks().some(t=>(t.reportVersion===version||!t.reportVersion&&t.baseBranch===baseBranch)&&this.autoUt.blocksRepository(t.repository,version,baseBranch,t.language))||this.autoUt.archivedMrBlockers().some(t=>t.reportVersion===version||!t.reportVersion&&t.baseBranch===baseBranch);}
  assertCanCreate(id:string,version:string,username:string){
   const run=this.get(id),configured=this.configuration().config,entry=run.config.versions.find(v=>v.version===version),current=configured.versions.find(v=>v.version===version);
   if(!sameReportScope(run.config,configured))throw Object.assign(Error('查询范围已变化，请重新获取该版本报告。'),{statusCode:409});
@@ -78,7 +91,7 @@ export class AutoUtReports{
  private plan(job:QualityJob,config:ReportConfig):PlanItem[]{const plan:PlanItem[]=[];for(const part of job.parts){if(part.status!=='SUCCEEDED')continue;const baseBranch=config.versions.find(v=>v.version===part.version)!.baseBranch;
   for(const row of part.rows){const language=String(row['语言']??''),team=String(row['PL组']??'');if(!config.teams.includes(team))continue;const cpp=language==='Cpp',branchCoverage=cpp?1:metric(row['分支覆盖率'],true),branchGoal=cpp?0:Math.min(metric(row['分支覆盖率目标'],true),.7);const repository=String(row['代码仓']);if(!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(repository))throw new Error('代码仓名称无效');const mapping=this.store.getRecord<{url:string}>('auto-ut-repository',repository.toLowerCase());
    if(!(metric(row['失败用例'])>0||metric(row['行覆盖率'],true)<Math.min(metric(row['行覆盖率目标'],true),.8)||branchCoverage<branchGoal))continue;
-   plan.push({version:part.version,repository,language,team,repairSupported:language.toLowerCase()==='java',failedTests:metric(row['失败用例']),lineCoverage:metric(row['行覆盖率'],true),lineGoal:Math.min(metric(row['行覆盖率目标'],true),.8),branchCoverage,branchGoal,baseBranch,repositoryUrl:mapping?.url??`ssh://git@szv-y.codehub.huawei.com:2222/MAE-M/Access/${repository}.git`,repositoryCustomized:!!mapping,configured:!!baseBranch,repairBranch:baseBranch&&config.username&&versionTicket(config,part.version)?`${baseBranch}_${config.username}_${versionTicket(config,part.version)}`:''});
+   plan.push({version:part.version,repository,language,team,repairSupported:utLanguage(language)!==undefined,failedTests:metric(row['失败用例']),lineCoverage:metric(row['行覆盖率'],true),lineGoal:Math.min(metric(row['行覆盖率目标'],true),.8),branchCoverage,branchGoal,baseBranch,repositoryUrl:mapping?.url??`ssh://git@szv-y.codehub.huawei.com:2222/MAE-M/Access/${repository}.git`,repositoryCustomized:!!mapping,configured:!!baseBranch,repairBranch:baseBranch&&config.username&&versionTicket(config,part.version)?utRepairBranch(baseBranch,config.username,versionTicket(config,part.version),language):''});
   }}return plan;
  }
  start(id:string,mode:'MANUAL'|'AUTOMATIC',selected?:string[],useCurrentConfig=false){
@@ -86,14 +99,14 @@ export class AutoUtReports{
   const work=this.startWork(id,mode,selected,useCurrentConfig).finally(()=>this.starts.delete(id));this.starts.set(id,work);return work;
  }
  private async startWork(id:string,mode:'MANUAL'|'AUTOMATIC',selected?:string[],useCurrentConfig=false){
-  if(this.closed||this.starting)throw Object.assign(new Error('正在创建修复任务，请稍后重试'),{statusCode:409});const run=this.get(id);if(!['READY','PARTIAL'].includes(run.status))throw Object.assign(new Error('报告尚未就绪'),{statusCode:409});const selectedVersions=new Set(run.plan.filter(p=>p.repairSupported!==false&&(!selected||selected.includes(`${p.version}/${p.repository}`))).map(p=>p.version));
+  if(this.closed||this.starting)throw Object.assign(new Error('正在创建修复任务，请稍后重试'),{statusCode:409});const run=this.get(id);if(!['READY','PARTIAL'].includes(run.status))throw Object.assign(new Error('报告尚未就绪'),{statusCode:409});const selectedVersions=new Set(run.plan.filter(p=>p.repairSupported!==false&&(!selected||selected.includes(utPlanKey(p)))).map(p=>p.version));
   if(useCurrentConfig){const current=this.configuration().config;if(!sameReportScope(run.config,current))throw Object.assign(Error('查询范围已变化，请重新获取对应版本报告。'),{statusCode:409});for(const version of selectedVersions){const source=current.versions.find(v=>v.version===version),target=run.config.versions.find(v=>v.version===version);if(!source||!target||source.baseBranch!==target.baseBranch)throw Object.assign(Error('基础分支已变化，请重新获取对应版本报告。'),{statusCode:409});target.ticket=versionTicket(current,version);if(target.ticket&&current.versions.some(v=>v.version!==version&&versionTicket(current,v.version)===target.ticket))throw Object.assign(Error('不同版本必须使用独立问题单'),{statusCode:400});const known=this.store.records<{ticket:string;status:string;version?:string;username:string}>('dts-ticket').find(t=>t.ticket===target.ticket);if(known&&(known.status!=='READY'||known.version!==version||known.username!==current.username))throw Object.assign(Error('该版本问题单尚未流转成功或用户不匹配'),{statusCode:409});}run.config.username=current.username;run.config.workspaceRoot=current.workspaceRoot;run.config.maxClasses=current.maxClasses;}
   const scoped={...run.config,versions:run.config.versions.filter(v=>selectedVersions.has(v.version))};if(selectedVersions.size&&!executionReady(scoped))throw Object.assign(new Error('请在连接与设置填写执行用户和项目路径，并为所选版本配置独立单号。'),{statusCode:400});this.starting=true;
-  try{const items=run.plan.filter(p=>p.repairSupported!==false&&(!selected||selected.includes(`${p.version}/${p.repository}`)));
-   for(const item of items){if(this.deleting.has(id))break;const key=`${item.version}/${item.repository}`;if(run.claimed.includes(key))continue;
+  try{const items=run.plan.filter(p=>p.repairSupported!==false&&(!selected||selected.includes(utPlanKey(p))));
+   for(const item of items){if(this.deleting.has(id))break;const key=utPlanKey(item);if(run.claimed.includes(key))continue;
     // Reusing any unfinished/MR-bearing workspace would replay external side effects.
     await this.autoUt.refreshDeletedMrs(item.repository,item.version,item.baseBranch);if(this.deleting.has(id))break;
-    if(this.autoUt.blocksRepository(item.repository,item.version,item.baseBranch)){run.messages.push(`${key}：已有执行记录，跳过；请在原任务中继续或处理 MR${this.autoUt.archivedMrBlockers().some(r=>r.repository.toLowerCase()===item.repository.toLowerCase()&&(r.reportVersion===item.version||!r.reportVersion&&r.baseBranch===item.baseBranch))?'；历史 MR 待核验，请查看“历史 MR 阻塞”':''}`);this.save(run);continue;}
+    if(this.autoUt.blocksRepository(item.repository,item.version,item.baseBranch,item.language)){run.messages.push(`${key}：已有执行记录，跳过；请在原任务中继续或处理 MR${this.autoUt.archivedMrBlockers().some(r=>r.repository.toLowerCase()===item.repository.toLowerCase()&&(r.reportVersion===item.version||!r.reportVersion&&r.baseBranch===item.baseBranch))?'；历史 MR 待核验，请查看“历史 MR 阻塞”':''}`);this.save(run);continue;}
     run.claimed.push(key);this.save(run);
     const row:QualityRow={'代码仓':item.repository,'语言':item.language??'Java','PL组':item.team??'Access_智能驾舱组','失败用例':item.failedTests,'行覆盖率':item.lineCoverage,'行覆盖率目标':item.lineGoal,'分支覆盖率':item.branchCoverage,'分支覆盖率目标':item.branchGoal};
     try{const tasks=await this.autoUt.start(Buffer.from(qualityCsv({columns:Object.keys(row),rows:[row]})),run.config.username,versionTicket(run.config,item.version),item.baseBranch,run.config.workspaceRoot,mode,{version:item.version,reportId:run.id,maxClasses:run.config.maxClasses??5,reportAt:run.createdAt});run.taskIds.push(...tasks.map(t=>t.id));run.messages.push(`${key}：已创建修复任务`);}catch{run.messages.push(`${key}：启动失败，请检查工作目录；本次不会自动重试`);}this.save(run);

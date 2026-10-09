@@ -163,3 +163,31 @@ test('R27C11 可用于质量查询与 UT 配置，版本仍限制为 RxxCxx',()=
  assert.equal(reportConfig.parse({...config(),versions:[{version:'R27C11',baseBranch:'release/R27C11'}]}).versions[0]!.version,'R27C11');
  for(const version of ['R27C1','R27C111','R2C11','R27C11;DROP'])assert.throws(()=>qualityInput.parse({...input,versions:[version]}));
 });
+
+test('混合语言报告 JS 可单独启动，不占用 Java 的选择与领取标识',async()=>{
+ const store=new TaskStore(':memory:'),quality=new QualityService(store,undefined,async()=>Response.json(payload(['Java','JS','Py'].map(language=>['Mixed',language,'Access_智能驾舱组',13,.05,.14,.03,.13,100,20])))),auto=new FakeAutoUt(store),reports=new AutoUtReports(store,quality,auto);
+ try{reports.configure({...config(),versions:[config().versions[0]!]});const run=await ready(reports,reports.fetchReport().id);
+  assert.deepEqual(run.plan.map(p=>p.repairSupported),[true,true,false]);assert.notEqual(run.plan[0]!.repairBranch,run.plan[1]!.repairBranch);
+  await reports.start(run.id,'MANUAL',['R27C10/Mixed/JS']);assert.equal(auto.calls.length,1);assert.equal(auto.parseReport(auto.calls[0]!.report)[0]!.language,'JS');assert.deepEqual(reports.get(run.id).claimed,['R27C10/Mixed/JS']);
+  await reports.start(run.id,'MANUAL',['R27C10/Mixed']);assert.equal(auto.calls.length,2);assert.deepEqual(reports.get(run.id).claimed,['R27C10/Mixed/JS','R27C10/Mixed']);
+ }finally{await quality.close();await reports.close();await auto.close();store.close();}
+});
+
+test('删除未完成 UT 后释放原报告领取标记，隔离同仓库 JS，允许手动重新启动',async()=>{
+ const store=new TaskStore(':memory:'),quality=new QualityService(store,undefined,async()=>Response.json(payload(['Java','JS'].map(language=>['Demo',language,'Access_智能驾舱组',1,.5,.8,.5,.7,100,20])))),auto=new AutoUtService(store,undefined,false),reports=new AutoUtReports(store,quality,auto,undefined,false);auto['schedule']=()=>{};
+ try{reports.configure({...config(),versions:[config().versions[0]!]});const run=await ready(reports,reports.fetchReport().id);await reports.start(run.id,'MANUAL');
+  const java=auto.tasks().find(t=>t.language!=='JS')!,js=auto.tasks().find(t=>t.language==='JS')!;
+  await auto.deleteTask(java.id,false);
+  assert.deepEqual(reports.get(run.id).claimed,['R27C10/Demo/JS']);assert.deepEqual(store.getRecord<{claimed:string[]}>('auto-ut-report-run',run.id)!.claimed,['R27C10/Demo/JS']);
+  assert.equal(auto.tasks().length,1);assert.equal(auto.tasks()[0]!.id,js.id);
+  await reports.start(run.id,'MANUAL',['R27C10/Demo']);assert.equal(auto.tasks().length,2);assert.ok(auto.tasks().some(t=>t.language!=='JS'&&t.id!==java.id));
+ }finally{await reports.close();await quality.close();await auto.close();store.close();}
+});
+test('删除带未完成 MR 的任务不释放领取；启动失败或未知状态不因历史删除而自动重试',async()=>{
+ const store=new TaskStore(':memory:'),quality=new QualityService(store,undefined,async()=>Response.json(payload([row]))),auto=new AutoUtService(store,undefined,false),reports=new AutoUtReports(store,quality,auto,undefined,false);auto['schedule']=()=>{};
+ try{reports.configure({...config(),versions:[config().versions[0]!]});const run=await ready(reports,reports.fetchReport().id);await reports.start(run.id,'MANUAL');const task=auto.tasks()[0]!;task.governance!.mrState='PENDING';task.pullRequestUrl='https://codehub.example/test/merge_requests/1';auto['save'](task);
+  await auto.deleteTask(task.id,false);assert.deepEqual(reports.get(run.id).claimed,['R27C10/Demo']);assert.equal(auto.blocksRepository('Demo','R27C10','release/27'),true);
+  store.deleteRecord('auto-ut-governance',task.id);const saved=reports.get(run.id);saved.claimed=['R27C10/Demo'];saved.messages.push('R27C10/Demo：启动失败，请检查工作目录；本次不会自动重试');store.putRecord('auto-ut-report-run',saved.id,saved);
+  assert.deepEqual(reports.list().find(r=>r.id===run.id)!.claimed,['R27C10/Demo']);await reports.start(run.id,'MANUAL');assert.equal(auto.tasks().length,0);
+ }finally{await reports.close();await quality.close();await auto.close();store.close();}
+});

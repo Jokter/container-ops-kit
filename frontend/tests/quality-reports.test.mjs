@@ -368,3 +368,25 @@ test('保留工具页，三个能力可直接切换且各自筛选与浏览器�
   d.querySelector('aside [data-automation-nav="tasks"]').click();await pause();assert.equal(d.querySelector('.capability-switch'),null);
  }finally{w.close();}
 });
+
+test('同仓库 JS 独立勾选与显示进度，Java 旧任务不占用 JS，Py 仍不支持',async()=>{
+ const repository='Mixed',version='R27C10',run={id:'mixed-js',status:'READY',createdAt:'2026-10-09',config,claimed:[],taskIds:[],messages:[],plan:['Java','JS','Py'].map(language=>({version,repository,language,team:'Access_智能驾舱组',repairSupported:language!=='Py',configured:true,baseBranch:'release/27',failedTests:13,lineCoverage:.05,lineGoal:.14,branchCoverage:.03,branchGoal:.13}))};
+ let tasks=[];const dom=page(path=>path==='/api/auto-ut/reports'?[run]:path==='/api/auto-ut/tasks'?tasks:undefined);
+ try{const d=open(dom,'auto-ut');await pause();const row=language=>[...d.querySelectorAll('.qw-table tbody tr')].find(r=>r.textContent.includes(language+' ·'));
+  assert.equal(row('JS').querySelector('input').disabled,false);assert.equal(row('JS').querySelector('input').dataset.reportSelect,'R27C10/Mixed/JS');
+  const javaChecked=row('Java').querySelector('input').checked;row('JS').querySelector('input').click();dom.window.render(false);assert.equal(row('Java').querySelector('input').checked,javaChecked);assert.equal(row('Py').querySelector('input').checked,false);
+  tasks=[{id:'java-task',repository,reportVersion:version,sourceReportId:run.id,baseBranch:'release/27',status:'BASELINE_RUNNING',nextStage:'BASELINE',progress:25}];run.claimed=['R27C10/Mixed'];run.taskIds=['java-task'];await dom.window.loadAutoUtTasks();dom.window.applyReportRun(run);dom.window.render(false);
+  assert.ok(row('Java').querySelector('[data-governance-detail="java-task"]'));assert.equal(row('JS').querySelector('[data-governance-detail]'),null);assert.equal(row('JS').querySelector('input').disabled,false);assert.doesNotMatch(row('JS').textContent,/已提交治理/);
+  tasks.push({...tasks[0],id:'js-task',language:'JS',status:'REPAIRING',nextStage:'REPAIR',progress:45});run.claimed.push('R27C10/Mixed/JS');run.taskIds.push('js-task');await dom.window.loadAutoUtTasks();dom.window.applyReportRun(run);dom.window.render(false);
+  assert.ok(row('JS').querySelector('[data-governance-detail="js-task"]'));assert.ok(row('Java').querySelector('[data-governance-detail="java-task"]'));assert.match(row('Py').textContent,/当前语言暂不支持/);assert.equal(row('Py').querySelector('[data-governance-detail]'),null);
+ }finally{dom.window.close();}
+});
+
+test('删除未完成治理任务后刷新报告，同一页面立即解除已提交状态并可重新选择',async()=>{
+ const id='deleted-ut',repository='SWMExtFrontendService',version='R27C10',task={id,repository,reportVersion:version,sourceReportId:'delete-report',baseBranch:'release/27',status:'WAITING_EXTERNAL',nextStage:'BASELINE',progress:25};
+ const run={id:'delete-report',status:'READY',createdAt:'2026-10-09',config,claimed:[version+'/'+repository],taskIds:[id],messages:[],plan:[{version,repository,language:'Java',team:'Access_智能驾舱组',repairSupported:true,configured:true,baseBranch:'release/27',failedTests:13}]};
+ let deleted=false,refreshed=false;const dom=page((path,o)=>{if(path==='/api/auto-ut/tasks')return deleted?[]:[task];if(path==='/api/auto-ut/reports'){if(deleted)refreshed=true;return[{...run,claimed:deleted?[]:run.claimed}];}if(path==='/api/auto-ut/tasks/'+id&&o?.method==='DELETE'){deleted=true;return{id};}});
+ try{const d=open(dom,'auto-ut');await pause();assert.match(d.querySelector('.qw-table tbody tr').textContent,/已提交治理/);dom.window.studioConfirm=async()=>true;await dom.window.deleteAutoUtTask(id);
+  const row=d.querySelector('.qw-table tbody tr');assert.equal(refreshed,true);assert.doesNotMatch(row.textContent,/已提交治理|暂无可用任务记录/);assert.match(row.textContent,/未开始/);assert.equal(row.querySelector('input').disabled,false);assert.equal(row.querySelector('[data-governance-detail]'),null);
+ }finally{dom.window.close();}
+});

@@ -32,13 +32,13 @@ test('MR 标题打开真实链接，点击行仍可选详情，非法链接不�
 })
 test('批量一键审核直接通过，按当前提交保存并呈现部分失败与跳过',async t=>{
  const {d,calls}=await setup(t);select(d,'1','2','3');const button=d.querySelector('[data-group-mr-action="review"]:not([data-record-id])');assert.match(button.textContent,/批量一键审核/);button.click();
- assert.equal(d.querySelector('#mr-action-review-form'),null);await flush();assert.equal(calls.length,2);for(const c of calls)assert.deepEqual(c.data,{sha,decision:'pass',reason:'',category:''})
- assert.match(d.querySelector('.mr-complete-message').textContent,/1 条审核已保存，1 条未完成/);assert.match(d.querySelector('.mr-targets').textContent,/提交已变化/);assert.match(d.querySelector('.mr-targets').textContent,/已跳过/)
+ assert.equal(d.querySelector('.mr-action-overlay'),null);assert.equal(d.querySelector('#mr-action-review-form'),null);await flush();assert.equal(d.querySelector('.mr-action-overlay'),null);assert.equal(calls.length,2);for(const c of calls)assert.deepEqual(c.data,{sha,decision:'pass',reason:'',category:''})
+ assert.match(d.querySelector('[data-mr-review-feedback]').textContent,/1 条审核已保存，1 条未完成/);assert.match(d.querySelector('[data-mr-review-feedback]').textContent,/提交已变化/);assert.match(d.querySelector('[data-mr-review-feedback]').textContent,/已跳过/);d.querySelector('[data-mr-panel-close]').click();assert.equal(d.querySelector('[data-mr-review-feedback]'),null)
 })
 test('单条一键审核立即提交，进行中防重复，详情保留通过和不通过',async t=>{
  let release;const {dom,d,calls}=await setup(t,{write:(_url,data,response)=>new Promise(resolve=>release=()=>resolve(response({humanReview:data})))})
  const detail=d.querySelector('[data-human-review="1"]');assert.ok(detail.querySelector('[value="pass"]'));assert.ok(detail.querySelector('[value="reject"]'));assert.equal(calls.length,0)
- const button=d.querySelector('[data-group-mr-action="review"][data-record-id="1"]');assert.equal(button.textContent,'一键审核');button.click();button.click();await dom.window.eval('submitGroupMrAction()');assert.equal(calls.length,1);assert.deepEqual(calls[0].data,{sha,decision:'pass',reason:'',category:''});assert.equal(d.querySelector('[data-mr-panel-close]').disabled,true);release();await flush();assert.match(d.querySelector('.mr-complete-message').textContent,/1 条审核已保存/)
+ const button=d.querySelector('[data-group-mr-action="review"][data-record-id="1"]');assert.equal(button.textContent,'一键审核');button.click();button.click();await dom.window.eval('submitGroupMrAction()');assert.equal(calls.length,1);assert.deepEqual(calls[0].data,{sha,decision:'pass',reason:'',category:''});assert.equal(d.querySelector('.mr-action-overlay'),null);assert.match(d.querySelector('[data-mr-review-feedback]').textContent,/正在审核/);assert.equal(d.querySelector('[data-group-mr-action="review"][data-record-id="1"]').disabled,true);release();await flush();assert.equal(d.querySelector('.mr-action-overlay'),null);assert.match(d.querySelector('[data-mr-review-feedback]').textContent,/1 条审核已保存/)
 })
 test('批量合入明确确认、跳过未审核项、逐项结果与历史跳转',async t=>{
  const {d,calls}=await setup(t);select(d,'1','3','4');d.querySelector('[data-group-mr-action="merge"]:not([data-record-id])').click();assert.equal(calls.length,0);assert.match(d.querySelector('.mr-panel-count').textContent,/可合入 2 条/)
@@ -59,3 +59,12 @@ test('MR 分栏保留全部列表字段，刷新保留详情滚动，切换 MR �
  assert.equal(d.querySelector('.group-mr-detail-section').scrollTop,0)
  assert.ok(d.querySelector('[data-human-review="2"] [value="reject"]'))
 })
+
+ test('审核结果提示保留时仍可刷新列表进度，不打开抽屉',async t=>{
+ const {dom,d,records}=await setup(t,{records:[row('1')]});
+ d.querySelector('[data-group-mr-action="review"][data-record-id="1"]').click();await flush();
+ assert.ok(d.querySelector('[data-mr-review-feedback]'));records[0].status='后续流程正在执行';
+ await dom.window.eval('loadGroupMr()');
+ assert.match(d.querySelector('[data-group-mr-record="1"]').textContent,/后续流程正在执行/);
+ assert.equal(d.querySelector('.mr-action-overlay'),null);
+});

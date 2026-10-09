@@ -98,7 +98,7 @@ UT 治理要求 Agent 仅修改 `src/test` 下的测试文件，禁止修改生�
 - **积累可复用的工程经验**：将人工审核理由转化为带来源和适用条件的服务知识，供后续检视参考和修正。
 - **支持持续推广**：以配置和模块化能力复用多版本、多仓库、多环境的治理与运维流程，逐步扩大自动化覆盖范围。
 
-适用于多仓库、多版本并行研发中的 Java UT 治理、团队 MR 协作、版本质量检查和 Kubernetes 环境构建部署。
+适用于多仓库、多版本并行研发中的 Java / JavaScript UT 治理、团队 MR 协作、版本质量检查和 Kubernetes 环境构建部署。
 
 ### 已具备的成效记录能力
 
@@ -113,7 +113,7 @@ UT 治理要求 Agent 仅修改 `src/test` 下的测试文件，禁止修改生�
 
 ## 技术实现与使用说明
 
-前端采用 Vue / Vite，后端采用 TypeScript / Fastify，业务状态存储于 SQLite。资源中心、SSH 连接、远程构建、容器资源、部署、Auto-UT/Agent 和持久化任务均由一个 Node.js 进程提供；平台后端不依赖 Java、Maven 或 Spring Boot，Java UT 治理仍需目标项目要求的 JDK / Maven 环境。
+前端采用 Vue / Vite，后端采用 TypeScript / Fastify，业务状态存储于 SQLite。资源中心、SSH 连接、远程构建、容器资源、部署、Auto-UT/Agent 和持久化任务均由一个 Node.js 进程提供；平台后端不依赖 Java、Maven 或 Spring Boot，Java UT 治理仍需目标项目要求的 JDK / Maven 环境；JS UT 治理需要 Node.js / npm 及项目依赖仓库访问权限。
 
 不同能力按需准备 Pi Agent、CodeHub CLI、WeLink CLI / MCP、质量数据源及远程环境访问条件。相关身份认证和操作权限由对应工具与目标系统校验。
 
@@ -177,7 +177,7 @@ SQLite 默认写入 `data/platform/tasks.sqlite`。数据库使用进程独占�
 - `deployment/{taskId}.jsonl`：分析、编辑、渲染和部署输出
 - `automation/group-mr-monitor.jsonl`：群组 MR 监听轮询、过滤数量、命令状态和错误（不记录群消息正文）；页面“群组 MR 检视 → 监听日志”展示最近 100 条
 - `auto-ut/{taskId}.jsonl`：Auto-UT 阶段与实时事件
-- `auto-ut/details/{taskId}/*.log`：Git、Maven、Agent 和 CodeHub 命令的完整输出
+- `auto-ut/details/{taskId}/*.log`：Git、Maven、npm/Jest、Agent 和 CodeHub 命令的完整输出
 
 JSON 日志会按敏感字段名脱敏。诊断时优先发送对应任务 ID 的日志文件，不要发送包含环境密码的 `data/platform/tasks.sqlite`。
 
@@ -195,3 +195,28 @@ npm run build --prefix frontend
 SSH 用户名仍按环境类型固定：构建环境使用 `huawei`，容器环境连接测试使用 `sopuser`，Kubernetes/Helm 操作使用 `root`。密码不会写入应用日志。
 
 构建产物下载和双分支文件对比要求远端构建环境提供 `python3`（仅使用标准库）。服务目录按需打包；已有 `.tgz` / `.tar.gz` 包原样下载。批量下载返回包含各服务包的 `.tar.gz`；包内链接或越界路径会拒绝处理。对比结果保存在 SQLite，文本差异有大小限制，截断或二进制文件会提示下载原包查看。
+
+### JavaScript UT 治理
+
+JS / JavaScript 报告可独立启动治理；同仓库的 Java、JS 使用独立任务、工作目录和修复分支。Python 等其他语言显示暂不支持自动修复。
+
+克隆后必须已有 `website/package.json`，且 `scripts.test` 使用已支持的 Jest 执行入口（直接调用、npm 脚本别名，或 react-scripts / react-app-rewired test）。其他测试框架需接入相应结果解析，不能直接套用 Jest 参数。平台在 `website` 内依次执行：
+
+```sh
+npm install --force --ignore-engines
+npm run test -- --watch=false --watchAll=false --ci --runInBand --json --outputFile=<任务日志目录>/jest-results.json
+```
+
+安装期间产生的 package.json / 锁文件变更会恢复；依赖目录留在工作区供后续验证使用。基线、修复验证、完整回归和 MR 流水线修复均读取本轮 Jest 报告；依赖缺失、套件加载失败、无有效用例和超时会阻断，不当作可修复的用例失败。缺少 website 初始化文件时明确报错，不自动执行 Maven。
+
+仅允许提交 website 中的测试与 mock 文件，支持 `.test.js`、`.test.jsx`、`.spec.js`、`__tests__` 等测试路径；禁止修改生产源码、配置、锁文件和已有快照。原用例必须保留并通过，不能靠跳过测试达成成功。覆盖率仍以质量报告为准。
+
+### UT 问题排查日志
+
+日志默认位于 `data/logs/auto-ut/details/<任务ID>/`，设置 `PLATFORM_LOG_DIR` 时以该目录替代 `data/logs`。Java / JS 共用命令诊断：
+
+- `diagnostics.jsonl`：任务、语言、阶段、轮次、工作目录、命令参数、开始/结束时间、耗时、退出码、超时/中断、日志文件名；JS 另记报告解析结果与阻断原因。
+- `<操作名称>-<唯一ID>.log`：每次 Git、npm、Maven、Agent 命令的完整逐行输出，带时间及 stdout/stderr 来源；重试不会覆盖上一轮，文件不受内存输出摘要长度限制。
+- `jest-results-<唯一ID>.json`：每轮 Jest 报告独立留档，包括测试数量、具体失败用例及堆栈。当前轮报告缺失或无法归档会记录原因状态。
+
+日志会遮蔽常见凭据字段、认证头、URL 密码及环境中的密钥值，不记录完整环境变量或命令标准输入。遇到问题请提供任务 ID 和对应任务日志目录。主动删除任务并清理目录会一并删除该任务详细日志，请先留存；MR 合入后的自动仓库清理保留日志。
