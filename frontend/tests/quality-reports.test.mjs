@@ -321,3 +321,50 @@ test('剪贴板 API 缺失或拒绝时回退复制，失败不误报成功并清
   assert.equal(d.querySelectorAll('textarea').length,count);
  }finally{w.close();}
 });
+
+test('同仓库多语言报告仅 Java 关联治理任务，Py 和 JS 不继承勾选或已提交状态',async()=>{
+ const repository='OSSMaintainsToolWebsite',version='R27C10';
+ const run={id:'mixed-language',status:'READY',createdAt:'2026-10-09',config,claimed:[],taskIds:[],messages:[],plan:['Py','Java','JS'].map(language=>({version,repository,language,team:'Access_智能驾舱组',repairSupported:language==='Java',configured:true,baseBranch:'release/27',failedTests:13,lineCoverage:.05,lineGoal:.14,branchCoverage:.03,branchGoal:.13}))};
+ const task={id:'java-task',repository,reportVersion:version,sourceReportId:run.id,baseBranch:'release/27',status:'BASELINE_RUNNING',nextStage:'BASELINE',progress:25};
+ let tasks=[];
+ const dom=page(path=>path==='/api/auto-ut/reports'?[run]:path==='/api/auto-ut/tasks'?tasks:undefined);
+ try{
+  const d=open(dom,'auto-ut');await pause();
+  const rows=()=>[...d.querySelectorAll('.qw-table tbody tr')];
+  for(const row of rows().filter(r=>!/Java ·/.test(r.textContent))){assert.equal(row.querySelector('input').disabled,true);assert.equal(row.querySelector('input').checked,false);assert.match(row.textContent,/当前语言暂不支持自动修复/);}
+  const java=rows().find(r=>/Java ·/.test(r.textContent));assert.equal(java.querySelector('input').disabled,false);
+  java.querySelector('input').click();dom.window.render(false);
+  for(const row of rows().filter(r=>!/Java ·/.test(r.textContent)))assert.equal(row.querySelector('input').checked,false);
+  tasks=[task];run.claimed=[version+'/'+repository];run.taskIds=[task.id];
+  await dom.window.loadAutoUtTasks();dom.window.applyReportRun(run);dom.window.render(false);
+  for(const row of rows()){
+   if(/Java ·/.test(row.textContent)){assert.match(row.textContent,/已提交治理，请查看进度/);assert.ok(row.querySelector('[data-governance-detail="java-task"]'));assert.ok(row.querySelector('[role="progressbar"]'));}
+   else{assert.match(row.textContent,/当前语言暂不支持自动修复/);assert.doesNotMatch(row.textContent,/已提交治理|基线|25%/);assert.equal(row.querySelector('[data-governance-detail]'),null);assert.equal(row.querySelector('[role="progressbar"]'),null);assert.equal(row.querySelector('input').checked,false);}
+  }
+ }finally{dom.window.close();}
+});
+
+test('保留工具页，三个能力可直接切换且各自筛选与浏览器返回状态保留',async()=>{
+ const dom=page();const w=dom.window,d=w.document;
+ try{
+  open(dom,'auto-ut');await pause();
+  assert.deepEqual([...d.querySelectorAll('.capability-switch [data-automation-nav]')].map(n=>n.dataset.automationNav),['auto-ut','group-mr','quality','tools']);
+  w.eval("workspaceUi.planSearch='FMEMate';workspaceUi.planLanguage='Java'");
+  d.querySelector('.capability-switch [data-automation-nav="group-mr"]').click();await pause();
+  assert.equal(w.location.hash,'#/automation/group-mr');
+  assert.equal(d.querySelector('.capability-switch [aria-current="page"]').dataset.automationNav,'group-mr');
+  w.eval("groupMrUi.query='1680';groupMrUi.phaseFilter='PI'");
+  d.querySelector('.capability-switch [data-automation-nav="quality"]').click();await pause();
+  w.eval("qualityUi.search='Service';qualityUi.kind='api'");
+  d.querySelector('.capability-switch [data-automation-nav="auto-ut"]').click();await pause();
+  assert.equal(w.eval('workspaceUi.planSearch'),'FMEMate');assert.equal(w.eval('workspaceUi.planLanguage'),'Java');
+  w.history.back();await pause();await pause();
+  assert.equal(w.location.hash,'#/automation/quality');assert.equal(w.eval('qualityUi.search'),'Service');assert.equal(w.eval('qualityUi.kind'),'api');
+  d.querySelector('.capability-switch [data-automation-nav="group-mr"]').click();await pause();
+  assert.equal(w.eval('groupMrUi.query'),'1680');assert.equal(w.eval('groupMrUi.phaseFilter'),'PI');
+  d.querySelector('.capability-switch [data-automation-nav="tools"]').click();await pause();
+  assert.equal(d.querySelector('.capability-switch'),null);assert.equal(d.querySelectorAll('[data-automation-capability]').length,3);
+  d.querySelector('[data-automation-capability="quality"]').click();await pause();assert.equal(w.location.hash,'#/automation/quality');
+  d.querySelector('aside [data-automation-nav="tasks"]').click();await pause();assert.equal(d.querySelector('.capability-switch'),null);
+ }finally{w.close();}
+});

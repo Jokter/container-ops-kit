@@ -48,3 +48,6 @@
 .workspace-layout .deployment-log-disclosure>.deployment-log-panel{border:0;margin:0;box-shadow:none}
 .workspace-layout .mr-split tr:has(td[colspan]){display:block}
 .workspace-layout .mr-split td:nth-child(7){display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px}
+
+/* Keep tool discovery and provide direct switching inside each capability. */
+.capability-switch{display:flex;align-items:center;gap:4px;margin:0 0 20px;padding:5px;background:#edf1f5;border:1px solid #e0e5eb;border-radius:10px}.capability-switch button{display:flex;align-items:center;gap:9px;padding:12px 20px;border:0;border-radius:7px;background:transparent;color:#65717e;font:500 14px 'Microsoft YaHei',sans-serif;cursor:pointer;white-space:nowrap}.capability-switch button:hover{background:#ffffff80;color:#24374b}.capability-switch button.active{background:white;color:#245bbd;box-shadow:0 1px 4px #21375216;font-weight:600}.capability-switch svg{width:17px;height:17px}.capability-switch-spacer{flex:1}.capability-switch button.back-tools{font-size:12px;padding:12px;color:#768291}.capability-switch~.qw-crumb{display:none}.capability-switch button:focus-visible{outline:2px solid #3563e9;outline-offset:1px}@media(max-width:760px){.capability-switch{overflow:auto}.capability-switch button{padding:10px 12px}.capability-switch .back-tools{display:none}}
