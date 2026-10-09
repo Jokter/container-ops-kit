@@ -275,3 +275,49 @@ test('质量检查支持添加 R27C11 并传入查询及定时计划',async()=>{
   d.querySelector('[data-schedule-new="quality"]').click();d.querySelector('[data-qw-save]').click();await pause();assert.ok(schedule.task.query.versions.includes('R27C11'));
  }finally{await pause();dom.window.close();}
 });
+
+test('局域网 HTTP 缺少 randomUUID 时仍可建单，网络失败重试复用请求 ID',async()=>{
+ const f=utFixture();const w=f.dom.window;
+ try{
+  Object.defineProperty(w.crypto,'randomUUID',{value:undefined,configurable:true});
+  const d=open(f.dom,'auto-ut');await pause();d.querySelector('#ut-auto-start').click();
+  const fetch=w.fetch;const attempts=[];let fail=true;
+  w.fetch=async(path,options)=>{if(path==='/api/auto-ut/tickets'&&options?.method==='POST'){attempts.push(JSON.parse(options.body).requestId);if(fail){fail=false;throw new Error('模拟网络中断');}}return fetch(path,options);};
+  await w.createAutoUtTicket('R27C10');
+  assert.match(d.body.textContent,/模拟网络中断/);
+  assert.equal(d.querySelector('[data-ut-create="R27C10"]').disabled,false);
+  await w.createAutoUtTicket('R27C10');
+  assert.equal(attempts.length,2);assert.equal(attempts[0],attempts[1]);
+  assert.match(attempts[0],/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  assert.equal(f.creates.length,1);
+ }finally{w.close();}
+});
+
+test('建单本地存储异常显示错误并恢复按钮，不发送建单请求',async()=>{
+ const f=utFixture();const w=f.dom.window;
+ try{
+  const d=open(f.dom,'auto-ut');await pause();
+  w.Storage.prototype.setItem=()=>{throw new Error('浏览器存储不可用');};
+  await w.createAutoUtTicket('R27C10');
+  assert.match(d.body.textContent,/浏览器存储不可用/);
+  assert.equal(d.querySelector('[data-ut-create="R27C10"]').disabled,false);
+  assert.equal(f.creates.length,0);
+ }finally{w.close();}
+});
+
+test('剪贴板 API 缺失或拒绝时回退复制，失败不误报成功并清理临时节点',async()=>{
+ const dom=page();const w=dom.window,d=w.document;
+ try{
+  const count=d.querySelectorAll('textarea').length;
+  Object.defineProperty(w.navigator,'clipboard',{value:undefined,configurable:true});
+  let copied='';d.execCommand=()=>{copied=d.querySelector('textarea:last-of-type')?.value;return true;};
+  await w.copyToClipboard('ssh test@host');assert.equal(copied,'ssh test@host');
+  Object.defineProperty(w.navigator,'clipboard',{value:{writeText:async()=>{throw new Error('denied');}},configurable:true});
+  await w.copyToClipboard('fallback');assert.equal(copied,'fallback');
+  d.execCommand=()=>false;
+  await assert.rejects(w.copyToClipboard('failed'),/复制失败/);
+  await w.copySshCommand({user:'test',ip:'host',port:22});
+  assert.match(d.querySelector('.toast').textContent,/复制失败/);
+  assert.equal(d.querySelectorAll('textarea').length,count);
+ }finally{w.close();}
+});

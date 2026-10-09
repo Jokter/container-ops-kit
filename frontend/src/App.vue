@@ -116,8 +116,21 @@ const testAll=async()=>{
 
 const copySsh=async(environment:Environment)=>{
  const command='ssh '+userFor(environment.type)+'@'+environment.host+' -p '+environment.sshPort
- await navigator.clipboard.writeText(command)
- ElMessage.success('SSH 命令已复制')
+ try {
+  try {
+   if(!navigator.clipboard?.writeText)throw new Error('Clipboard unavailable')
+   await navigator.clipboard.writeText(command)
+  }catch{
+   const previous=document.activeElement
+   const textarea=document.createElement('textarea')
+   textarea.value=command
+   textarea.style.cssText='position:fixed;opacity:0;pointer-events:none'
+   document.body.appendChild(textarea)
+   try{textarea.select();if(!document.execCommand?.('copy'))throw new Error('Copy failed')}
+   finally{textarea.remove();if(previous instanceof HTMLElement)previous.focus({preventScroll:true})}
+  }
+  ElMessage.success('SSH 命令已复制')
+ }catch{ElMessage.error('复制失败，请手动复制：'+command)}
 }
 
 const handleCommand=(command:string,environment:Environment)=>{

@@ -400,16 +400,11 @@ import {canConvertFailedQuickDeploymentToReview, canDeployReviewedTask, deployme
 
   async function copyText(value, message) {
     try {
-      await navigator.clipboard.writeText(value)
+      await copyToClipboard(value)
+      showToast(message)
     } catch {
-      const textarea = document.createElement('textarea')
-      textarea.value = value
-      document.body.appendChild(textarea)
-      textarea.select()
-      document.execCommand('copy')
-      textarea.remove()
+      showToast('复制失败，请手动复制：' + value)
     }
-    showToast(message)
   }
 
   copySshCommand = function (environment) {

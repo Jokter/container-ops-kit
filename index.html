@@ -1007,7 +1007,7 @@
       const nav=`<nav class="variant-a-nav" aria-label="容器运维导航">${navItem('dashboard','工作台','home')}<div class="nav-section">研发流程</div>${navItem('build','构建','build')}${navItem('deploy','部署','deploy')}<div class="nav-section">容器运维</div>${navItem('operations','服务资源','operations')}<div class="nav-section">系统管理</div>${navItem('resources','环境管理','resources')}</nav>`;
       const portal=state.platformDomain==='portal';
       const content=state.applicationId?applicationEmbeddedContent():portal?(state.portalPage==='overview'?platformOverview():platformTools()):state.platformDomain==='applications'?applicationContent():state.platformDomain==='container'?(state.page==='dashboard'?dashboardA():commonPage(state.page)):state.platformDomain==='automation'?automationContent():`<section class="panel platform-placeholder"><div class="platform-placeholder-content"><div class="platform-placeholder-symbol">虚</div><h1>虚机运维</h1><p>这里先作为独立平台域预留，不提前定义功能和页面。</p><span class="platform-boundary">平台边界已预留</span></div></section>`;
-      return `<div class="variant-a-shell studio-shell ${portal?'pr-portal-shell':''}">${platformHeader()}${portal?'':`<aside class="variant-a-sidebar">${state.platformDomain==='container'?nav:state.platformDomain==='automation'?automationNav():state.platformDomain==='applications'?applicationNav():''}${platformRelated()}<div class="studio-sidebar-bottom"><button class="studio-settings-link" data-portal-page="tools">← 返回工具中心</button>${state.platformDomain==='automation'?'<button class="studio-settings-link" data-automation-nav="settings">连接与设置</button>':''}<div class="variant-a-user">V0.2.128</div></div></aside>`}<main class="variant-a-main ${!state.applicationId&&['automation','container'].includes(state.platformDomain)?'workspace-layout':''}">${content}</main>${portal?'<div class="pr-home-version">V0.2.128</div>':''}</div>`;
+      return `<div class="variant-a-shell studio-shell ${portal?'pr-portal-shell':''}">${platformHeader()}${portal?'':`<aside class="variant-a-sidebar">${state.platformDomain==='container'?nav:state.platformDomain==='automation'?automationNav():state.platformDomain==='applications'?applicationNav():''}${platformRelated()}<div class="studio-sidebar-bottom"><button class="studio-settings-link" data-portal-page="tools">← 返回工具中心</button>${state.platformDomain==='automation'?'<button class="studio-settings-link" data-automation-nav="settings">连接与设置</button>':''}<div class="variant-a-user">V0.2.129</div></div></aside>`}<main class="variant-a-main ${!state.applicationId&&['automation','container'].includes(state.platformDomain)?'workspace-layout':''}">${content}</main>${portal?'<div class="pr-home-version">V0.2.129</div>':''}</div>`;
     }
 
     let toastTimer;
@@ -1029,15 +1029,28 @@
       }, 2400);
     }
 
-    function copySshCommand(environment) {
-      const command = `ssh ${environment.user}@${environment.ip} -p ${environment.port}`;
+    async function copyToClipboard(value) {
+      try {
+        if (navigator.clipboard?.writeText) { await navigator.clipboard.writeText(value); return; }
+      } catch { /* Permission denied: try the browser's legacy copy operation. */ }
+      const previous = document.activeElement;
       const textarea = document.createElement('textarea');
-      textarea.value = command;
+      textarea.value = value;
+      textarea.style.cssText = 'position:fixed;opacity:0;pointer-events:none';
       document.body.appendChild(textarea);
-      textarea.select();
-      document.execCommand('copy');
-      textarea.remove();
-      showToast(`已复制：${command}`);
+      try {
+        textarea.select();
+        if (!document.execCommand?.('copy')) throw new Error('复制失败，请手动复制');
+      } finally {
+        textarea.remove();
+        previous?.focus?.({preventScroll:true});
+      }
+    }
+
+    async function copySshCommand(environment) {
+      const command = `ssh ${environment.user}@${environment.ip} -p ${environment.port}`;
+      try { await copyToClipboard(command); showToast(`已复制：${command}`); }
+      catch { showToast('复制失败，请手动复制：' + command); }
     }
 
     function finishConnectionTest(environment, token, batchMode = false) {
@@ -1771,6 +1784,15 @@
       catch(e){workspaceUi.drawerError=e.message;}
       finally{workspaceUi.drawerBusy=false;render(false);}
     }
+    function createRequestUuid(){
+      if(typeof globalThis.crypto?.randomUUID==='function')return globalThis.crypto.randomUUID();
+      if(typeof globalThis.crypto?.getRandomValues!=='function')throw new Error('浏览器不支持安全随机数，请更换浏览器后重试。');
+      const bytes=globalThis.crypto.getRandomValues(new Uint8Array(16));
+      bytes[6]=(bytes[6]&0x0f)|0x40;
+      bytes[8]=(bytes[8]&0x3f)|0x80;
+      const hex=Array.from(bytes,value=>value.toString(16).padStart(2,'0')).join('');
+      return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
+    }
     async function createAutoUtTicket(versionArg){
       if(typeof versionArg==='string'){selectedTicketVersion=versionArg;syncVersionTicket();}
       const block=utCreateBlock(currentTicketVersion().version);if(block){utError(block);render(false);return;}
@@ -1780,10 +1802,10 @@
       if(state.autoUtTicket){workspaceUi.drawerError='已有问题单号；如需新建，请先清空单号。';render(false);return;}
       const version=currentTicketVersion().version;
       const key='ut-dts-request:'+state.autoUtUsername+':'+version;
-      let requestId=sessionStorage.getItem(key);
-      if(!requestId){requestId=crypto.randomUUID();sessionStorage.setItem(key,requestId);}
       workspaceUi.drawerBusy=true;workspaceUi.ticketBusy=true;workspaceUi.drawerError='';render(false);
       try{
+        let requestId=sessionStorage.getItem(key);
+        if(!requestId){requestId=createRequestUuid();sessionStorage.setItem(key,requestId);}
         await saveReportSettings();
         const result=await autoUtCall('/api/auto-ut/tickets',jsonOptions('POST',{requestId,username:state.autoUtUsername,version,reportId:utVersionRun(version).id}));
         dtsTicketResult=result;
