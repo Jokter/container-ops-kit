@@ -75,3 +75,11 @@ test('补测试目标不排除某个服务的目录与 index 模块，也支持�
  for(const name of ['website/lib/util.js','website/app/index.jsx','website/src/@u2020/index.js','website/src/widget.test.jsx']){await mkdir(join(root,name,'..'),{recursive:true});await writeFile(join(root,name),'export const value=1;');}
  value.governance={mode:'SUPPLEMENT',coverageLow:true,maxClasses:5};await service['selectTargets'](value,root);assert.deepEqual(value.governance.targets,['website/app/index.jsx','website/lib/util.js','website/src/@u2020/index.js']);
 });
+
+test('仓库地址不按服务硬编码，失败任务保存自定义后重试使用新地址且服务重启后保留',async t=>{
+ const root=await mkdtemp(join(tmpdir(),'ut-url-')),store=new TaskStore(':memory:');let service=new AutoUtService(store,undefined,false);t.after(async()=>{await service.close();store.close();await rm(root,{recursive:true,force:true});});
+ const value=task(root);value.repository='FMEMateWebsite';value.status='WAITING_EXTERNAL';value.nextStage='PREPARE';service['save'](value);
+ assert.match(service.get(value.id).repositoryUrl!,/MAE-M\/Access\/FMEMateWebsite.git$/);
+ const url='ssh://git@szv-y.codehub.huawei.com:2222/MAE-M/FMEMate/FMEMateWebsite.git';service.saveRepository(value.repository,url);let selected='';service['schedule']=(_task,repository)=>{selected=repository.url;};service.continue(value.id);assert.equal(selected,url);
+ await service.close();service=new AutoUtService(store,undefined,false);assert.equal(service.get(value.id).repositoryUrl,url);assert.equal(service.get(value.id).repositoryCustomized,true);assert.equal(service['repository']('fmematewebsite')!.url,url);
+});

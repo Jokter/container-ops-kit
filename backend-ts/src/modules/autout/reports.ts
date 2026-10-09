@@ -40,8 +40,8 @@ export class AutoUtReports{
   // Supported languages belong to this software version, not the saved report.
   // Keep the report metrics and execution claims intact when upgrading.
   return {...run,plan:(run.plan??[]).map(item=>{
-   const language=utLanguage(item.language),ticket=versionTicket(run.config,item.version);
-   return {...item,repairSupported:language!==undefined,...(language==='JS'?{repairBranch:item.baseBranch&&run.config.username&&ticket?utRepairBranch(item.baseBranch,run.config.username,ticket,language):''}:{})};
+   const language=utLanguage(item.language),ticket=versionTicket(run.config,item.version),mapping=this.store.getRecord<{url:string}>('auto-ut-repository',item.repository.toLowerCase());
+   return {...item,repositoryUrl:mapping?.url??`ssh://git@szv-y.codehub.huawei.com:2222/MAE-M/Access/${item.repository}.git`,repositoryCustomized:!!mapping,repairSupported:language!==undefined,...(language==='JS'?{repairBranch:item.baseBranch&&run.config.username&&ticket?utRepairBranch(item.baseBranch,run.config.username,ticket,language):''}:{})};
   })};
  }
  private releaseDeletedClaims(run:ReportRun){

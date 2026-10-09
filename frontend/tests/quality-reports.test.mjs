@@ -390,3 +390,10 @@ test('删除未完成治理任务后刷新报告，同一页面立即解除已�
   const row=d.querySelector('.qw-table tbody tr');assert.equal(refreshed,true);assert.doesNotMatch(row.textContent,/已提交治理|暂无可用任务记录/);assert.match(row.textContent,/未开始/);assert.equal(row.querySelector('input').disabled,false);assert.equal(row.querySelector('[data-governance-detail]'),null);
  }finally{dom.window.close();}
 });
+
+test('克隆失败无报告时也能修改仓库地址，保存并重试只提交一次且使用填写地址',async()=>{
+ const id='clone-failed',old='ssh://git@szv-y.codehub.huawei.com:2222/MAE-M/Access/FMEMateWebsite.git',custom='ssh://git@szv-y.codehub.huawei.com:2222/MAE-M/FMEMate/FMEMateWebsite.git';let task={id,repository:'FMEMateWebsite',repositoryUrl:old,status:'WAITING_EXTERNAL',nextStage:'PREPARE',progress:10,message:'克隆仓库失败'};const writes=[];
+ const dom=page((path,o)=>{if(path==='/api/auto-ut/tasks')return[task];if(o?.method){writes.push(path);if(path==='/api/auto-ut/repositories/FMEMateWebsite'){assert.equal(JSON.parse(o.body).url,custom);task={...task,repositoryUrl:custom,repositoryCustomized:true};return{url:custom};}if(path==='/api/auto-ut/tasks/'+id+'/continuation')return task;}});
+ try{const d=open(dom,'auto-ut');await pause();d.querySelector('[data-automation-nav="tasks"]').click();d.querySelector('[data-governance-detail="'+id+'"]').click();d.querySelector('[data-repository-task]').click();const input=d.querySelector('[data-auto-ut-repository-url]');assert.equal(input.value,old);input.value=custom;input.dispatchEvent(new dom.window.Event('input',{bubbles:true}));d.querySelector('[data-repository-retry-id]').click();await pause();await pause();assert.deepEqual(writes,['/api/auto-ut/repositories/FMEMateWebsite','/api/auto-ut/tasks/'+id+'/continuation']);assert.equal(d.querySelector('[data-repository-retry-id]'),null);
+ }finally{dom.window.close();}
+});
