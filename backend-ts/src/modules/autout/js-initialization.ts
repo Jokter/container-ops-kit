@@ -8,6 +8,7 @@ export function statusPath(line:string):string {
  const value=line.slice(3);return (value.startsWith('"')?JSON.parse(value) as string:value).replaceAll('\\','/');
 }
 async function content(workspace:string,path:string){
+ if(isAbsolute(path)||path.split('/').some(part=>part==='..'||part.toLowerCase()==='.git'))throw Error('初始化文件路径不安全：'+path);
  const file=resolve(workspace,path),root=await realpath(workspace),actual=await realpath(file);
  if(isAbsolute(relative(root,actual))||relative(root,actual).startsWith('..')||!(await lstat(file)).isFile())throw Error('初始化文件路径不安全：'+path);
  return readFile(file);
@@ -18,8 +19,8 @@ export async function captureJsInitialization(workspace:string,status:string):Pr
  for(const line of status.split(/\r?\n/).filter(line=>line.length>=4)){
   const path=statusPath(line);
   if(line.startsWith('?? ')&&jsGeneratedFile(path))continue;
-  if(!path.startsWith('website/')||!(line.startsWith('?? ')||line.startsWith(' M ')))throw Error('初始化产生了目录外、删除或暂存修改，请人工检查：'+path);
-  if(utTestFile(path,'JS')&&!line.startsWith('?? '))throw Error('初始化修改了已有测试，请人工检查：'+path);
+  if(!(line.startsWith('?? ')||line.startsWith(' M ')))throw Error('初始化产生了删除、重命名或暂存修改，请人工检查：'+path);
+  if((utTestFile(path,'JS')||utTestFile(path,'Java'))&&!line.startsWith('?? '))throw Error('初始化修改了已有测试，请人工检查：'+path);
   const value=await content(workspace,path);
   snapshot[path]={hash:hash(value),...(utTestFile(path,'JS')?{testContent:value.toString('utf8')}:{})};
  }

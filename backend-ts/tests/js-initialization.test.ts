@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,writeFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {join,dirname} from 'node:path';
 import {captureJsInitialization,filterJsInitialization,statusPath} from '../src/modules/autout/js-initialization.js';
 import {utTestFile} from '../src/modules/autout/languages.js';
 
@@ -28,4 +28,18 @@ test('未记录的配置不能豁免，构建中的测试不能提交，初始�
  for(const dir of ['node_modules','build','dist','coverage'])assert.equal(utTestFile('website/'+dir+'/x.test.js','JS'),false);
  await assert.rejects(captureJsInitialization(root,'A  website/.env'),/暂存/);await assert.rejects(captureJsInitialization(root,' D website/.env'),/删除/);
  assert.equal(statusPath('?? "website/path with space.js"'),'website/path with space.js');
+});
+
+test('初始化记录仓库内其他目录，后续更改、暂存及目录越界仍阻断',async t=>{
+ const root=await mkdtemp(join(tmpdir(),'js-init-repo-'));t.after(()=>rm(root,{recursive:true,force:true}));
+ const paths=['deployment/src/main/release/pub/febs.json','another-module/generated/settings.json'];
+ for(const path of paths){await mkdir(dirname(join(root,path)),{recursive:true});await writeFile(join(root,path),'generated');}
+ const status=' M '+paths[0]+'\n?? '+paths[1],snapshot=await captureJsInitialization(root,status);
+ assert.equal(await filterJsInitialization(root,status,snapshot),'');
+ assert.equal(await filterJsInitialization(root,'M  '+paths[0],snapshot),'M  '+paths[0]);
+ assert.equal(await filterJsInitialization(root,'?? other/new.json',snapshot),'?? other/new.json');
+ await writeFile(join(root,paths[0]!),'changed');await assert.rejects(filterJsInitialization(root,status,snapshot),/非测试文件发生变化/);
+ await assert.rejects(captureJsInitialization(root,'?? ../outside.json'),/路径不安全/);
+ await assert.rejects(captureJsInitialization(root,'?? .git/config'),/路径不安全/);
+ await assert.rejects(captureJsInitialization(root,' D '+paths[0]),/删除/);
 });

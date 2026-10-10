@@ -97,11 +97,12 @@ test('真实 Git 工作区只提交修复测试，Maven 生成配置与构建文
  const root=await mkdtemp(join(tmpdir(),'js-init-git-')),store=new TaskStore(':memory:'),service=new AutoUtService(store,undefined,false),value=task(root);
  t.after(async()=>{await service.close();store.close();await rm(root,{recursive:true,force:true});await rm(join(service['jsReport'](value),'..'),{recursive:true,force:true});});
  const git=async(args:string[])=>{const r=await runProcess(['git',...args],root,10000);assert.equal(r.exitCode,0,r.output);return r.output.trim();};
+ await mkdir(join(root,'deployment/src/main/release/pub'),{recursive:true});await writeFile(join(root,'deployment/src/main/release/pub/febs.json'),'original release');
  await git(['init']);await git(['config','user.name','UT fixture']);await git(['config','user.email','fixture@example.invalid']);await mkdir(join(root,'website/src'),{recursive:true});
  await writeFile(join(root,'website/babel.config.js'),'original');await writeFile(join(root,'website/src/a.test.js'),'test("a",()=>expect(value).toBe(1))');await git(['add','.']);await git(['commit','-m','baseline']);
  service['command']=async(_task,command,directory)=>{
   if(command[0]!=='mvn')return runProcess(command,directory,10000);
-  await writeFile(join(root,'website/babel.config.js'),'generated');await writeFile(join(root,'website/package.json'),JSON.stringify({scripts:{test:'jest'}}));await mkdir(join(root,'website/build'),{recursive:true});await writeFile(join(root,'website/build/generated.test.js'),'build artifact');return{exitCode:0,output:''};
+  await writeFile(join(root,'deployment/src/main/release/pub/febs.json'),'generated release');await writeFile(join(root,'website/babel.config.js'),'generated');await writeFile(join(root,'website/package.json'),JSON.stringify({scripts:{test:'jest'}}));await mkdir(join(root,'website/build'),{recursive:true});await writeFile(join(root,'website/build/generated.test.js'),'build artifact');return{exitCode:0,output:''};
  };
  await service['initializeJs'](value,root);
  assert.equal((await service['inspect'](value,root,'未修改')).changedFiles.length,0);
