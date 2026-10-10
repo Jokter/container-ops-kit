@@ -113,7 +113,7 @@ UT 治理要求 Agent 仅修改 `src/test` 下的测试文件，禁止修改生�
 
 ## 技术实现与使用说明
 
-前端采用 Vue / Vite，后端采用 TypeScript / Fastify，业务状态存储于 SQLite。资源中心、SSH 连接、远程构建、容器资源、部署、Auto-UT/Agent 和持久化任务均由一个 Node.js 进程提供；平台后端不依赖 Java、Maven 或 Spring Boot，Java UT 治理仍需目标项目要求的 JDK / Maven 环境；JS UT 治理需要 Node.js / npm 及项目依赖仓库访问权限。
+前端采用 Vue / Vite，后端采用 TypeScript / Fastify，业务状态存储于 SQLite。资源中心、SSH 连接、远程构建、容器资源、部署、Auto-UT/Agent 和持久化任务均由一个 Node.js 进程提供；平台后端不依赖 Java、Maven 或 Spring Boot，Java UT 治理仍需目标项目要求的 JDK / Maven 环境；JS UT 治理需要目标项目的 JDK / Maven 初始化环境、Node.js / npm 及项目依赖仓库访问权限。
 
 不同能力按需准备 Pi Agent、CodeHub CLI、WeLink CLI / MCP、质量数据源及远程环境访问条件。相关身份认证和操作权限由对应工具与目标系统校验。
 
@@ -200,14 +200,14 @@ SSH 用户名仍按环境类型固定：构建环境使用 `huawei`，容器环�
 
 JS / JavaScript 报告可独立启动治理；同仓库的 Java、JS 使用独立任务和修复分支，工作目录统一为 `<工作根目录>/<版本>/<仓库名>`，同一目录需依次治理。升级前已创建的 JS 任务继续使用其原目录，避免丢失修复现场；新任务不再创建 `.auto-ut-js` 层级。Python 等其他语言显示暂不支持自动修复。
 
-克隆后必须已有 `website/package.json`，且 `scripts.test` 使用已支持的 Jest 执行入口（直接调用、npm 脚本别名，或 react-scripts / react-app-rewired test）。其他测试框架需接入相应结果解析，不能直接套用 Jest 参数。平台在 `website` 内依次执行：
+克隆后先在 `website` 执行 `mvn clean install` 初始化项目，再检查生成的 `package.json`。`scripts.test` 需使用已支持的 Jest 执行入口（直接调用、npm 脚本别名，或 react-scripts / react-app-rewired test）。其他测试框架需接入相应结果解析，不能直接套用 Jest 参数。平台在 `website` 内依次执行：
 
 ```sh
-npm install --force --ignore-engines
+mvn clean install
 npm run test -- --watch=false --watchAll=false --ci --runInBand --json --outputFile=<任务日志目录>/jest-results.json
 ```
 
-安装期间产生的 package.json / 锁文件变更会恢复；依赖目录留在工作区供后续验证使用。基线、修复验证、完整回归和 MR 流水线修复均读取本轮 Jest 报告；依赖缺失、套件加载失败、无有效用例和超时会阻断，不当作可修复的用例失败。缺少 website 初始化文件时明确报错，不自动执行 Maven。
+Maven 初始化完成后直接运行 npm 测试，不额外执行 npm install。基线、修复验证、完整回归和 MR 流水线修复均读取本轮 Jest 报告；依赖缺失、套件加载失败、无有效用例和超时会阻断，不当作可修复的用例失败。Maven 初始化失败时停止，不继续执行 npm；Maven 成功后仍缺少 package.json 或 test 脚本时明确报错。后续修复和回归只运行 npm 测试，不重复 clean 初始化。
 
 仅允许提交 website 中的测试与 mock 文件，支持 `.test.js`、`.test.jsx`、`.spec.js`、`__tests__` 等测试路径；禁止修改生产源码、配置、锁文件和已有快照。原用例必须保留并通过，不能靠跳过测试达成成功。覆盖率仍以质量报告为准。
 

@@ -259,10 +259,14 @@ export class AutoUtService{
  private testScope(task:AutoUtTask){return utLanguage(task.language)==='JS'
   ?'只允许修改 website 内的 Jest 测试文件（.test.js/.test.jsx/.spec.js 或 __tests__ 等测试目录）与测试 mock。禁止修改生产源码、package.json、锁文件、Jest/Babel 配置、已有快照；禁止删除、跳过、独占测试或减少断言。禁止执行 git commit、push、reset、checkout、stash 或发送消息。'
   :'只允许修改 src/test 下的测试文件，禁止修改生产源码、构建配置、删除或跳过测试、减少断言。禁止执行 git commit、push、reset、checkout、stash 或发送消息。';}
- private async jsWebsite(workspace:string){
+ private async jsWebsiteDirectory(workspace:string){
   const website=join(workspace,'website');
   try{if(!(await lstat(website)).isDirectory()||relative(await realpath(workspace),await realpath(website))!=='website')throw Error();}
   catch{throw Error('核验受阻：仓库根目录下缺少有效 website 目录。');}
+  return website;
+ }
+ private async jsWebsite(workspace:string){
+  const website=await this.jsWebsiteDirectory(workspace);
   try{if(!(await lstat(join(website,'package.json'))).isFile())throw Error();z.object({scripts:z.object({test:z.string().trim().min(1)})}).parse(JSON.parse(await readFile(join(website,'package.json'),'utf8')));}
   catch{throw Error('核验受阻：website/package.json 缺失或未配置 test 脚本，请先完成项目初始化。');}
   const pkg=z.object({scripts:z.record(z.string(),z.string())}).parse(JSON.parse(await readFile(join(website,'package.json'),'utf8')));
@@ -270,11 +274,10 @@ export class AutoUtService{
   return website;
  }
  private jsReport(task:AutoUtTask){return join(settings.logDirectory,task.id,'jest-results.json');}
- private async installJs(task:AutoUtTask,workspace:string){
-  const website=await this.jsWebsite(workspace),snapshot=new Map<string,Buffer|undefined>();
-  for(const name of ['package.json','package-lock.json','npm-shrinkwrap.json']){const file=join(website,name);const info=await lstat(file).catch(error=>{if(error.code==='ENOENT')return undefined;throw error;});if(info&&!info.isFile())throw Error('核验受阻：依赖配置不是普通文件：'+name);snapshot.set(file,info?await readFile(file):undefined);}
-  try{await this.command(task,['npm','install','--force','--ignore-engines'],website,1800000,'安装JS依赖');}
-  finally{for(const [file,content]of snapshot){const info=await lstat(file).catch(error=>{if(error.code==='ENOENT')return undefined;throw error;});if(info&&!info.isFile())throw Error('核验受阻：依赖安装改变了配置文件类型，请人工检查。');if(content===undefined)await rm(file,{force:true});else await writeFile(file,content);}}
+ private async initializeJs(task:AutoUtTask,workspace:string){
+  const website=await this.jsWebsiteDirectory(workspace);
+  await this.command(task,['mvn','clean','install'],website,1800000,'初始化JS项目-Maven');
+  await this.jsWebsite(workspace);
  }
  private async readJsEvidence(task:AutoUtTask,workspace:string){
   const website=await this.jsWebsite(workspace);let content:string;
@@ -298,7 +301,7 @@ export class AutoUtService{
   finally{if(report)try{const content=redactJsonDiagnostic(await readFile(report,'utf8'));await writeFile(report,content);const archive='jest-results-'+operationId+'.json';await writeFile(join(dir,archive),content);log({type:'jest_report',archive});}catch(error){log({type:'jest_report_unavailable',error:error instanceof Error?error.message:String(error)});}}
  }
  private async baseline(task:AutoUtTask,repository:Repository,workspace:string){
-  if(utLanguage(task.language)==='JS'){try{await this.installJs(task,workspace);return(await this.testEvidence(task,[],workspace,'核验实际JS-UT')).evidence;}catch(error){diagnosticEvent(join(settings.logDirectory,task.id),{type:'js_baseline_blocked',taskId:task.id,error:error instanceof Error?error.message:String(error)});throw error;}}
+  if(utLanguage(task.language)==='JS'){try{await this.initializeJs(task,workspace);return(await this.testEvidence(task,[],workspace,'核验实际JS-UT')).evidence;}catch(error){diagnosticEvent(join(settings.logDirectory,task.id),{type:'js_baseline_blocked',taskId:task.id,error:error instanceof Error?error.message:String(error)});throw error;}}
   const command=taskMavenCommand(defaultCompileCommand,task.mavenSelection);
   delete task.compileFailure;this.save(task);
   try{await this.command(task,command,workspace,600000,'刷新Maven依赖与预编译');}

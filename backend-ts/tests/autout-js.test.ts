@@ -21,15 +21,15 @@ test('Jest 61 个实际用例识别 13 失败；回归必须全部保留并通�
  assert.throws(()=>readJestReport(report('/elsewhere'),'/repo/website'),/之外/);
  assert.equal(readJestReport(report('D:/repo/website'),'D:/repo/website').tests,61);
 });
-test('JS 基线依次在 website 安装和运行 npm，恢复锁文件；拒绝缺失、旧报告和异常退出',async t=>{
+test('JS 基线在 website 先 Maven 生成 package，直接运行 npm test；拒绝缺失、旧报告和异常退出',async t=>{
  const root=await mkdtemp(join(tmpdir(),'autout-js-')),website=join(root,'website'),store=new TaskStore(':memory:'),service=new AutoUtService(store,undefined,false),value=task(root);
  t.after(async()=>{await service.close();store.close();await rm(root,{recursive:true,force:true});await rm(join(service['jsReport'](value),'..'),{recursive:true,force:true});});
  await assert.rejects(service['baseline'](value,service['repository']('Mixed')!,root),/website/);
- await mkdir(website);await writeFile(join(website,'package.json'),JSON.stringify({scripts:{test:'node ./node_modules/jest/bin/jest.js'}}));await writeFile(join(website,'package-lock.json'),'original');
+ await mkdir(website);
  const calls:string[][]=[];
- service['command']=async(_task,command,directory)=>{assert.equal(directory,website);calls.push(command);if(command[1]==='install'){await writeFile(join(website,'package-lock.json'),'changed');return{exitCode:0,output:''};}await assert.rejects(readFile(service['jsReport'](value)));await writeFile(service['jsReport'](value),report(website));return{exitCode:1,output:'13 failed, 48 passed, 61 total'};};
+ service['command']=async(_task,command,directory)=>{assert.equal(directory,website);calls.push(command);if(command[0]==='mvn'){await assert.rejects(readFile(join(website,'package.json')));await writeFile(join(website,'package.json'),JSON.stringify({scripts:{test:'node ./node_modules/jest/bin/jest.js'}}));return{exitCode:0,output:''};}await assert.rejects(readFile(service['jsReport'](value)));await writeFile(service['jsReport'](value),report(website));return{exitCode:1,output:'13 failed, 48 passed, 61 total'};};
  assert.equal((await service['baseline'](value,service['repository']('Mixed')!,root)).failures,13);
- assert.deepEqual(calls[0],['npm','install','--force','--ignore-engines']);assert.deepEqual(calls[1],jestCommand(service['jsReport'](value)));assert.equal(await readFile(join(website,'package-lock.json'),'utf8'),'original');
+ assert.deepEqual(calls,[['mvn','clean','install'],jestCommand(service['jsReport'](value))]);
  service['command']=async()=>({exitCode:1,output:'Cannot find module jest'});await assert.rejects(service['testEvidence'](value,[],root,'缺少依赖'),/未生成/);
  service['command']=async()=>{await writeFile(service['jsReport'](value),report(website,0));return{exitCode:1,output:'runtime error'};};await assert.rejects(service['testEvidence'](value,[],root,'运行异常'),/运行异常/);
  service['command']=async()=>{await writeFile(service['jsReport'](value),report(website));return{exitCode:124,output:'timeout'};};await assert.rejects(service['testEvidence'](value,[],root,'超时'),/未正常完成/);
@@ -82,4 +82,11 @@ test('仓库地址不按服务硬编码，失败任务保存自定义后重试�
  assert.match(service.get(value.id).repositoryUrl!,/MAE-M\/Access\/FMEMateWebsite.git$/);
  const url='ssh://git@szv-y.codehub.huawei.com:2222/MAE-M/FMEMate/FMEMateWebsite.git';service.saveRepository(value.repository,url);let selected='';service['schedule']=(_task,repository)=>{selected=repository.url;};service.continue(value.id);assert.equal(selected,url);
  await service.close();service=new AutoUtService(store,undefined,false);assert.equal(service.get(value.id).repositoryUrl,url);assert.equal(service.get(value.id).repositoryCustomized,true);assert.equal(service['repository']('fmematewebsite')!.url,url);
+});
+
+test('JS Maven 初始化失败时停止；成功后才校验 package 和 test 脚本',async t=>{
+ const root=await mkdtemp(join(tmpdir(),'js-init-')),store=new TaskStore(':memory:'),service=new AutoUtService(store,undefined,false),value=task(root),website=join(root,'website');t.after(async()=>{await service.close();store.close();await rm(root,{recursive:true,force:true});await rm(join(service['jsReport'](value),'..'),{recursive:true,force:true});});await mkdir(website);
+ const calls:string[][]=[];service['command']=async(_task,command,directory)=>{calls.push(command);assert.equal(directory,website);throw Error('初始化JS项目-Maven失败，退出码 1');};
+ await assert.rejects(service['baseline'](value,service['repository']('Mixed')!,root),/Maven失败/);assert.deepEqual(calls,[['mvn','clean','install']]);
+ calls.length=0;service['command']=async(_task,command)=>{calls.push(command);return{exitCode:0,output:''};};await assert.rejects(service['baseline'](value,service['repository']('Mixed')!,root),/package.json/);assert.deepEqual(calls,[['mvn','clean','install']]);
 });
