@@ -223,7 +223,8 @@ export class AutoUtService{
   this.store.putRecord('auto-ut-workspace',workspace,{root:await realpath(task.workspaceRoot),path:await realpath(workspace),dev:info.dev,ino:info.ino});
  }
  private async cleanupCompletedWorkspace(task:AutoUtTask){
-  if(task.status!=='RESOLVED'||task.governance?.mrState!=='MERGED'||task.workspaceCleanup||this.deleting.has(task.id))return;
+  const completed=task.status==='NO_CHANGE'&&!task.pullRequestUrl&&!task.mr?.iid&&!task.governance?.mrState||task.status==='RESOLVED'&&task.governance?.mrState==='MERGED';
+  if(!completed||task.workspaceCleanup||this.deleting.has(task.id))return;
   let workspace='',locked=false;
   const result=(state:'DELETED'|'SKIPPED'|'FAILED',message:string)=>{task.workspaceCleanup={state,message};this.emit(task,state==='FAILED'?'error':'status',message);this.save(task);};
   try{

@@ -76,3 +76,27 @@ test('路径被替换为符号链接时保留外部文件，清理失败不改�
  await service['cleanupCompletedWorkspace'](value);assert.equal(value.status,'RESOLVED');assert.equal(value.workspaceCleanup?.state,'FAILED');assert.ok(await stat(join(outside,'keep')));
  await rm(workspace);await mkdir(workspace);await service['cleanupCompletedWorkspace'](value);assert.ok(await stat(workspace));
 });
+
+
+test('基线 UT 全通过后自动清理克隆仓库，保留无需治理记录且不重复删除',async t=>{
+ const{root,store,service}=await fixture(t),value=task('no-change-cleanup',root,'PassingRepo','DISCOVERED',new Date().toISOString()),workspace=autoUtWorkspace(value);
+ value.nextStage='PREPARE';value.executionMode='AUTOMATIC';
+ store.putRecord('auto-ut-task',value.id,value);
+ service['prepare']=async current=>{await mkdir(workspace,{recursive:true});await writeFile(join(workspace,'generated'),'build output');await service['rememberClonedWorkspace'](current);};
+ service['baseline']=async()=>({tests:10,failures:0,errors:0,skipped:0,passedIds:[],failedIds:[],caseIds:[],details:''});
+ service['schedule'](value,service['repository']('PassingRepo')!);
+ await service['executions'].get(value.id);
+ await assert.rejects(stat(workspace));
+ const completed=service.get(value.id);assert.equal(completed.status,'NO_CHANGE');assert.equal(completed.workspaceCleanup?.state,'DELETED');assert.ok(service.events(value.id,0).some(e=>e.content.includes('克隆仓库已清理')));
+ await mkdir(workspace);await writeFile(join(workspace,'new-owner'),'keep');await service['cleanupCompletedWorkspace'](completed);assert.ok(await stat(join(workspace,'new-owner')));
+});
+
+test('无需治理任务仍保留无归属或其他未完成任务共用的仓库',async t=>{
+ const{root,store,service}=await fixture(t);
+ for(const shared of [false,true]){
+  const value=task('no-change-'+shared,root,'Passing'+shared,'NO_CHANGE',new Date().toISOString()),workspace=autoUtWorkspace(value);
+  await mkdir(workspace,{recursive:true});store.putRecord('auto-ut-task',value.id,value);
+  if(shared){await service['rememberClonedWorkspace'](value);const other={...value,id:'waiting-owner',status:'WAITING_EXTERNAL' as const};store.putRecord('auto-ut-task',other.id,other);}
+  await service['cleanupCompletedWorkspace'](value);assert.ok(await stat(workspace));assert.equal(service.get(value.id).workspaceCleanup?.state,'SKIPPED');
+ }
+});
