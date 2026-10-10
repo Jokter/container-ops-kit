@@ -6,7 +6,7 @@ export function utLanguage(value?:string):UtLanguage|undefined {
 export function utPlanKey(item:{version:string;repository:string;language?:string}){
  return `${item.version}/${item.repository}${utLanguage(item.language)==='JS'?'/JS':''}`;
 }
-export function utRepairBranch(base:string,user:string,ticket:string,language?:string){return `${base}_${user}_${ticket}${utLanguage(language)==='JS'?'_js':''}`;}
+export function utRepairBranch(base:string,user:string,ticket:string){return `${base}_${user}_${ticket}`;}
 export function utTestFile(path:string,language?:string){
  const name=path.replaceAll('\\','/');
  if(utLanguage(language)!=='JS')return name.startsWith('src/test/')||name.includes('/src/test/');

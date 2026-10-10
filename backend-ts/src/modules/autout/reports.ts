@@ -41,7 +41,7 @@ export class AutoUtReports{
   // Keep the report metrics and execution claims intact when upgrading.
   return {...run,plan:(run.plan??[]).map(item=>{
    const language=utLanguage(item.language),ticket=versionTicket(run.config,item.version),mapping=this.store.getRecord<{url:string}>('auto-ut-repository',item.repository.toLowerCase());
-   return {...item,repositoryUrl:mapping?.url??`ssh://git@szv-y.codehub.huawei.com:2222/MAE-M/Access/${item.repository}.git`,repositoryCustomized:!!mapping,repairSupported:language!==undefined,...(language==='JS'?{repairBranch:item.baseBranch&&run.config.username&&ticket?utRepairBranch(item.baseBranch,run.config.username,ticket,language):''}:{})};
+   return {...item,repositoryUrl:mapping?.url??`ssh://git@szv-y.codehub.huawei.com:2222/MAE-M/Access/${item.repository}.git`,repositoryCustomized:!!mapping,repairSupported:language!==undefined,...(language==='JS'?{repairBranch:item.baseBranch&&run.config.username&&ticket?utRepairBranch(item.baseBranch,run.config.username,ticket):''}:{})};
   })};
  }
  private releaseDeletedClaims(run:ReportRun){
@@ -99,7 +99,7 @@ export class AutoUtReports{
  private plan(job:QualityJob,config:ReportConfig):PlanItem[]{const plan:PlanItem[]=[];for(const part of job.parts){if(part.status!=='SUCCEEDED')continue;const baseBranch=config.versions.find(v=>v.version===part.version)!.baseBranch;
   for(const row of part.rows){const language=String(row['语言']??''),team=String(row['PL组']??'');if(!config.teams.includes(team))continue;const cpp=language==='Cpp',branchCoverage=cpp?1:metric(row['分支覆盖率'],true),branchGoal=cpp?0:Math.min(metric(row['分支覆盖率目标'],true),.7);const repository=String(row['代码仓']);if(!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(repository))throw new Error('代码仓名称无效');const mapping=this.store.getRecord<{url:string}>('auto-ut-repository',repository.toLowerCase());
    if(!(metric(row['失败用例'])>0||metric(row['行覆盖率'],true)<Math.min(metric(row['行覆盖率目标'],true),.8)||branchCoverage<branchGoal))continue;
-   plan.push({version:part.version,repository,language,team,repairSupported:utLanguage(language)!==undefined,failedTests:metric(row['失败用例']),lineCoverage:metric(row['行覆盖率'],true),lineGoal:Math.min(metric(row['行覆盖率目标'],true),.8),branchCoverage,branchGoal,baseBranch,repositoryUrl:mapping?.url??`ssh://git@szv-y.codehub.huawei.com:2222/MAE-M/Access/${repository}.git`,repositoryCustomized:!!mapping,configured:!!baseBranch,repairBranch:baseBranch&&config.username&&versionTicket(config,part.version)?utRepairBranch(baseBranch,config.username,versionTicket(config,part.version),language):''});
+   plan.push({version:part.version,repository,language,team,repairSupported:utLanguage(language)!==undefined,failedTests:metric(row['失败用例']),lineCoverage:metric(row['行覆盖率'],true),lineGoal:Math.min(metric(row['行覆盖率目标'],true),.8),branchCoverage,branchGoal,baseBranch,repositoryUrl:mapping?.url??`ssh://git@szv-y.codehub.huawei.com:2222/MAE-M/Access/${repository}.git`,repositoryCustomized:!!mapping,configured:!!baseBranch,repairBranch:baseBranch&&config.username&&versionTicket(config,part.version)?utRepairBranch(baseBranch,config.username,versionTicket(config,part.version)):''});
   }}return plan;
  }
  start(id:string,mode:'MANUAL'|'AUTOMATIC',selected?:string[],useCurrentConfig=false){

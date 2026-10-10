@@ -10,7 +10,7 @@ import {jestCommand,readJestReport,jsTestViolations,usesJest} from '../src/modul
 import {utLanguage,utPlanKey,utRepairBranch,utTestFile} from '../src/modules/autout/languages.js';
 import {utRegressionPassed} from '../src/modules/autout/governance.js';
 function report(website:string,failed=13){return JSON.stringify({numTotalTests:61,numRuntimeErrorTestSuites:0,testResults:[{name:join(website,'src/__tests__/containers/TopoSvg/index.test.js'),status:failed?'failed':'passed',assertionResults:Array.from({length:61},(_,i)=>({title:'case '+i,ancestorTitles:['TopoSvg'],status:i<failed?'failed':'passed',failureMessages:i<failed?['expected element to exist']:[]}))}]});}
-function task(root:string):AutoUtTask{return{language:'JS',id:randomUUID(),repository:'Mixed',reportVersion:'R27',username:'tester',ticket:'DTS1',baseBranch:'main',repairBranch:'main_tester_DTS1_js',workspaceRoot:root,executionMode:'MANUAL',status:'BASELINE_RUNNING',nextStage:'BASELINE',progress:25,attempts:0,message:'',pullRequestUrl:'',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),reportedFailedTests:13,lineGoal:.8,branchGoal:.7,history:[],liveEvents:[],liveSequence:0};}
+function task(root:string):AutoUtTask{return{language:'JS',id:randomUUID(),repository:'Mixed',reportVersion:'R27',username:'tester',ticket:'DTS1',baseBranch:'main',repairBranch:'main_tester_DTS1',workspaceRoot:root,executionMode:'MANUAL',status:'BASELINE_RUNNING',nextStage:'BASELINE',progress:25,attempts:0,message:'',pullRequestUrl:'',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),reportedFailedTests:13,lineGoal:.8,branchGoal:.7,history:[],liveEvents:[],liveSequence:0};}
 test('Jest 61 个实际用例识别 13 失败；回归必须全部保留并通过',()=>{
  const before=readJestReport(report('/repo/website'),'/repo/website'),after=readJestReport(report('/repo/website',0),'/repo/website');
  assert.equal(before.tests,61);assert.equal(before.failures,13);assert.equal(before.passedIds.length,48);assert.match(before.details,/TopoSvg/);
@@ -35,7 +35,7 @@ test('JS 基线在 website 先 Maven 生成 package，直接运行 npm test；�
  service['command']=async()=>{await writeFile(service['jsReport'](value),report(website));return{exitCode:124,output:'timeout'};};await assert.rejects(service['testEvidence'](value,[],root,'超时'),/未正常完成/);
  const logs=join(service['jsReport'](value),'..');assert.equal((await readdir(logs)).filter(name=>/^jest-results-.+\.json$/.test(name)).length,3);const trace=await readFile(join(logs,'diagnostics.jsonl'),'utf8');assert.match(trace,/jest_result/);assert.match(trace,/jest_blocked/);assert.match(trace,/jest_report_unavailable/);
 });
-test('Java、JS 使用统一目录，分支与任务独立且禁止同时占用；Python 不支持',async t=>{
+test('Java、JS 使用统一目录，分支命名一致、任务独立且禁止同时占用；Python 不支持',async t=>{
  const root=await mkdtemp(join(tmpdir(),'autout-mixed-')),store=new TaskStore(':memory:'),service=new AutoUtService(store,undefined,false);
  t.after(async()=>{await service.close();store.close();await rm(root,{recursive:true,force:true});});service['schedule']=()=>{};
  const csv=Buffer.from('代码仓,语言,PL组,失败用例,行覆盖率,行覆盖率目标,分支覆盖率,分支覆盖率目标\nMixed,Java,Access_智能驾舱组,1,.1,.8,.1,.7\nMixed,JS,Access_智能驾舱组,13,.1,.8,.1,.7\nMixed,Py,Access_智能驾舱组,1,.1,.8,.1,.7\n');
@@ -43,9 +43,9 @@ test('Java、JS 使用统一目录，分支与任务独立且禁止同时占用�
  const java=(await service.start(javaCsv,'tester','DTS1','main',root,'MANUAL',{version:'R27',reportId:'report'}))[0]!;
  await assert.rejects(service.start(jsCsv,'tester','DTS1','main',root,'MANUAL',{version:'R27',reportId:'report'}),/依次治理/);
  await service.deleteTask(java.id,false);
- const js=(await service.start(jsCsv,'tester','DTS1','main',root,'MANUAL',{version:'R27',reportId:'report'}))[0]!;assert.equal(autoUtWorkspace(java),autoUtWorkspace(js));assert.equal(autoUtWorkspace(js),join(root,'R27','mixed'));assert.notEqual(java.repairBranch,js.repairBranch);assert.equal(js.language,'JS');
+ const js=(await service.start(jsCsv,'tester','DTS1','main',root,'MANUAL',{version:'R27',reportId:'report'}))[0]!;assert.equal(autoUtWorkspace(java),autoUtWorkspace(js));assert.equal(autoUtWorkspace(js),join(root,'R27','mixed'));assert.equal(java.repairBranch,js.repairBranch);assert.equal(js.language,'JS');
  const legacy={...js,workspacePath:join(root,'.auto-ut-js','R27','mixed')};assert.equal(autoUtWorkspace(legacy),legacy.workspacePath);
- assert.equal(utPlanKey({version:'R27',repository:'Mixed'}),'R27/Mixed');assert.equal(utPlanKey({version:'R27',repository:'Mixed',language:'JS'}),'R27/Mixed/JS');assert.equal(utRepairBranch('main','tester','DTS1','JS'),js.repairBranch);
+ assert.equal(utPlanKey({version:'R27',repository:'Mixed'}),'R27/Mixed');assert.equal(utPlanKey({version:'R27',repository:'Mixed',language:'JS'}),'R27/Mixed/JS');assert.equal(utRepairBranch('main','tester','DTS1'),js.repairBranch);assert.equal(js.repairBranch,'main_tester_DTS1');assert.equal(utRepairBranch('master','w00789509','DTS2026100876365'),'master_w00789509_DTS2026100876365');
  assert.equal(service.blocksRepository('Mixed','R27','main','JS'),true);store.deleteRecord('auto-ut-task',js.id);store.deleteRecord('auto-ut-governance',js.id);assert.equal(service.blocksRepository('Mixed','R27','main','JS'),false);assert.equal(service.blocksRepository('Mixed','R27','main'),false);assert.equal(utLanguage('Python'),undefined);
 });
 test('JS 修改门禁接受 JSX 与 mock，拒绝源码、配置、快照、跳过和删断言',async t=>{

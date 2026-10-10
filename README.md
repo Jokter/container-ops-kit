@@ -198,7 +198,7 @@ SSH 用户名仍按环境类型固定：构建环境使用 `huawei`，容器环�
 
 ### JavaScript UT 治理
 
-JS / JavaScript 报告可独立启动治理；同仓库的 Java、JS 使用独立任务和修复分支，工作目录统一为 `<工作根目录>/<版本>/<仓库名>`，同一目录需依次治理。升级前已创建的 JS 任务继续使用其原目录，避免丢失修复现场；新任务不再创建 `.auto-ut-js` 层级。Python 等其他语言显示暂不支持自动修复。
+JS / JavaScript 报告可独立启动治理；同仓库的 Java、JS 使用独立任务，修复分支统一命名为 `<基础分支>_<账号>_<问题单号>`，不添加语言后缀；已有任务保留其实际分支名，工作目录统一为 `<工作根目录>/<版本>/<仓库名>`，同一目录需依次治理。升级前已创建的 JS 任务继续使用其原目录，避免丢失修复现场；新任务不再创建 `.auto-ut-js` 层级。Python 等其他语言显示暂不支持自动修复。
 
 克隆后先在 `website` 执行 `mvn clean install` 初始化项目，再检查生成的 `package.json`。`scripts.test` 需使用已支持的 Jest 执行入口（直接调用、npm 脚本别名，或 react-scripts / react-app-rewired test）。其他测试框架需接入相应结果解析，不能直接套用 Jest 参数。Windows 下平台通过 Git for Windows 的 Git Bash 登录 shell 执行，登录初始化后显式切换到仓库的 `website`，再运行 Maven 或 npm；基线、修复验证和全量回归使用同一规则。自动查找 PATH 附近与常见安装位置的 Git Bash；自定义安装可设置 `AUTO_UT_GIT_BASH=C:\Program Files\Git\bin\bash.exe` 后重启。找不到 Git Bash 时明确报错，不回退到 cmd、PowerShell 或 WSL。Linux 保持原生执行。日志记录实际 bash 路径、完整参数及 shell 内工作目录。
 

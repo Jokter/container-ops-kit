@@ -167,7 +167,7 @@ test('R27C11 可用于质量查询与 UT 配置，版本仍限制为 RxxCxx',()=
 test('混合语言报告 JS 可单独启动，不占用 Java 的选择与领取标识',async()=>{
  const store=new TaskStore(':memory:'),quality=new QualityService(store,undefined,async()=>Response.json(payload(['Java','JS','Py'].map(language=>['Mixed',language,'Access_智能驾舱组',13,.05,.14,.03,.13,100,20])))),auto=new FakeAutoUt(store),reports=new AutoUtReports(store,quality,auto);
  try{reports.configure({...config(),versions:[config().versions[0]!]});const run=await ready(reports,reports.fetchReport().id);
-  assert.deepEqual(run.plan.map(p=>p.repairSupported),[true,true,false]);assert.notEqual(run.plan[0]!.repairBranch,run.plan[1]!.repairBranch);
+  assert.deepEqual(run.plan.map(p=>p.repairSupported),[true,true,false]);assert.equal(run.plan[0]!.repairBranch,run.plan[1]!.repairBranch);
   await reports.start(run.id,'MANUAL',['R27C10/Mixed/JS']);assert.equal(auto.calls.length,1);assert.equal(auto.parseReport(auto.calls[0]!.report)[0]!.language,'JS');assert.deepEqual(reports.get(run.id).claimed,['R27C10/Mixed/JS']);
   await reports.start(run.id,'MANUAL',['R27C10/Mixed']);assert.equal(auto.calls.length,2);assert.deepEqual(reports.get(run.id).claimed,['R27C10/Mixed/JS','R27C10/Mixed']);
  }finally{await quality.close();await reports.close();await auto.close();store.close();}
@@ -196,8 +196,8 @@ test('删除带未完成 MR 的任务不释放领取；启动失败或未知状�
 test('升级前保存的 Js 不支持标记按当前能力修正，无需重新查询，保留原指标与 Java 领取状态',async()=>{
  const store=new TaskStore(':memory:'),quality=new QualityService(store,undefined,async()=>Response.json(payload(['Java','Js','Py'].map(language=>['FMEMateWebsite',language,'Access_智能驾舱组',13,.05,.14,.03,.13,100,20])))),auto=new FakeAutoUt(store),reports=new AutoUtReports(store,quality,auto,undefined,false);
  try{reports.configure({...config(),versions:[config().versions[0]!]});const run=await ready(reports,reports.fetchReport().id);
-  const js=run.plan.find(p=>p.language==='Js')!;js.repairSupported=false;js.repairBranch='release/27_tester_DTS1';run.claimed=['R27C10/FMEMateWebsite'];store.putRecord('auto-ut-report-run',run.id,run);
-  const viewed=reports.list().find(r=>r.id===run.id)!;assert.equal(viewed.plan.find(p=>p.language==='Js')!.repairSupported,true);assert.equal(viewed.plan.find(p=>p.language==='Py')!.repairSupported,false);assert.equal(viewed.plan.find(p=>p.language==='Js')!.repairBranch,'release/27_tester_DTS1_js');assert.equal(viewed.plan.find(p=>p.language==='Js')!.failedTests,13);assert.deepEqual(viewed.claimed,['R27C10/FMEMateWebsite']);
+  const js=run.plan.find(p=>p.language==='Js')!;js.repairSupported=false;js.repairBranch='release/27_tester_DTS1_js';run.claimed=['R27C10/FMEMateWebsite'];store.putRecord('auto-ut-report-run',run.id,run);
+  const viewed=reports.list().find(r=>r.id===run.id)!;assert.equal(viewed.plan.find(p=>p.language==='Js')!.repairSupported,true);assert.equal(viewed.plan.find(p=>p.language==='Py')!.repairSupported,false);assert.equal(viewed.plan.find(p=>p.language==='Js')!.repairBranch,'release/27_tester_DTS1');assert.equal(viewed.plan.find(p=>p.language==='Js')!.failedTests,13);assert.deepEqual(viewed.claimed,['R27C10/FMEMateWebsite']);
   assert.equal(reports.get(run.id).plan.find(p=>p.language==='Js')!.repairSupported,true);
   await reports.start(run.id,'MANUAL',['R27C10/FMEMateWebsite/JS']);assert.equal(auto.calls.length,1);assert.equal(auto.parseReport(auto.calls[0]!.report)[0]!.language,'JS');
  }finally{await reports.close();await quality.close();await auto.close();store.close();}
