@@ -1,10 +1,10 @@
 {
   "name": "container-ops-kit",
-  "version": "0.2.140",
+  "version": "0.2.141",
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=24.15.0 <25"
+    "node": ">=22.22.3 <23 || >=24.15.0 <25"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

@@ -28,6 +28,8 @@ test('environment CRUD persists the existing API contract and optimistic revisio
 test('native task API validates input, persists lifecycle and replays SSE', async t => {
   const app = await createApp({...readConfig({}),port: 8080,database: ':memory:',workers:1,taskTimeoutMs:5000});
   t.after(() => app.close());
+  // A real listener keeps SSE polling alive after the worker exits on Node 22.
+  await app.listen({host: '127.0.0.1', port: 0});
   assert.equal((await app.inject({method: 'POST', url: '/api/platform/tasks', payload: {kind: 'shell', command: 'anything'}})).statusCode, 400);
   assert.equal((await app.inject('/api/platform/tasks/not-a-uuid')).statusCode, 400);
   assert.equal((await app.inject('/api/platform/tasks/00000000-0000-4000-8000-000000000000')).statusCode, 404);

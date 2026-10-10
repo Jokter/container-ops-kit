@@ -16,7 +16,7 @@ mkdir "%LOG_ROOT%\startup"
 
 where node >nul 2>nul
 if errorlevel 1 goto missing_node
-node -e "const [major,minor]=process.versions.node.split('.').map(Number);process.exit(major===24 && minor>=15 ? 0 : 1)"
+node -e "const [major,minor,patch]=process.versions.node.split('.').map(Number);process.exit((major===22 && (minor>22 || (minor===22 && patch>=3))) || (major===24 && minor>=15) ? 0 : 1)"
 if errorlevel 1 goto missing_node
 where npm >nul 2>nul
 if errorlevel 1 goto missing_node
@@ -58,7 +58,7 @@ start "" "http://127.0.0.1:%FRONTEND_PORT%"
 exit /b 0
 
 :missing_node
-echo Node.js 24.15 or newer within the 24.x line, with npm, is required.
+echo Node.js 22.22.3+ (22.x) or 24.15+ (24.x), with npm, is required.
 pause
 exit /b 1
 

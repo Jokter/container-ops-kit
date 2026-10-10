@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
+import {runInNewContext} from 'node:vm';
 
 test('Windows 启动按 lock 校验依赖且日志由 cmd 合并 stderr',async()=>{
  const [start,runner,installer]=await Promise.all([
@@ -33,4 +34,13 @@ test('start.bat 内嵌唯一清理逻辑，兼容入口和端口参数一致',as
  assert.ok(patterns[0]!.test('node "dist\\backend-ts\\src\\main.js"'));
  assert.ok(patterns[1]!.test('node .\\node_modules\\vite\\bin\\vite.js --host 127.0.0.1'));
  for(const command of ['node other.js --host 127.0.0.1','node C:\\another\\node_modules\\vite\\bin\\vite.js','node C:\\another\\dist\\backend-ts\\src\\main.js'])assert.ok(patterns.every(pattern=>!pattern.test(command)));
+});
+
+
+test('Windows 启动允许受支持的 Node 22 和 24，拒绝低版本与未验证主版本',async()=>{
+ const start=await readFile('start.bat','utf8'),check=start.match(/node -e "([^"\r\n]+)"/);
+ assert.ok(check);
+ for(const [version,expected]of [['22.22.3',0],['22.23.0',0],['24.15.0',0],['24.19.0',0],['22.22.2',1],['22.21.9',1],['24.14.9',1],['20.19.0',1],['23.0.0',1],['25.0.0',1]] as const){
+  let code:number|undefined;runInNewContext(check[1]!,{process:{versions:{node:version},exit:(value:number)=>{code=value;}}});assert.equal(code,expected,version);
+ }
 });
