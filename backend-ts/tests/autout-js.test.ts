@@ -4,6 +4,7 @@ import {mkdtemp,mkdir,writeFile,readFile,readdir,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {randomUUID} from 'node:crypto';
+import {runProcess} from '../src/infrastructure/process.js';
 import {TaskStore} from '../src/platform/store.js';
 import {AutoUtService,autoUtWorkspace,type AutoUtTask} from '../src/modules/autout/autout.js';
 import {jestCommand,readJestReport,jsTestViolations,usesJest} from '../src/modules/autout/jest.js';
@@ -27,7 +28,7 @@ test('JS 基线在 website 先 Maven 生成 package，直接运行 npm test；�
  await assert.rejects(service['baseline'](value,service['repository']('Mixed')!,root),/website/);
  await mkdir(website);
  const calls:string[][]=[];
- service['command']=async(_task,command,directory)=>{assert.equal(directory,website);calls.push(command);if(command[0]==='mvn'){await assert.rejects(readFile(join(website,'package.json')));await writeFile(join(website,'package.json'),JSON.stringify({scripts:{test:'node ./node_modules/jest/bin/jest.js'}}));return{exitCode:0,output:''};}await assert.rejects(readFile(service['jsReport'](value)));await writeFile(service['jsReport'](value),report(website));return{exitCode:1,output:'13 failed, 48 passed, 61 total'};};
+ service['command']=async(_task,command,directory)=>{if(command[0]==='git')return{exitCode:0,output:''};assert.equal(directory,website);calls.push(command);if(command[0]==='mvn'){await assert.rejects(readFile(join(website,'package.json')));await writeFile(join(website,'package.json'),JSON.stringify({scripts:{test:'node ./node_modules/jest/bin/jest.js'}}));return{exitCode:0,output:''};}await assert.rejects(readFile(service['jsReport'](value)));await writeFile(service['jsReport'](value),report(website));return{exitCode:1,output:'13 failed, 48 passed, 61 total'};};
  assert.equal((await service['baseline'](value,service['repository']('Mixed')!,root)).failures,13);
  assert.deepEqual(calls,[['mvn','clean','install'],jestCommand(service['jsReport'](value))]);
  service['command']=async()=>({exitCode:1,output:'Cannot find module jest'});await assert.rejects(service['testEvidence'](value,[],root,'缺少依赖'),/未生成/);
@@ -86,7 +87,26 @@ test('仓库地址不按服务硬编码，失败任务保存自定义后重试�
 
 test('JS Maven 初始化失败时停止；成功后才校验 package 和 test 脚本',async t=>{
  const root=await mkdtemp(join(tmpdir(),'js-init-')),store=new TaskStore(':memory:'),service=new AutoUtService(store,undefined,false),value=task(root),website=join(root,'website');t.after(async()=>{await service.close();store.close();await rm(root,{recursive:true,force:true});await rm(join(service['jsReport'](value),'..'),{recursive:true,force:true});});await mkdir(website);
- const calls:string[][]=[];service['command']=async(_task,command,directory)=>{calls.push(command);assert.equal(directory,website);throw Error('初始化JS项目-Maven失败，退出码 1');};
+ const calls:string[][]=[];service['command']=async(_task,command,directory)=>{if(command[0]==='git')return{exitCode:0,output:''};calls.push(command);assert.equal(directory,website);throw Error('初始化JS项目-Maven失败，退出码 1');};
  await assert.rejects(service['baseline'](value,service['repository']('Mixed')!,root),/Maven失败/);assert.deepEqual(calls,[['mvn','clean','install']]);
- calls.length=0;service['command']=async(_task,command)=>{calls.push(command);return{exitCode:0,output:''};};await assert.rejects(service['baseline'](value,service['repository']('Mixed')!,root),/package.json/);assert.deepEqual(calls,[['mvn','clean','install']]);
+ calls.length=0;service['command']=async(_task,command)=>{if(command[0]!=='git')calls.push(command);return{exitCode:0,output:''};};await assert.rejects(service['baseline'](value,service['repository']('Mixed')!,root),/package.json/);assert.deepEqual(calls,[['mvn','clean','install']]);
+});
+
+
+test('真实 Git 工作区只提交修复测试，Maven 生成配置与构建文件保留但不提交',async t=>{
+ const root=await mkdtemp(join(tmpdir(),'js-init-git-')),store=new TaskStore(':memory:'),service=new AutoUtService(store,undefined,false),value=task(root);
+ t.after(async()=>{await service.close();store.close();await rm(root,{recursive:true,force:true});await rm(join(service['jsReport'](value),'..'),{recursive:true,force:true});});
+ const git=async(args:string[])=>{const r=await runProcess(['git',...args],root,10000);assert.equal(r.exitCode,0,r.output);return r.output.trim();};
+ await git(['init']);await git(['config','user.name','UT fixture']);await git(['config','user.email','fixture@example.invalid']);await mkdir(join(root,'website/src'),{recursive:true});
+ await writeFile(join(root,'website/babel.config.js'),'original');await writeFile(join(root,'website/src/a.test.js'),'test("a",()=>expect(value).toBe(1))');await git(['add','.']);await git(['commit','-m','baseline']);
+ service['command']=async(_task,command,directory)=>{
+  if(command[0]!=='mvn')return runProcess(command,directory,10000);
+  await writeFile(join(root,'website/babel.config.js'),'generated');await writeFile(join(root,'website/package.json'),JSON.stringify({scripts:{test:'jest'}}));await mkdir(join(root,'website/build'),{recursive:true});await writeFile(join(root,'website/build/generated.test.js'),'build artifact');return{exitCode:0,output:''};
+ };
+ await service['initializeJs'](value,root);
+ assert.equal((await service['inspect'](value,root,'未修改')).changedFiles.length,0);
+ await writeFile(join(root,'website/src/a.test.js'),'test("a",()=>expect(value).toBe(2))');
+ const guard=await service['inspect'](value,root,'修复');assert.equal(guard.accepted,true,guard.violations.join(';'));assert.deepEqual(guard.changedFiles,['website/src/a.test.js']);
+ await git(['add','--',...guard.changedFiles]);assert.equal(await git(['diff','--cached','--name-only']),'website/src/a.test.js');await git(['commit','-m','test fix']);assert.equal(await git(['diff','--name-only','HEAD~','HEAD']),'website/src/a.test.js');
+ await writeFile(join(root,'website/babel.config.js'),'agent change');await assert.rejects(service['inspect'](value,root,'非法配置'),/非测试文件发生变化/);
 });
