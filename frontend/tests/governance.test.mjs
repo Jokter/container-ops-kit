@@ -101,3 +101,24 @@ test('概览只统计已合入 UT，MR 去重且排除外部合入，待处理�
   d.querySelector('.overview-mr-detail [data-review-open]').click();await pause();assert.equal(dom.window.location.hash,'#/automation/group-mr');
  }finally{dom.window.close();}
 });
+
+test('远端已合并或已关闭的 MR 即使残留待核对操作也不进入概览待办，刷新后同步移除',async()=>{
+ const now=new Date().toISOString();
+ const mr=(id,phase,writePending='')=>({id,iid:id,repo:'MAE-M/FMEMate/FMEMateService',url:'https://codehub-y.huawei.com/MAE-M/FMEMate/FMEMateService/merge_requests/'+id,phase,writePending,status:phase==='DONE'?'已确认远端 MR 已合入':phase==='CLOSED'?'已确认远端 MR 已关闭':'需要处理',createdAt:now,updatedAt:now,events:[]});
+ const history=[mr('1706','DONE','Pi 提交检视意见'),mr('1717','CLOSED','群消息回复')];
+ const pending=[mr('1718','INTERRUPTED','Pi 提交检视意见'),mr('1719','HUMAN')];
+ const dom=new JSDOM(html,{url:'http://localhost/#/automation',runScripts:'dangerously',beforeParse(w){w.scrollTo=()=>{};w.fetch=async url=>({ok:true,status:200,json:async()=>url==='/api/automation/group-mr'?{pending,history,config:{},monitor:{},metrics:{}}:url.startsWith('/api/auto-ut/governance')?{metrics:{},records:[]}:[]});}});
+ try{
+  await pause();const d=dom.window.document;
+  const ids=()=>[...d.querySelectorAll('.review-todos [data-review-open]')].map(el=>el.dataset.reviewOpen);
+  const count=()=>d.querySelector('[data-overview-outcome="waiting"] strong').textContent;
+  assert.deepEqual(ids(),['1718','1719']);assert.equal(count(),'2');
+  d.querySelector('[data-overview-filter="mr"]').click();assert.deepEqual(ids(),['1718','1719']);
+  const finished=pending.shift();finished.phase='DONE';finished.status='已确认远端 MR 已合入';history.push(finished);
+  await dom.window.loadGroupMr();
+  assert.deepEqual(ids(),['1719']);assert.equal(count(),'1');
+  assert.equal(d.querySelector('#overview-pending-heading .qw-count').textContent,'1');
+  assert.equal(dom.window.eval('groupMrUi.history.length'),3);
+  assert.equal(dom.window.eval('groupMrUi.history.find(r=>r.id==="1718").writePending'),'Pi 提交检视意见');
+ }finally{dom.window.close();}
+});
