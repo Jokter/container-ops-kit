@@ -284,7 +284,7 @@ test('Pi accepts natural text without JSON and waits for a terminal RPC event',a
   const service=new GroupMrService(store,async(args,_dir,_timeout,_log,onLine,input)=>{
    assert.ok(!args.includes('--no-tools'));assert.ok(!args.includes('--no-extensions'));assert.match(input??'',/codehub-cli/);assert.doesNotMatch(input??'',/返回结果 JSON/);
    onLine?.(JSON.stringify({type:'message_update',assistantMessageEvent:{type:'text_delta',delta:'检视完成，已提交意见。'}}),false);
-   if(completed)onLine?.(JSON.stringify({type:'agent_end'}),false);
+   if(completed){onLine?.(JSON.stringify({type:'agent_end'}),false);onLine?.(JSON.stringify({type:'extension_ui_request',method:'setStatus'}),false);}
    return {exitCode:0,output:''};
   });
   const entry={id:'test',repo:'MAE-M/Access/Demo',iid:'444',url:'https://codehub-y.huawei.com/MAE-M/Access/Demo/merge_requests/444',sha,previousSha:'',messageId:'1',sender:'other',shortcut:false,phase:'PI' as const,status:'',detail:'',createdAt:new Date().toISOString(),updatedAt:'',writePending:'',events:[]};
@@ -838,4 +838,36 @@ test('background state checks rotate beyond five MRs and ignore deleted and term
   t.mock.timers.tick(5000);await settle(service);assert.equal(checked.length,5);
   t.mock.timers.tick(5000);await settle(service);assert.equal(checked.length,7);assert.equal(new Set(checked).size,7);assert.ok(!checked.includes('8')&&!checked.includes('9'));
  }finally{await service.close();store.close();}
+});
+
+
+test('RPC completion and final answer survive trailing extension events and incomplete output',()=>{
+ const stream=piReplyStream();
+ assert.equal(stream.line(JSON.stringify({type:'agent_end',messages:[{role:'assistant',stopReason:'stop',content:[{type:'text',text:'已完成'}]}]})),true);
+ assert.equal(stream.line(JSON.stringify({type:'extension_ui_request',method:'setStatus',statusText:'private content'})),false);
+ stream.line('invalid trailing JSON');stream.line('stderr content',true);
+ assert.equal(stream.completed(),true);assert.equal(stream.failed(),false);assert.equal(stream.answer(),'已完成');
+ const diagnostic=stream.diagnostic();assert.equal(diagnostic.completionEvent,'agent_end');assert.equal(diagnostic.parseErrors,1);assert.equal(diagnostic.stderrLines,1);
+ assert.doesNotMatch(JSON.stringify(diagnostic),/private content|stderr content/);
+});
+
+test('RPC failed assistant remains failed after settling; retries can recover',()=>{
+ const stream=piReplyStream();
+ stream.line(JSON.stringify({type:'message_end',message:{role:'assistant',stopReason:'error',errorMessage:'secret',content:[]}}));
+ assert.equal(stream.line(JSON.stringify({type:'agent_end',willRetry:true})),false);
+ assert.equal(stream.completed(),false);assert.equal(stream.failed(),true);
+ stream.line(JSON.stringify({type:'message_start',message:{role:'assistant'}}));
+ stream.line(JSON.stringify({type:'message_end',message:{role:'assistant',stopReason:'stop',content:[{type:'text',text:'成功'}]}}));
+ assert.equal(stream.line(JSON.stringify({type:'agent_settled'})),true);assert.equal(stream.failed(),false);
+ const failure=piReplyStream();failure.line(JSON.stringify({type:'message_end',message:{role:'assistant',stopReason:'error',content:[]}}));
+ failure.line(JSON.stringify({type:'agent_settled'}));failure.line(JSON.stringify({type:'extension_ui_request'}));
+ assert.equal(failure.completed(),true);assert.equal(failure.failed(),true);assert.equal(failure.diagnostic().failureKind,'assistant-error');
+});
+
+test('RPC prompt rejection is diagnostic failure, never a successful review',()=>{
+ const stream=piReplyStream();stream.line(JSON.stringify({type:'response',command:'prompt',success:false,error:'private error'}));
+ assert.equal(stream.failed(),true);assert.equal(stream.completed(),false);assert.equal(stream.diagnostic().failureKind,'prompt-rejected');
+ assert.doesNotMatch(JSON.stringify(stream.diagnostic()),/private error/);
+ for(let i=0;i<100;i++)stream.line(JSON.stringify({type:'extension_ui_request'}));
+ assert.equal(stream.diagnostic().recentEvents.length,24);
 });

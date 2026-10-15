@@ -74,18 +74,30 @@ export function parseDiscussions(output:string):Discussion[]{
 }
 
 export function piReplyStream(){
- let answer='',failed=false,completed=false;
- const take=(value:unknown)=>{const message=object(value);if(message?.role!=='assistant')return;const parts=Array.isArray(message.content)?message.content:[];answer=parts.map(object).filter(p=>p?.type==='text').map(p=>string(p?.text)).join('\n');failed=['error','aborted'].includes(string(message.stopReason));};
- return {answer:()=>answer,failed:()=>failed,completed:()=>completed,line:(line:string,stderr=false)=>{
-  if(stderr)return false;
-  try{const event=object(JSON.parse(line));
-   if(event?.type==='message_start'&&object(event.message)?.role==='assistant'){answer='';failed=false;}
-   if(event?.type==='message_update'){const part=object(event.assistantMessageEvent);if(part?.type==='text_delta')answer+=string(part.delta);}
-   if(event?.type==='message_end')take(event.message);
-   if(event?.type==='agent_end'&&!event.willRetry&&Array.isArray(event.messages)){const last=[...event.messages].reverse().find(m=>object(m)?.role==='assistant');if(last)take(last);}
-   completed=event?.type==='agent_settled'||event?.type==='agent_end'&&!event.willRetry;return completed;
-  }catch{return false;}
- }};
+ let answer='',failed=false,completed=false,completionEvent='',failureKind='',stopReason='',parseErrors=0,stderrLines=0;
+ const events:string[]=[];
+ const knownEvents=new Set(['message_start','message_update','message_end','agent_start','agent_end','agent_settled','response','extension_ui_request','tool_execution_start','tool_execution_end','auto_retry_start','auto_retry_end']);
+ const take=(value:unknown)=>{const message=object(value);if(message?.role!=='assistant')return;const parts=Array.isArray(message.content)?message.content:[];answer=parts.map(object).filter(p=>p?.type==='text').map(p=>string(p?.text)).join('\n');
+  const reason=string(message.stopReason);stopReason=['stop','length','toolUse','error','aborted'].includes(reason)?reason:'unknown';
+  if(['error','aborted'].includes(reason)){failed=true;failureKind='assistant-'+reason;}
+ };
+ return {answer:()=>answer,failed:()=>failed,completed:()=>completed,
+  diagnostic:()=>({completed,completionEvent,failed,failureKind,stopReason,parseErrors,stderrLines,recentEvents:[...events]}),
+  line:(line:string,stderr=false)=>{
+   if(stderr){stderrLines++;return false;}
+   let event:Record<string,unknown>|undefined;
+   try{event=object(JSON.parse(line));}catch{parseErrors++;return false;}
+   const type=string(event?.type);events.push(knownEvents.has(type)?type:'unknown');if(events.length>24)events.shift();
+   // Completion is terminal for this invocation. Trailing UI/status events must not erase it.
+   if(completed)return false;
+   if(type==='message_start'&&object(event?.message)?.role==='assistant'){answer='';failed=false;failureKind='';stopReason='';}
+   if(type==='message_update'){const part=object(event?.assistantMessageEvent);if(part?.type==='text_delta')answer+=string(part.delta);}
+   if(type==='message_end')take(event?.message);
+   if(type==='response'&&event?.command==='prompt'&&event.success===false){failed=true;failureKind='prompt-rejected';}
+   if(type==='agent_end'&&!event?.willRetry&&Array.isArray(event?.messages)){const last=[...event.messages].reverse().find(m=>object(m)?.role==='assistant');if(last)take(last);}
+   if(type==='agent_settled'||type==='agent_end'&&!event?.willRetry){completed=true;completionEvent=type;return true;}
+   return false;
+  }};
 }
 // Inspect CLI diagnostics only; never group message bodies or MR/diff content.
 export function groupMrAccessFailure(result:{exitCode:number;output:string}):boolean{
@@ -468,9 +480,9 @@ ${scope}
   e.writePending='Pi 提交检视意见';this.save(e);
   let result;try{result=await this.execute(['pi','--mode','rpc','--no-session','--no-context-files','--no-prompt-templates','--thinking','medium'],process.cwd(),60*60_000,undefined,stream.line,input,this.controller.signal);}finally{this.activeCommand='';}
   const answer=stream.answer();delete e.reviewAssessment;e.piOutput=answer.replace(/<ops-studio-review-result>[\s\S]*?<\/ops-studio-review-result>/g,'').trim().slice(0,12000);this.save(e);
-  this.diagnostic={...this.diagnostic,elapsedMs:Date.now()-startedAt,exitCode:result.exitCode,answerBytes:Buffer.byteLength(answer),response:responseDiagnostic(result.output)};
+  this.diagnostic={...this.diagnostic,elapsedMs:Date.now()-startedAt,exitCode:result.exitCode,answerBytes:Buffer.byteLength(answer),terminationReason:result.terminationReason??'unknown',rpc:stream.diagnostic(),response:responseDiagnostic(result.output)};
   this.recordLog(result.exitCode===0&&stream.completed()&&!stream.failed()?'info':'error',result.exitCode===0&&stream.completed()&&!stream.failed()?'Agent 执行结束，待查询 CodeHub 意见':'Agent 检视未完成');
-  if(result.exitCode!==0||stream.failed()||!stream.completed())throw Error('Agent 检视未正常结束，请核对 CodeHub 检视意见；本次不自动重试');
+  if(result.exitCode!==0||stream.failed()||!stream.completed()){const reason=result.exitCode!==0?`进程退出码 ${result.exitCode}`:stream.failed()?`Agent 返回失败（${stream.diagnostic().failureKind}）`:'未收到有效完成事件';throw Error(`Agent 检视未正常结束：${reason}；请核对 CodeHub 检视意见；本次不自动重试`);}
   const assessment=parseReviewAssessment(answer);if(assessment?.sha===e.sha){e.reviewAssessment=assessment;this.save(e);}
  }
  private async process(e:Entry,cfg:Configuration){

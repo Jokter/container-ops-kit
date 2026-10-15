@@ -4,7 +4,7 @@ import {access, mkdir, writeFile} from 'node:fs/promises';
 import {constants} from 'node:fs';
 import {delimiter, dirname, join} from 'node:path';
 
-export interface ProcessResult {exitCode:number;output:string;outputTruncated?:boolean;outputChars?:number}
+export interface ProcessResult {exitCode:number;output:string;outputTruncated?:boolean;outputChars?:number;terminationReason?:'exit'|'completion-event'|'timeout'}
 async function executable(name:string):Promise<string>{
   if(process.platform!=='win32'||/[./\\]/.test(name))return name;
   for(const dir of (process.env.PATH??'').split(delimiter))for(const ext of ['.cmd','.bat','.exe']){const path=join(dir.replaceAll('"',''),name+ext);try{await access(path,constants.X_OK);return path;}catch{/* next */}}
@@ -37,7 +37,7 @@ export async function runProcess(command:readonly string[],directory:string,time
     const finish=async(error?:Error,code=255)=>{if(settled)return;settled=true;clearTimeout(timer);signal?.removeEventListener('abort',abort);for(let i=0;i<2;i++){buffers[i]+=decoders[i]!.end();if(buffers[i])captured(buffers[i]!,i===1);}
       if(logFile){try{await mkdir(dirname(logFile),{recursive:true});await writeFile(logFile,output,'utf8');}catch{/* command result wins */}}
       await stopping;
-      if(error)reject(error);else resolve({exitCode:code,output,outputTruncated:outputChars>output.length,outputChars});};
+      if(error)reject(error);else resolve({exitCode:code,output,outputTruncated:outputChars>output.length,outputChars,terminationReason:stopCode===124?'timeout':stopRequested?'completion-event':'exit'});};
     const abort=()=>{stopError=new Error('命令执行被中断');terminate();};signal?.addEventListener('abort',abort,{once:true});
     const timer=setTimeout(()=>{stopCode=124;terminate();},timeoutMs);
     child.stdout.on('data',(c:Buffer)=>record(c,false));child.stderr.on('data',(c:Buffer)=>record(c,true));child.once('error',error=>void finish(error));child.once('close',code=>void finish(stopError,stopCode??code??255));
