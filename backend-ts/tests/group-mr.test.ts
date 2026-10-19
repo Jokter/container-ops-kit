@@ -491,11 +491,12 @@ test('MR queue shows all received entries, runs five, ingests while busy and iso
  };
  const service=new GroupMrService(store,execute,{task:(_scope,name,data)=>{if(name==='group-mr-errors'&&data&&typeof data==='object'&&!Array.isArray(data))errors.push(data as Record<string,unknown>);}});
  const tick=()=>new Promise<void>(resolve=>setImmediate(resolve));
+ const waitForStarted=async(count:number)=>{const deadline=Date.now()+15000;while(started.length<count&&Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,20));assert.equal(started.length,count);};
  try{
   service.configure(cfg);store.putRecord('group-mr-cursor','cursor:'+cfg.groupId,{id:'0'});
   await service.poll();await tick();
   assert.equal(service.summary().pending.length,7);assert.equal(service.summary().monitor.activeCount,5);assert.equal(service.summary().monitor.queuedCount,2);
-  assert.deepEqual(started,['1','2','3','4','5']);
+  await waitForStarted(5);assert.deepEqual(started,['1','2','3','4','5']);
   assert.equal(service.summary().pending.filter(e=>e.phase==='QUEUED').length,2);
   // A new poll must read and queue messages while the first five Pi processes are held.
   messages.push(message(8),message(9,1),message(10,7));service.configure(cfg);await service.poll();await tick();
@@ -503,10 +504,10 @@ test('MR queue shows all received entries, runs five, ingests while busy and iso
   const queued=service.list().find(e=>e.iid==='7')!;assert.throws(()=>service.removeHistory(queued.id),/执行或排队/);
   releases.get('2')!();await tick();
   assert.equal(service.summary().pending.find(e=>e.iid==='2')?.writePending,'Pi 提交检视意见');
-  assert.ok(started.includes('6'));assert.equal(service.summary().monitor.activeCount,5);
+  await waitForStarted(6);assert.ok(started.includes('6'));assert.equal(service.summary().monitor.activeCount,5);
   const error=errors.find(e=>e.source==='mr-processing');assert.equal(error?.iid,'2');assert.equal(error?.entryId,service.list().find(e=>e.iid==='2')?.id);
-  releases.get('1')!();await tick();assert.ok(started.includes('7'));
-  releases.get('3')!();await tick();assert.ok(started.includes('8'));
+  releases.get('1')!();await waitForStarted(7);assert.ok(started.includes('7'));
+  releases.get('3')!();await waitForStarted(8);assert.ok(started.includes('8'));
   for(const release of releases.values())release();await settle(service);
   assert.equal(peak,5);assert.equal(service.summary().monitor.activeCount,0);assert.equal(service.summary().monitor.queuedCount,0);
   assert.equal(new Set(started).size,8);assert.equal(started.length,8);

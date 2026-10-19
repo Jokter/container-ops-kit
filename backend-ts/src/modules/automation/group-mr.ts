@@ -1,5 +1,6 @@
 import {parseReviewAssessment,discussionFingerprint,ownsDiscussion,developerReplied,type ClosureDiscussion,type OwnedDiscussion,type ReviewAssessment} from './review-closure.js';
 import {AsyncLocalStorage} from 'node:async_hooks';
+import {setTimeout as delay} from 'node:timers/promises';
 import {intervention} from './interventions.js';
 import {ReviewKnowledge,reviewInput,type HumanReview} from './review-knowledge.js';
 import {WelinkSettings} from '../autout/welink-settings.js';
@@ -120,6 +121,7 @@ interface QueuedJob {entry:Entry;run:()=>Promise<void>;resolve:()=>void;reject:(
 export class GroupMrService {
  readonly knowledge:ReviewKnowledge;private background=new Set<Promise<void>>();
  private groupReplyTails=new Map<string,Promise<void>>();
+ private groupReplyReadyAt=new Map<string,number>();
  private timer:NodeJS.Timeout;private busy=false;private closing=false;private active=new Set<string>();private initialised=false;private lastPoll=0;private controller=new AbortController();private pollPromise:Promise<void>|undefined;private contexts=new AsyncLocalStorage<ExecutionContext>();private monitorContext:ExecutionContext={entry:undefined,command:'',diagnostic:{},trace:[]};private workers=new Map<string,ExecutionContext>();private queue:QueuedJob[]=[];private reserved=new Set<string>();readonly concurrency=5;private stateChecks=new Map<string,number>();private stateJobs=new Map<string,Promise<void>>();private lastLoginAt=new Map<string,number>();private logins=new Map<string,Promise<void>>();
  private get context(){return this.contexts.getStore()??this.monitorContext;}
  private get activeCommand(){return this.context.command;} private set activeCommand(value:string){this.context.command=value;}
@@ -385,6 +387,9 @@ export class GroupMrService {
   // Use a native quote flag only when this installed CLI advertises one. Otherwise identify the source explicitly.
   const help=await this.command(['welink-cli','im','send-to-group','--help'],10000);
   if(this.closing||this.controller.signal.aborted)throw Error('服务正在停止，群消息未发送');
+  const waitMs=(this.groupReplyReadyAt.get(cfg.groupId)??0)-Date.now();
+  if(waitMs>0){try{await delay(waitMs,undefined,{signal:this.controller.signal});}catch{throw Error('服务正在停止，群消息未发送');}}
+  if(this.closing||this.controller.signal.aborted)throw Error('服务正在停止，群消息未发送');
   const flag=['--quote-message-id','--reply-to-message-id','--quote-msg-id'].find(option=>help.includes(option));
   if(!flag)e.events.push({time:new Date().toISOString(),phase:e.phase,message:'当前 WeLink CLI 未提供原生引用回复参数，群消息将使用原 MR 链接标识来源'});
   // Keep --text single-line for Windows welink-cli.cmd; never weaken batch argument validation.
@@ -398,6 +403,7 @@ export class GroupMrService {
    if(!jsonValues(result).some(v=>{const o=object(v);return o?.resultCode===0||o?.resultCode==='0';}))throw Error('WeLink 群消息发送结果未确认，请核对后再手动处理');
    e.reply.status='sent';e.writePending='';this.save(e);
   }catch(error){e.reply.status='unconfirmed';this.save(e);throw error;}
+  finally{this.groupReplyReadyAt.set(cfg.groupId,Date.now()+2000);}
  }
  private async replyMerged(e:Entry,cfg:Configuration,message='MR 已合入。'){
   const key=e.repo+':'+e.iid;
