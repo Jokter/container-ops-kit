@@ -276,8 +276,8 @@ export class GroupMrService {
     const loginKey=cli==='codehub-cli'?cli+':'+createHash('sha256').update(loginArgs[4]!).digest('hex'):cli;
     let login=this.logins.get(loginKey);
     if(!login){
-     const last=this.lastLoginAt.get(loginKey);
-     if(last!==undefined&&Date.now()-last<300000)throw Error(`${action} 认证仍异常；最近已尝试 ${cli} auth login，5 分钟内不重复登录，请检查 ${cli} 登录状态`);
+     const last=this.lastLoginAt.get(loginKey),cooldownMinutes=cli==='welink-cli'?25:5;
+     if(last!==undefined&&Date.now()-last<cooldownMinutes*60_000)throw Error(`${action} 认证仍异常；最近已尝试 ${cli} auth login，${cooldownMinutes} 分钟内不重复登录，请检查 ${cli} 登录状态`);
      this.lastLoginAt.set(loginKey,Date.now());
      login=(async()=>{
       this.recordLog('info',`${action} 认证异常，正在执行 ${cli} auth login`);

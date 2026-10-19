@@ -171,7 +171,7 @@ test('failed polling login is throttled across subsequent polls',async()=>{
   return{exitCode:1,output:'HTTP 403 forbidden'};
  });
  const config={enabled:true,groupId:'123456789',authorizedSender:'owner123',repositoryPrefix:'MAE-M/Access/',intervalSeconds:5};
- try{service.configure(config);await service.poll();await settle(service);service.configure(config);await service.poll();await settle(service);assert.equal(logins,1);assert.match(service.summary().monitor.error,/5 分钟内不重复/);}
+ try{service.configure(config);await service.poll();await settle(service);service.configure(config);await service.poll();await settle(service);assert.equal(logins,1);assert.match(service.summary().monitor.error,/25 分钟内不重复/);}
  finally{await service.close();store.close();}
 });
 
