@@ -239,19 +239,30 @@
 .group-mr-workspace.mr-focus-mode>.group-mr-tabs,.group-mr-workspace.mr-focus-mode>.group-mr-toolbar,.group-mr-workspace.mr-focus-mode>.mr-batch-bar,.group-mr-workspace.mr-focus-mode>.mr-split>.qw-table-wrap{display:none}
 .workspace-layout .group-mr-workspace.mr-focus-mode>.mr-split{display:block}
 .workspace-layout .group-mr-workspace.mr-focus-mode .group-mr-detail-section{max-height:none;overflow:visible}
-.group-mr-workspace .mr-code-section{border:1px solid var(--line,#dfe4ea);border-radius:8px;margin:16px 0;overflow:hidden}
+.group-mr-workspace .mr-code-section{scroll-margin-top:80px;border:1px solid var(--line,#dfe4ea);border-radius:8px;margin:16px 0;overflow:hidden}
 .group-mr-workspace .mr-code-heading{padding:12px 14px}
 .group-mr-workspace .mr-code-section>p{padding:0 14px}
-.group-mr-workspace .mr-code-browser{display:grid;grid-template-columns:minmax(180px,24%) minmax(0,1fr);border-top:1px solid var(--line,#dfe4ea);min-height:260px;max-height:620px}
-.group-mr-workspace .mr-file-list{overflow:auto;border-right:1px solid var(--line,#dfe4ea);padding:8px;background:var(--surface-soft,#f7f9fb)}
-.group-mr-workspace .mr-file-list input{width:100%;box-sizing:border-box;padding:8px;border:1px solid var(--line,#dfe4ea);border-radius:5px;margin-bottom:8px;background:var(--surface,#fff);color:inherit}
-.group-mr-workspace .mr-file-list>button{display:flex;flex-direction:column;align-items:flex-start;text-align:left;width:100%;padding:10px 8px;border:0;border-radius:5px;background:transparent;color:inherit;cursor:pointer;overflow-wrap:anywhere;font-size:12px}
-.group-mr-workspace .mr-file-list>button.selected{background:#e6efff;color:#254faa}
-.group-mr-workspace .mr-file-list small{color:var(--muted,#6c7685);margin-top:5px}
-.group-mr-workspace .mr-diff-pane{min-width:0;display:flex;flex-direction:column;overflow:hidden}
-.group-mr-workspace .mr-diff-pane>header{padding:12px;font-size:12px;font-weight:600;border-bottom:1px solid var(--line,#dfe4ea);overflow-wrap:anywhere}
+/* Explicit height and min-height:0 keep long file lists and diffs independently scrollable. */
+.group-mr-workspace .mr-code-browser{display:grid;grid-template-columns:300px minmax(0,1fr);border-top:1px solid var(--line,#dfe4ea);height:clamp(390px,65vh,720px);min-height:0;overflow:hidden}
+.group-mr-workspace .mr-file-list{min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden;border-right:1px solid var(--line,#dfe4ea);background:#f8faff}
+.group-mr-workspace .mr-file-tools{padding:12px 14px;flex:none;border-bottom:1px solid var(--line,#dfe4ea);text-align:right}
+.group-mr-workspace .mr-file-tools>div{display:flex;justify-content:space-between;font-size:12px;color:#7d889b;margin-bottom:10px}
+.group-mr-workspace .mr-file-tools input{width:100%;box-sizing:border-box;padding:8px;border:1px solid var(--line,#dfe4ea);border-radius:5px;margin-bottom:8px;background:var(--surface,#fff);color:inherit;font-size:12px}
+.group-mr-workspace .mr-file-scroll{min-height:0;flex:1;overflow-y:scroll;overflow-x:hidden;overscroll-behavior:contain;scrollbar-gutter:stable;padding:4px 0}
+.group-mr-workspace .mr-file-scroll::-webkit-scrollbar,.group-mr-workspace .mr-diff-scroll::-webkit-scrollbar{width:9px;height:9px}
+.group-mr-workspace .mr-file-scroll::-webkit-scrollbar-thumb,.group-mr-workspace .mr-diff-scroll::-webkit-scrollbar-thumb{background:#b9c5d6;border:2px solid transparent;background-clip:padding-box;border-radius:8px}
+.group-mr-workspace .mr-folder-toggle{display:flex;align-items:center;gap:7px;width:100%;border:0;padding:9px 12px;background:#f1f5fa;text-align:left;color:#7b889b;cursor:pointer;font-size:11px}
+.group-mr-workspace .mr-folder-toggle>span:nth-child(2){flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.group-mr-workspace .mr-file-item{display:flex;align-items:center;gap:8px;width:100%;min-width:0;padding:10px 12px 10px 20px;border:0;border-left:3px solid transparent;background:transparent;color:#45536a;cursor:pointer;text-align:left;font-size:12px}
+.group-mr-workspace .mr-file-item:hover{background:#f0f4fb}.group-mr-workspace .mr-file-item.selected{background:#eaf0fc;border-left-color:#4567ce;color:#3158b7}
+.group-mr-workspace .mr-file-symbol{color:#7b8eac;font:10px ui-monospace,monospace;flex:none}
+.group-mr-workspace .mr-file-name{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.group-mr-workspace .mr-file-comments{font-size:10px;color:#9a651b;white-space:nowrap}
+.group-mr-workspace .mr-file-foot{flex:none;border-top:1px solid var(--line,#dfe4ea);padding:10px 14px;color:#8a95a6;font-size:11px}
+.group-mr-workspace .mr-diff-pane{min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+.group-mr-workspace .mr-diff-pane>header{flex:none;padding:12px;font-size:12px;font-weight:600;border-bottom:1px solid var(--line,#dfe4ea);overflow-wrap:anywhere}
 .group-mr-workspace .mr-diff-pane>header small{display:block;font-weight:400;margin-top:5px}
-.group-mr-workspace .mr-diff-scroll{overflow:auto;min-height:200px}
+.group-mr-workspace .mr-diff-scroll{flex:1;overflow:auto;min-height:0;overscroll-behavior:contain;scrollbar-gutter:stable}
 .group-mr-workspace .mr-diff-scroll table{border-collapse:collapse;width:100%;font:12px/1.65 ui-monospace,SFMono-Regular,Consolas,monospace}
 .group-mr-workspace .mr-diff-scroll td{padding:1px 8px;white-space:pre;border:0;vertical-align:top}
 .group-mr-workspace .mr-diff-scroll td:nth-child(-n+2){width:42px;text-align:right;color:#788492;border-right:1px solid #e8ecf0;user-select:none}
@@ -262,3 +273,27 @@
 .group-mr-workspace .mr-workbench-error{color:#a73a2f;background:#fff3ef;padding:10px!important;border-radius:5px}
 .group-mr-workspace .mr-draft-overlay{position:fixed;inset:0;z-index:1100;display:grid;place-items:center;background:#15213466;padding:20px}.group-mr-workspace .mr-draft-overlay>section{max-width:560px;padding:24px;background:var(--surface,#fff)}
 @media(max-width:700px){.group-mr-workspace .mr-code-browser{grid-template-columns:145px minmax(0,1fr)}.group-mr-workspace .mr-current-bar{gap:8px}.group-mr-workspace .mr-file-list>button{font-size:11px}}
+
+/* Group MR file tree and line-bound discussion controls. */
+.group-mr-workspace .mr-code-heading,.group-mr-workspace .mr-code-heading>div{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.group-mr-workspace .mr-code-heading{justify-content:space-between}
+.group-mr-workspace .mr-diff-scroll thead th{position:sticky;top:0;z-index:1;background:#f1f4f9;color:#6d7b91;font:11px/28px system-ui;text-align:left;border-bottom:1px solid #dce3ef;padding:0 8px}
+.group-mr-workspace .mr-diff-scroll thead th:nth-child(-n+2){white-space:nowrap;text-align:right}
+.group-mr-workspace .mr-diff-scroll .has-review>td:last-child{box-shadow:inset 3px 0 #d89d37}
+.group-mr-workspace .mr-diff-scroll .highlight>td:last-child{background:#fff3ce;color:#473716}
+.group-mr-workspace .mr-diff-scroll .mr-inline-row>td{padding:12px 14px;white-space:normal;text-align:left;color:inherit;width:auto;user-select:text;background:#f7f9fc}
+.group-mr-workspace .mr-inline-note{border:1px solid #d9e1ed;border-left:3px solid #d89d37;border-radius:6px;background:white;padding:12px 14px;font:12px/1.6 system-ui;color:#43516a;min-width:0}
+.group-mr-workspace .mr-inline-note.resolved{border-left-color:#77a592}
+.group-mr-workspace .mr-inline-note>div{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.group-mr-workspace .mr-inline-note>div>span{margin-left:auto;font-size:11px;color:#7a8699}
+.group-mr-workspace .mr-inline-note p{margin:8px 0;white-space:pre-wrap;overflow-wrap:anywhere}
+.group-mr-workspace .mr-note-toggle{flex:none;white-space:nowrap;font-size:12px;min-width:48px;text-align:left}
+.group-mr-workspace .mr-note-location{display:inline-block;font:12px/1.6 system-ui;color:#3158b7;background:#edf3ff;border:1px solid #d9e4fa;border-radius:4px;padding:5px 8px;text-align:left;overflow-wrap:anywhere;min-width:0}
+.group-mr-workspace button.mr-note-location{cursor:pointer}
+.group-mr-workspace .group-mr-note>.mr-code-heading{justify-content:flex-start;padding:0}.group-mr-workspace .group-mr-note .mr-note-location{margin-left:auto}
+.group-mr-workspace .mr-code-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 14px;border-top:1px solid var(--line,#dfe4ea);font-size:11px;color:#8591a3;flex:none}
+.group-mr-workspace .mr-code-footer>div{display:flex;gap:6px}
+.group-mr-workspace .mr-code-wide{position:fixed;inset:78px 18px 18px;z-index:100;margin:0;display:flex;flex-direction:column;background:#fff;box-shadow:0 10px 50px #26334540;overflow:auto}
+.group-mr-workspace .mr-code-wide>.mr-code-heading,.group-mr-workspace .mr-code-wide>p{flex:none}.group-mr-workspace .mr-code-wide .mr-code-browser{flex:1;height:auto;min-height:160px}
+.group-mr-workspace .mr-code-wide>[data-mrw-form]{max-height:30vh;overflow:auto;flex:none}
+@media(max-width:700px){.group-mr-workspace .mr-code-browser{grid-template-columns:155px minmax(0,1fr)}.group-mr-workspace .mr-file-tools{padding:9px}.group-mr-workspace .mr-file-item{padding-left:8px;gap:5px;font-size:11px}.group-mr-workspace .mr-code-wide{inset:72px 6px 6px}.group-mr-workspace .mr-inline-note{padding:8px}.group-mr-workspace .mr-diff-scroll .mr-inline-row>td{padding:8px}}
