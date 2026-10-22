@@ -228,3 +228,37 @@
 
 .group-mr-table th.group-mr-action-cell{text-align:left!important}
 .mr-action-drawer .mr-close{line-height:1}
+
+/* Group MR review: compact list navigation and a file/diff workspace inside the existing detail. */
+.group-mr-workspace .mr-current-bar,.group-mr-workspace .mr-pagination,.group-mr-workspace .mr-code-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.group-mr-workspace .mr-current-bar{padding:12px 16px;background:var(--surface,#fff);border:1px solid var(--line,#dfe4ea);border-radius:8px;margin:14px 0}
+.group-mr-workspace .mr-current-bar>div,.group-mr-workspace .mr-pagination>div{display:flex;align-items:center;gap:10px}
+.group-mr-workspace .mr-pagination{padding:12px 14px;border-top:1px solid var(--line,#dfe4ea);font-size:12px}
+.group-mr-workspace .mr-pagination select{padding:5px;border:1px solid var(--line,#dfe4ea);border-radius:5px;background:var(--surface,#fff);color:inherit}
+.group-mr-workspace .mr-new-banner{padding:10px 14px;background:#edf4ff;border:1px solid #c8dcfb;border-radius:6px;margin-top:12px}
+.group-mr-workspace.mr-focus-mode>.group-mr-tabs,.group-mr-workspace.mr-focus-mode>.group-mr-toolbar,.group-mr-workspace.mr-focus-mode>.mr-batch-bar,.group-mr-workspace.mr-focus-mode>.mr-split>.qw-table-wrap{display:none}
+.workspace-layout .group-mr-workspace.mr-focus-mode>.mr-split{display:block}
+.workspace-layout .group-mr-workspace.mr-focus-mode .group-mr-detail-section{max-height:none;overflow:visible}
+.group-mr-workspace .mr-code-section{border:1px solid var(--line,#dfe4ea);border-radius:8px;margin:16px 0;overflow:hidden}
+.group-mr-workspace .mr-code-heading{padding:12px 14px}
+.group-mr-workspace .mr-code-section>p{padding:0 14px}
+.group-mr-workspace .mr-code-browser{display:grid;grid-template-columns:minmax(180px,24%) minmax(0,1fr);border-top:1px solid var(--line,#dfe4ea);min-height:260px;max-height:620px}
+.group-mr-workspace .mr-file-list{overflow:auto;border-right:1px solid var(--line,#dfe4ea);padding:8px;background:var(--surface-soft,#f7f9fb)}
+.group-mr-workspace .mr-file-list input{width:100%;box-sizing:border-box;padding:8px;border:1px solid var(--line,#dfe4ea);border-radius:5px;margin-bottom:8px;background:var(--surface,#fff);color:inherit}
+.group-mr-workspace .mr-file-list>button{display:flex;flex-direction:column;align-items:flex-start;text-align:left;width:100%;padding:10px 8px;border:0;border-radius:5px;background:transparent;color:inherit;cursor:pointer;overflow-wrap:anywhere;font-size:12px}
+.group-mr-workspace .mr-file-list>button.selected{background:#e6efff;color:#254faa}
+.group-mr-workspace .mr-file-list small{color:var(--muted,#6c7685);margin-top:5px}
+.group-mr-workspace .mr-diff-pane{min-width:0;display:flex;flex-direction:column;overflow:hidden}
+.group-mr-workspace .mr-diff-pane>header{padding:12px;font-size:12px;font-weight:600;border-bottom:1px solid var(--line,#dfe4ea);overflow-wrap:anywhere}
+.group-mr-workspace .mr-diff-pane>header small{display:block;font-weight:400;margin-top:5px}
+.group-mr-workspace .mr-diff-scroll{overflow:auto;min-height:200px}
+.group-mr-workspace .mr-diff-scroll table{border-collapse:collapse;width:100%;font:12px/1.65 ui-monospace,SFMono-Regular,Consolas,monospace}
+.group-mr-workspace .mr-diff-scroll td{padding:1px 8px;white-space:pre;border:0;vertical-align:top}
+.group-mr-workspace .mr-diff-scroll td:nth-child(-n+2){width:42px;text-align:right;color:#788492;border-right:1px solid #e8ecf0;user-select:none}
+.group-mr-workspace .mr-diff-scroll .add{background:#e8f6ed;color:#17572c}.group-mr-workspace .mr-diff-scroll .del{background:#fff0f0;color:#9a3333}.group-mr-workspace .mr-diff-scroll .hunk{background:#eff3fa;color:#60718b}.group-mr-workspace .mr-diff-scroll .highlight{outline:2px solid #dca63d;outline-offset:-2px}
+.group-mr-workspace .mr-review-notes .group-mr-note p,.group-mr-workspace .mr-thread p{white-space:pre-wrap;overflow-wrap:anywhere}
+.group-mr-workspace .mr-thread{padding:12px 0 0;border-top:1px solid #e4e6eb;margin-top:12px}.group-mr-workspace .mr-thread article{margin:10px 0;padding:10px;background:var(--surface,#fff);border-radius:5px}
+.group-mr-workspace [data-mrw-form]{padding:12px}.group-mr-workspace [data-mrw-form] label{display:block;font-size:12px}.group-mr-workspace [data-mrw-form] textarea{display:block;width:100%;box-sizing:border-box;min-height:88px;margin:8px 0 12px;padding:10px;border:1px solid var(--line,#dfe4ea);border-radius:6px;resize:vertical;font:inherit;color:inherit;background:var(--surface,#fff)}
+.group-mr-workspace .mr-workbench-error{color:#a73a2f;background:#fff3ef;padding:10px!important;border-radius:5px}
+.group-mr-workspace .mr-draft-overlay{position:fixed;inset:0;z-index:1100;display:grid;place-items:center;background:#15213466;padding:20px}.group-mr-workspace .mr-draft-overlay>section{max-width:560px;padding:24px;background:var(--surface,#fff)}
+@media(max-width:700px){.group-mr-workspace .mr-code-browser{grid-template-columns:145px minmax(0,1fr)}.group-mr-workspace .mr-current-bar{gap:8px}.group-mr-workspace .mr-file-list>button{font-size:11px}}

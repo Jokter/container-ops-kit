@@ -12,18 +12,18 @@
 .workspace-layout .mr-split>.group-mr-detail-section{margin:0;max-height:calc(100vh - 260px);overflow:auto;position:sticky;top:92px;padding-right:3px}
 .workspace-layout .mr-split .group-mr-section-title{font-size:14px;margin:0 0 12px}
 .workspace-layout .mr-split .group-mr-table{min-width:0;width:100%;display:block}
-.workspace-layout .mr-split thead{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
-.workspace-layout .mr-split tbody{display:block}
-.workspace-layout .mr-split tr{display:grid;grid-template-columns:24px minmax(0,1fr) auto;gap:7px 10px;padding:17px;border-bottom:1px solid var(--line);cursor:pointer}
-.workspace-layout .mr-split tr.selected{background:#eef4ff;border-left:3px solid var(--brand);padding-left:14px}
-.workspace-layout .mr-split td{padding:0!important;border:0;min-width:0;white-space:normal!important;text-align:left;font-size:12px}
-.workspace-layout .mr-split td:nth-child(1){grid-column:1;grid-row:1}
-.workspace-layout .mr-split td:nth-child(2){grid-column:2;grid-row:1;font-size:14px}
-.workspace-layout .mr-split td:nth-child(3){grid-column:2;grid-row:3;color:var(--muted)}
-.workspace-layout .mr-split td:nth-child(4){grid-column:3;grid-row:1}
-.workspace-layout .mr-split td:nth-child(5){grid-column:2/4;grid-row:2}
-.workspace-layout .mr-split td:nth-child(6){grid-column:2;grid-row:4;color:var(--faint);font-size:11px}
-.workspace-layout .mr-split td:nth-child(7){grid-column:3;grid-row:4}
+.workspace-layout .mr-split .group-mr-table thead{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+.workspace-layout .mr-split .group-mr-table tbody{display:block}
+.workspace-layout .mr-split .group-mr-table tr{display:grid;grid-template-columns:24px minmax(0,1fr) auto;gap:7px 10px;padding:17px;border-bottom:1px solid var(--line);cursor:pointer}
+.workspace-layout .mr-split .group-mr-table tr.selected{background:#eef4ff;border-left:3px solid var(--brand);padding-left:14px}
+.workspace-layout .mr-split .group-mr-table td{padding:0!important;border:0;min-width:0;white-space:normal!important;text-align:left;font-size:12px}
+.workspace-layout .mr-split .group-mr-table td:nth-child(1){grid-column:1;grid-row:1}
+.workspace-layout .mr-split .group-mr-table td:nth-child(2){grid-column:2;grid-row:1;font-size:14px}
+.workspace-layout .mr-split .group-mr-table td:nth-child(3){grid-column:2;grid-row:3;color:var(--muted)}
+.workspace-layout .mr-split .group-mr-table td:nth-child(4){grid-column:3;grid-row:1}
+.workspace-layout .mr-split .group-mr-table td:nth-child(5){grid-column:2/4;grid-row:2}
+.workspace-layout .mr-split .group-mr-table td:nth-child(6){grid-column:2;grid-row:4;color:var(--faint);font-size:11px}
+.workspace-layout .mr-split .group-mr-table td:nth-child(7){grid-column:3;grid-row:4}
 .workspace-layout .group-mr-detail{padding:18px}
 .workspace-layout .group-mr-flow{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
 .workspace-layout .review-human{margin-top:14px}
@@ -46,8 +46,8 @@
 @media(max-width:800px){.workspace-layout .deployment-workspace{grid-template-columns:1fr}}
 
 .workspace-layout .deployment-log-disclosure>.deployment-log-panel{border:0;margin:0;box-shadow:none}
-.workspace-layout .mr-split tr:has(td[colspan]){display:block}
-.workspace-layout .mr-split td:nth-child(7){display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px}
+.workspace-layout .mr-split .group-mr-table tr:has(td[colspan]){display:block}
+.workspace-layout .mr-split .group-mr-table td:nth-child(7){display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px}
 
 /* Keep tool discovery and provide direct switching inside each capability. */
 .capability-switch{display:flex;align-items:center;gap:4px;margin:0 0 20px;padding:5px;background:#edf1f5;border:1px solid #e0e5eb;border-radius:10px}.capability-switch button{display:flex;align-items:center;gap:9px;padding:12px 20px;border:0;border-radius:7px;background:transparent;color:#65717e;font:500 14px 'Microsoft YaHei',sans-serif;cursor:pointer;white-space:nowrap}.capability-switch button:hover{background:#ffffff80;color:#24374b}.capability-switch button.active{background:white;color:#245bbd;box-shadow:0 1px 4px #21375216;font-weight:600}.capability-switch svg{width:17px;height:17px}.capability-switch-spacer{flex:1}.capability-switch button.back-tools{font-size:12px;padding:12px;color:#768291}.capability-switch~.qw-crumb{display:none}.capability-switch button:focus-visible{outline:2px solid #3563e9;outline-offset:1px}@media(max-width:760px){.capability-switch{overflow:auto}.capability-switch button{padding:10px 12px}.capability-switch .back-tools{display:none}}

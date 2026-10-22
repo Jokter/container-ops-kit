@@ -1,3 +1,4 @@
+import {reviewAction,reviewSha,reviewThreads,reviewFiles,addedLines,supportsReviewCommand,type ReviewThread,type ReviewCapabilities,type ReviewWorkspace} from './group-mr-workbench.js';
 import {parseReviewAssessment,discussionFingerprint,ownsDiscussion,developerReplied,type ClosureDiscussion,type OwnedDiscussion,type ReviewAssessment} from './review-closure.js';
 import {AsyncLocalStorage} from 'node:async_hooks';
 import {setTimeout as delay} from 'node:timers/promises';
@@ -20,7 +21,7 @@ type Configuration=Omit<z.infer<typeof configSchema>,'humanReviewEnabled'> & {hu
 const defaults:Configuration={humanReviewEnabled:true,enabled:false,groupId:'',authorizedSender:'',repositoryPrefix:'MAE-M/Access/',intervalSeconds:10};
 const phase=z.enum(['QUEUED','HUMAN','PIPELINE','PI','COMMENTS','REVIEW','APPROVE','MERGE','DONE','CLOSED','ISSUES','FAILED','NO_PERMISSION','INTERRUPTED']);
 type Phase=z.infer<typeof phase>;
-export interface Entry{reviewAssessment?:ReviewAssessment;rolesPrepared?:boolean;humanReviewRequired?:boolean;humanReviewSkipped?:boolean;queued?:boolean;humanStartedAt?:string;humanReview?:HumanReview;notification?:{sha:string;receiver:string;status:string};knowledgeIds?:string[];piOutput?:string;reviewSkipped?:boolean;supersededBy?:string;pipelinePassed?:boolean;piReview?:{source?:'codehub';ok?:boolean;findings?:Array<{path:string;line:number;body:string}>;sha:string;discussionKey:string;summary:string;resolvedDiscussionIds:string[]};id:string;repo:string;iid:string;url:string;sha:string;previousSha:string;messageId:string;sender:string;shortcut:boolean;phase:Phase;stage?:Phase;status:string;detail:string;createdAt:string;updatedAt:string;writePending:string;events:Array<{time:string;phase:Phase;message:string}>;reviewComments?:Array<{id:string;body:string;resolved:boolean}>;reply?:{text:string;mode:'quote'|'reference';status:'sending'|'sent'|'unconfirmed'|'checked'}}
+export interface Entry{manualReviewLastOperation?:string;manualReviewPending?:{operationId:string;operationHash:string;action:'resolve'|'reply'|'create';sha:string;discussionId:string;marker:string;reason:string};reviewAssessment?:ReviewAssessment;rolesPrepared?:boolean;humanReviewRequired?:boolean;humanReviewSkipped?:boolean;queued?:boolean;humanStartedAt?:string;humanReview?:HumanReview;notification?:{sha:string;receiver:string;status:string};knowledgeIds?:string[];piOutput?:string;reviewSkipped?:boolean;supersededBy?:string;pipelinePassed?:boolean;piReview?:{source?:'codehub';ok?:boolean;findings?:Array<{path:string;line:number;body:string}>;sha:string;discussionKey:string;summary:string;resolvedDiscussionIds:string[]};id:string;repo:string;iid:string;url:string;sha:string;previousSha:string;messageId:string;sender:string;shortcut:boolean;phase:Phase;stage?:Phase;status:string;detail:string;createdAt:string;updatedAt:string;writePending:string;events:Array<{time:string;phase:Phase;message:string}>;reviewComments?:Array<{id:string;body:string;resolved:boolean}>;reply?:{text:string;mode:'quote'|'reference';status:'sending'|'sent'|'unconfirmed'|'checked'}}
 interface ReviewCheckpoint {sha:string;review:NonNullable<Entry['piReview']>;completedAt:string}
 interface GroupMessage{id:string;content:string;sender:string;quoteId:string;quotedContent?:string}
 type Discussion=ClosureDiscussion;
@@ -220,6 +221,85 @@ export class GroupMrService {
  removeHistory(id:string){return this.removeHistories([id]);}
  removeHistories(ids:string[]){const entries=[...new Set(ids)].map(id=>this.editable(id));for(const e of entries){if(!['DONE','CLOSED','FAILED','NO_PERMISSION','INTERRUPTED','ISSUES','PIPELINE'].includes(e.phase))throw Object.assign(Error('只能删除待处理或已结束的记录'),{statusCode:409});}for(const e of entries)this.store.putRecord('group-mr-hidden',e.id,{id:e.id,deletedAt:new Date().toISOString()});return {ok:true,deleted:entries.length};}
 
+ private workbenchEntry(id:string){
+  const e=this.editable(id);
+  if(e.supersededBy||this.store.getRecord('group-mr-hidden',id))throw Object.assign(Error('记录已替代或删除，请刷新列表'),{statusCode:409});
+  return e;
+ }
+ private async workbenchHead(e:Entry,sha:string,write=false){
+  const v=await this.view(e);
+  if(this.head(v)!==sha||(write&&v.state!=='opened'))throw Object.assign(Error('MR 提交或状态已变化，请刷新代码后重新检视'),{statusCode:409});
+  return v;
+ }
+ private async workbenchNotes(e:Entry){return reviewThreads(await this.code(['mr','review','list',e.iid,'-p',e.repo]));}
+ private async reviewCapabilities():Promise<ReviewCapabilities>{
+  const supported={reply:false,create:false,reason:''};
+  for(const kind of ['reply','create'] as const){try{supported[kind]=supportsReviewCommand(await this.command(['codehub-cli','mr','review',kind,'--help'],15000),kind);}catch{/* Unknown CLI versions remain read-only for this operation. */}}
+  if(!supported.reply||!supported.create)supported.reason='当前 CLI 未确认支持回复或新增行评论，相关操作暂不可用；请核对 codehub-cli mr review --help';
+  return supported;
+ }
+ private reconcileManualReview(e:Entry,notes:ReviewThread[]){
+  const pending=e.manualReviewPending;if(!pending)return;
+  const found=pending.action==='resolve'?notes.some(n=>n.id===pending.discussionId&&n.resolved):notes.some(n=>(pending.action==='create'||n.id===pending.discussionId)&&n.notes.some(note=>note.body.includes(pending.marker)));
+  if(!found)return;
+  e.writePending='';e.manualReviewLastOperation=pending.operationId;this.store.putRecord('group-mr-review-operation',e.repo+':'+e.iid+':'+pending.operationId,{entryId:e.id,hash:pending.operationHash,status:'confirmed'});delete e.manualReviewPending;
+  e.events.push({time:new Date().toISOString(),phase:e.phase,message:pending.action==='resolve'?'人工确认关闭检视意见 '+pending.discussionId+'：'+pending.reason:'人工'+(pending.action==='reply'?'回复':'新增')+'检视意见已在 CodeHub 确认'});
+  this.save(e);
+ }
+ async reviewWorkspace(id:string){
+  const e=this.workbenchEntry(id);let result:ReviewWorkspace|undefined;
+  await this.enqueue(e,async()=>{
+   const initial=await this.view(e),sha=reviewSha.parse(this.head(initial));
+   const files=reviewFiles(await this.code(['mr','changes',e.iid,'-p',e.repo]));
+   const threads=await this.workbenchNotes(e);await this.workbenchHead(e,sha);
+   this.reconcileManualReview(e,threads);
+   const capabilities=await this.reviewCapabilities();
+   e.reviewComments=threads.filter(n=>n.resolvable).map(({id,body,resolved})=>({id,body,resolved}));this.save(e);
+   result={sha,state:initial.state,files,threads,capabilities,writePending:e.writePending,stale:sha!==e.sha,readAt:new Date().toISOString(),confirmedOperationId:e.manualReviewLastOperation||''};
+  });if(!result)throw Error('检视数据未完成');return result;
+ }
+ async reviewWorkspaceAction(id:string,value:unknown){
+  const input=reviewAction.parse(value),e=this.workbenchEntry(id),operationKey=e.repo+':'+e.iid+':'+input.operationId,operationHash=createHash('sha256').update(JSON.stringify(input)).digest('hex');
+  const previous=this.store.getRecord<{entryId:string;hash:string;status:string}>('group-mr-review-operation',operationKey);
+  if(previous){if(previous.entryId!==id||previous.hash!==operationHash)throw Object.assign(Error('同一操作编号内容已变化，请刷新核对'),{statusCode:409});if(previous.status==='confirmed')return {ok:true};throw Object.assign(Error('该操作结果待核对，请刷新；不会重复写入'),{statusCode:409});}
+  if(e.writePending||e.sha!==input.sha)throw Object.assign(Error('存在待核对写操作或提交已变化，请刷新检视数据'),{statusCode:409});
+  await this.enqueue(e,async()=>{
+   await this.workbenchHead(e,input.sha,true);
+   let threads=await this.workbenchNotes(e);
+   const thread=input.action==='create'?undefined:threads.find(n=>n.id===input.discussionId);
+   if(input.action!=='create'&&(!thread||thread.fingerprint!==input.fingerprint))throw Object.assign(Error('检视意见或回复已变化，请刷新后确认'),{statusCode:409});
+   if(input.action==='resolve'&&(!thread?.resolvable||thread.resolved))throw Object.assign(Error('该意见不可关闭或已经关闭，请刷新'),{statusCode:409});
+   const marker='<!-- ops-studio-manual:'+randomUUID()+' -->';
+   let args:string[];
+   if(input.action==='resolve')args=['mr','review','resolve',e.iid,input.discussionId,'-p',e.repo];
+   else{
+    const capabilities=await this.reviewCapabilities();if(!capabilities[input.action])throw Object.assign(Error(capabilities.reason),{statusCode:409});
+    if(input.action==='create'){
+     const file=reviewFiles(await this.code(['mr','changes',e.iid,'-p',e.repo])).find(f=>f.path===input.path);
+     if(!file||file.unavailable||!addedLines(file.diff).has(input.line))throw Object.assign(Error('所选文件或新增行不存在，请刷新代码'),{statusCode:409});
+    }
+    args=['mr','review',input.action,e.iid,...(input.action==='reply'?[input.discussionId]:[]),'-p',e.repo,'--body',input.body+'\n\n'+marker,...(input.action==='create'?['--path',input.path,'--line',String(input.line)]:[])];
+   }
+   // Recheck immediately before the one permitted write; never replay a timed-out operation.
+   await this.workbenchHead(e,input.sha,true);
+   if(thread){const fresh=(await this.workbenchNotes(e)).find(n=>n.id===thread.id);if(fresh?.fingerprint!==thread.fingerprint)throw Object.assign(Error('讨论已更新，请刷新后确认'),{statusCode:409});}
+   e.manualReviewPending={operationId:input.operationId,operationHash,action:input.action,sha:input.sha,discussionId:input.action==='create'?'':input.discussionId,marker,reason:input.action==='resolve'?input.reason:''};
+   this.store.putRecord('group-mr-review-operation',operationKey,{entryId:id,hash:operationHash,status:'pending'});
+   e.writePending='人工检视意见'+(input.action==='resolve'?'关闭':input.action==='reply'?'回复':'提交');this.save(e);
+   await this.code(args);
+   threads=await this.workbenchNotes(e);this.reconcileManualReview(e,threads);
+   if(e.manualReviewPending)throw Object.assign(Error('写入结果未确认，请刷新检视数据核对；不会自动重试'),{statusCode:409});
+   await this.workbenchHead(e,input.sha,true);
+   e.reviewComments=threads.filter(n=>n.resolvable).map(({id,body,resolved})=>({id,body,resolved}));this.save(e);
+  });return {ok:true};
+ }
+ async continueReview(id:string,value:unknown){
+  const {sha}=z.object({sha:reviewSha}).strict().parse(value),e=this.workbenchEntry(id);
+  if(e.writePending||e.sha!==sha||!['ISSUES','FAILED','NO_PERMISSION','INTERRUPTED'].includes(e.phase))throw Object.assign(Error('当前记录不可继续，请刷新'),{statusCode:409});
+  await this.enqueue(e,async()=>{await this.workbenchHead(e,sha,true);await this.executeEntry(e,this.configuration(),false);});
+  return this.store.getRecord<Entry>('group-mr-entry',id)!;
+ }
+
  async mergeRecord(id:string,value:unknown){
   const input=z.object({sha:z.string().regex(/^[a-f0-9]{40}$/i),confirmed:z.literal(true)}).strict().parse(value),e=this.editable(id);
   if(e.supersededBy||this.store.getRecord('group-mr-hidden',id))throw Object.assign(Error('本记录已被替代或删除，请刷新'),{statusCode:409});
@@ -354,7 +434,7 @@ export class GroupMrService {
   const now=new Date().toISOString();const old=this.list().find(e=>e.repo===link.repo&&e.iid===link.iid&&e.phase!=='DONE'&&!e.supersededBy);
   const entry:Entry={id:randomUUID(),repo:link.repo,iid:link.iid,url:link.url,sha:'',previousSha:old?.sha??'',messageId:msg.id,sender:msg.sender,shortcut:!!shortcut,humanReviewRequired:cfg.humanReviewEnabled!==false,pipelinePassed:false,phase:'QUEUED',stage:shortcut?'PIPELINE':'PI',status:'排队中，等待执行（最多同时处理 5 个 MR）',detail:'',createdAt:now,updatedAt:now,writePending:'',events:[]};this.save(entry);
   const blocked=this.list().find(e=>e.repo===link.repo&&e.iid===link.iid&&!e.supersededBy&&e.writePending);
-  if(blocked){entry.sha=blocked.sha||old?.sha||'';entry.writePending=blocked.writePending;this.mark(entry,'INTERRUPTED',`上一次${blocked.writePending.replace(/\bPi\b/g,'Agent')}结果未确认，需人工核对后再处理`);for(const previous of this.list().filter(r=>r.id!==entry.id&&r.repo===entry.repo&&r.iid===entry.iid&&!r.supersededBy)){previous.supersededBy=entry.id;this.store.putRecord('group-mr-entry',previous.id,previous,previous.createdAt);}return;}
+  if(blocked){entry.sha=blocked.sha||old?.sha||'';entry.writePending=blocked.writePending;if(blocked.manualReviewPending)entry.manualReviewPending={...blocked.manualReviewPending};this.mark(entry,'INTERRUPTED',`上一次${blocked.writePending.replace(/\bPi\b/g,'Agent')}结果未确认，需人工核对后再处理`);for(const previous of this.list().filter(r=>r.id!==entry.id&&r.repo===entry.repo&&r.iid===entry.iid&&!r.supersededBy)){previous.supersededBy=entry.id;this.store.putRecord('group-mr-entry',previous.id,previous,previous.createdAt);}return;}
   for(const previous of this.list().filter(r=>r.id!==entry.id&&r.repo===entry.repo&&r.iid===entry.iid&&!r.supersededBy)){previous.supersededBy=entry.id;if(!['DONE','CLOSED','FAILED','NO_PERMISSION','INTERRUPTED'].includes(previous.phase))this.mark(previous,'INTERRUPTED','收到新的 MR 消息，本记录停止跟进，后续处理见最新记录');else this.store.putRecord('group-mr-entry',previous.id,previous,previous.createdAt);}
   if(old?.piReview)entry.piReview=old.piReview;const notified=this.list().find(r=>r.repo===entry.repo&&r.iid===entry.iid&&r.notification);if(notified?.notification)entry.notification={...notified.notification};
   this.save(entry);
@@ -591,6 +671,9 @@ ${scope}
  }
 }
 export function groupMrRoutes(app:FastifyInstance,service:GroupMrService){
+ app.get('/api/automation/group-mr/records/:id/workspace',async request=>service.reviewWorkspace(z.object({id:z.uuid()}).parse(request.params).id));
+ app.post('/api/automation/group-mr/records/:id/workspace',async request=>service.reviewWorkspaceAction(z.object({id:z.uuid()}).parse(request.params).id,request.body));
+ app.post('/api/automation/group-mr/records/:id/continue-review',async request=>service.continueReview(z.object({id:z.uuid()}).parse(request.params).id,request.body));
  app.post('/api/automation/group-mr/records/:id/merge',async request=>service.mergeRecord(z.object({id:z.uuid()}).parse(request.params).id,request.body));
  app.post('/api/automation/group-mr/records/:id/human-review',async request=>service.submitReview(z.object({id:z.uuid()}).parse(request.params).id,request.body));
  app.post('/api/automation/knowledge/reviews/:id/retry',async request=>service.retryKnowledge(z.object({id:z.uuid()}).parse(request.params).id));
