@@ -20,14 +20,15 @@ async function setup(t,{records=[row('1'),row('2'),row('3','NO_PERMISSION'),row(
   if(url.startsWith('/api/automation/effectiveness'))return response({total:0,stages:{},reviews:0,merged:0,anomalies:0,rejected:0})
   return response([])
  }}})
- t.after(()=>dom.window.close());await flush();return {dom,d:dom.window.document,calls,records}
+ t.after(async()=>{for(let i=0;i<20&&dom.window.eval('Object.values(mrWorkbench.cache).some(v=>v.loading)');i++)await flush();dom.window.close()});await flush();return {dom,d:dom.window.document,calls,records}
 }
 function select(d,...ids){for(const id of ids)d.querySelector('[data-group-mr-check="'+id+'"]').click()}
 test('MR 标题打开真实链接，点击行仍可选详情，非法链接不呈现且操作表头左对齐',async t=>{
  const {dom,d}=await setup(t,{records:[row('1'),row('2'),{...row('3'),url:'javascript:alert(1)'},{...row('4','PI'),running:true}]})
  const a=d.querySelector('[data-group-mr-record-button="2"]');assert.equal(a.href,row('2').url);assert.equal(a.target,'_blank');assert.match(a.rel,/noopener/);a.addEventListener('click',e=>e.preventDefault());a.click();assert.equal(dom.window.eval('groupMrUi.selected'),'1')
- d.querySelector('[data-group-mr-record="2"] td:nth-child(3)').click();assert.equal(dom.window.eval('groupMrUi.selected'),'2');assert.equal(d.querySelector('[data-group-mr-record="3"] a'),null)
- assert.equal(d.querySelector('[data-group-mr-action="review"][data-record-id="1"]').disabled,false);assert.equal(d.querySelector('[data-group-mr-action="merge"][data-record-id="1"]').disabled,true);assert.equal(d.querySelector('[data-group-mr-check="4"]').disabled,true)
+ assert.equal(d.querySelector('[data-group-mr-record="3"] a'),null)
+ assert.equal(d.querySelector('[data-group-mr-action="review"][data-record-id="1"]').disabled,false);assert.equal(d.querySelector('[data-group-mr-action="merge"][data-record-id="1"]'),null);assert.equal(d.querySelector('[data-group-mr-check="4"]').disabled,true)
+ d.querySelector('[data-group-mr-record="2"] td:nth-child(3)').click();assert.equal(dom.window.eval('groupMrUi.selected'),'2');assert.ok(d.querySelector('.nav-review'));
  const css=await readFile(new URL('../src/studio-workspace.css',import.meta.url),'utf8');assert.match(css,/th\.group-mr-action-cell\{text-align:left/)
 })
 test('批量一键审核直接通过，按当前提交保存并呈现部分失败与跳过',async t=>{
@@ -37,7 +38,9 @@ test('批量一键审核直接通过，按当前提交保存并呈现部分失�
 })
 test('单条一键审核立即提交，进行中防重复，详情保留通过和不通过',async t=>{
  let release;const {dom,d,calls}=await setup(t,{write:(_url,data,response)=>new Promise(resolve=>release=()=>resolve(response({humanReview:data})))})
+ d.querySelector('[data-mr-open="1"]').click();d.querySelector('[data-mr-records]').click();
  const detail=d.querySelector('[data-human-review="1"]');assert.ok(detail.querySelector('[value="pass"]'));assert.ok(detail.querySelector('[value="reject"]'));assert.equal(calls.length,0)
+ d.querySelector('[data-mrw-focus]').click();for(let i=0;i<20&&!d.querySelector('.nav-list');i++)await flush();
  const button=d.querySelector('[data-group-mr-action="review"][data-record-id="1"]');assert.equal(button.textContent,'一键审核');button.click();button.click();await dom.window.eval('submitGroupMrAction()');assert.equal(calls.length,1);assert.deepEqual(calls[0].data,{sha,decision:'pass',reason:'',category:''});assert.equal(d.querySelector('.mr-action-overlay'),null);assert.match(d.querySelector('[data-mr-review-feedback]').textContent,/正在审核/);assert.equal(d.querySelector('[data-group-mr-action="review"][data-record-id="1"]').disabled,true);release();await flush();assert.equal(d.querySelector('.mr-action-overlay'),null);assert.match(d.querySelector('[data-mr-review-feedback]').textContent,/1 条审核已保存/)
 })
 test('批量合入明确确认、跳过未审核项、逐项结果与历史跳转',async t=>{
@@ -46,18 +49,15 @@ test('批量合入明确确认、跳过未审核项、逐项结果与历史跳�
  assert.match(d.querySelector('.mr-complete-message').textContent,/1 条已合入，1 条未完成/);assert.match(d.querySelector('.mr-targets').textContent,/无合并权限/);d.querySelector('[data-mr-panel-results]').click();assert.equal(d.querySelector('.mr-action-overlay'),null);assert.ok(d.querySelector('[data-group-mr-record="3"]'))
 })
 
-test('MR 分栏保留全部列表字段，刷新保留详情滚动，切换 MR 重置详情位置',async t=>{
+test('MR 独立检视保留列表字段，处理记录滚动经刷新保留，切换 MR 不串位',async t=>{
  const {dom,d}=await setup(t)
- assert.ok(d.querySelector('.workspace-layout .mr-split > .qw-table-wrap'))
- assert.ok(d.querySelector('.mr-split > .group-mr-detail-section'))
+ assert.ok(d.querySelector('.workspace-layout .mr-split > .qw-table-wrap'));assert.equal(d.querySelector('.group-mr-detail-section'),null)
  assert.equal(d.querySelector('[data-group-mr-record="1"]').children.length,7)
- d.querySelector('.group-mr-detail-section').scrollTop=180
- await dom.window.eval('loadGroupMr()')
- assert.equal(d.querySelector('.group-mr-detail-section').scrollTop,180)
- d.querySelector('[data-group-mr-record="2"] td:nth-child(3)').click()
- assert.equal(d.querySelector('.group-mr-detail-section').dataset.mrDetailId,'2')
- assert.equal(d.querySelector('.group-mr-detail-section').scrollTop,0)
- assert.ok(d.querySelector('[data-human-review="2"] [value="reject"]'))
+ d.querySelector('[data-mr-open="1"]').click();d.querySelector('[data-mr-records]').click();d.querySelector('.nav-flow-records-body').scrollTop=180
+ await dom.window.eval('loadGroupMr()');assert.equal(d.querySelector('.nav-flow-records-body').scrollTop,180)
+ d.querySelector('[data-mrw-next="1"]').click();assert.equal(d.querySelector('.nav-flow-records'),null);d.querySelector('[data-mr-records]').click()
+ assert.equal(d.querySelector('.group-mr-detail-section').dataset.mrDetailId,'2');assert.equal(d.querySelector('.nav-flow-records-body').scrollTop,0)
+ assert.ok(d.querySelector('[data-human-review="2"] [value="reject"]'));await flush()
 })
 
  test('审核结果提示保留时仍可刷新列表进度，不打开抽屉',async t=>{
