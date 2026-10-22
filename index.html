@@ -1012,7 +1012,7 @@
       const nav=`<nav class="variant-a-nav" aria-label="容器运维导航">${navItem('dashboard','工作台','home')}<div class="nav-section">研发流程</div>${navItem('build','构建','build')}${navItem('deploy','部署','deploy')}<div class="nav-section">容器运维</div>${navItem('operations','服务资源','operations')}<div class="nav-section">系统管理</div>${navItem('resources','环境管理','resources')}</nav>`;
       const portal=state.platformDomain==='portal';
       const content=state.applicationId?applicationEmbeddedContent():portal?(state.portalPage==='overview'?platformOverview():platformTools()):state.platformDomain==='applications'?applicationContent():state.platformDomain==='container'?(state.page==='dashboard'?dashboardA():commonPage(state.page)):state.platformDomain==='automation'?automationContent():`<section class="panel platform-placeholder"><div class="platform-placeholder-content"><div class="platform-placeholder-symbol">虚</div><h1>虚机运维</h1><p>这里先作为独立平台域预留，不提前定义功能和页面。</p><span class="platform-boundary">平台边界已预留</span></div></section>`;
-      return `<div class="variant-a-shell studio-shell ${portal?'pr-portal-shell':''}">${platformHeader()}${portal?'':`<aside class="variant-a-sidebar">${state.platformDomain==='container'?nav:state.platformDomain==='automation'?automationNav():state.platformDomain==='applications'?applicationNav():''}${platformRelated()}<div class="studio-sidebar-bottom"><button class="studio-settings-link" data-portal-page="tools">← 返回工具中心</button>${state.platformDomain==='automation'?'<button class="studio-settings-link" data-automation-nav="settings">连接与设置</button>':''}<div class="variant-a-user">V0.2.153</div></div></aside>`}<main class="variant-a-main ${!state.applicationId&&['automation','container'].includes(state.platformDomain)?'workspace-layout':''}">${content}</main>${portal?'<div class="pr-home-version">V0.2.153</div>':''}</div>`;
+      return `<div class="variant-a-shell studio-shell ${portal?'pr-portal-shell':''}">${platformHeader()}${portal?'':`<aside class="variant-a-sidebar">${state.platformDomain==='container'?nav:state.platformDomain==='automation'?automationNav():state.platformDomain==='applications'?applicationNav():''}${platformRelated()}<div class="studio-sidebar-bottom"><button class="studio-settings-link" data-portal-page="tools">← 返回工具中心</button>${state.platformDomain==='automation'?'<button class="studio-settings-link" data-automation-nav="settings">连接与设置</button>':''}<div class="variant-a-user">V0.2.154</div></div></aside>`}<main class="variant-a-main ${!state.applicationId&&['automation','container'].includes(state.platformDomain)?'workspace-layout':''}">${content}</main>${portal?'<div class="pr-home-version">V0.2.154</div>':''}</div>`;
     }
 
     let toastTimer;
@@ -1609,12 +1609,173 @@
     function mrWritable(r,v){const d=v.data;return !!(d&&d.sha===r.sha&&!d.stale&&d.state==='opened'&&!['DONE','CLOSED'].includes(r.phase)&&!d.writePending&&!r.writePending&&!r.running&&!r.queued&&!r.workbenchMissing&&!v.error);}
     function mrInlineNote(v,n){const r=mrSelected(),writable=r&&mrWritable(r,v),editing=v.thread===n.id&&['reply','resolve'].includes(v.mode);return `<tr class="mr-inline-row"><td colspan="3"><article class="mr-inline-note ${n.resolved?'resolved':''}"><div>${mrCollapseButton(v,n)}<strong>检视意见 · ${mrNoteLocation(n)}</strong><span>${n.resolved?'已关闭':n.resolvable===false?'普通讨论':'待确认修复'} · ${escapeHtml(n.author||'')}</span></div>${v.collapsedNotes.has(n.id)?'':`<p>${escapeHtml(mrNoteText(n.body))}</p>${(n.notes||[]).slice(1).map(reply=>`<div class="nav-inline-reply"><b>${escapeHtml(reply.author||'')}</b><span>${escapeHtml(mrNoteText(reply.body))}</span></div>`).join('')}<div class="nav-inline-actions"><button class="qw-link" data-mrw-thread="${escapeHtml(n.id)}" ${!writable||!v.data.capabilities?.reply||mrWorkbench.busy?'disabled':''}>回复${n.notes?.length>1?' · '+(n.notes.length-1):''}</button><button class="qw-link" data-mrw-resolve="${escapeHtml(n.id)}" ${!writable||!n.resolvable||n.resolved||mrWorkbench.busy?'disabled':''}>确认关闭</button></div>${editing&&writable&&(v.mode==='resolve'||v.data.capabilities?.reply)?mrEditor(r,v.mode,n.id):''}`}</article></td></tr>`;}
     function mrCaptureCodeView(){const browser=document.querySelector('[data-mrw-browser]');if(!browser)return;const v=mrData(browser.dataset.mrwBrowser),list=browser.querySelector('.mr-file-scroll'),diff=browser.querySelector('.mr-diff-scroll');if(list)v.fileScroll=list.scrollTop;if(diff)v.diffScroll.set(browser.dataset.filePath,{top:diff.scrollTop,left:diff.scrollLeft});}
-    function mrRestoreCodeView(){const browser=document.querySelector('[data-mrw-browser]');if(!browser)return;const v=mrData(browser.dataset.mrwBrowser),list=browser.querySelector('.mr-file-scroll'),diff=browser.querySelector('.mr-diff-scroll'),scroll=v.diffScroll.get(browser.dataset.filePath);if(list)list.scrollTop=v.fileScroll;if(diff&&scroll){diff.scrollTop=scroll.top;diff.scrollLeft=scroll.left;}}
-    function mrSelectFile(v,index){if(!v.data?.files[index])return;v.file=index;v.line=null;v.anchor=null;v.locationMessage='';const path=v.data.files[index].path;v.folders.delete(path.includes('/')?path.slice(0,path.lastIndexOf('/')):'');render(false);const list=document.querySelector('.mr-file-scroll'),button=document.querySelector('[data-mrw-file="'+index+'"]');if(list&&button){const a=list.getBoundingClientRect(),b=button.getBoundingClientRect();if(b.top<a.top)list.scrollTop+=b.top-a.top;else if(b.bottom>a.bottom)list.scrollTop+=b.bottom-a.bottom;}}
+    function mrRestoreCodeView(){const browser=document.querySelector('[data-mrw-browser]');if(!browser)return;const v=mrData(browser.dataset.mrwBrowser),list=browser.querySelector('.mr-file-scroll'),diff=browser.querySelector('.mr-diff-scroll'),scroll=v.diffScroll.get(browser.dataset.filePath);if(list)list.scrollTop=v.fileScroll;if(v.locateFile&&list){mrScrollToFile(v);v.locateFile=false;}if(diff&&scroll){diff.scrollTop=scroll.top;diff.scrollLeft=scroll.left;}}
+    function mrScrollToFile(v){const list=document.querySelector('.mr-file-scroll'),button=document.querySelector('[data-mrw-file="'+v.file+'"]');if(list&&button){const a=list.getBoundingClientRect(),b=button.getBoundingClientRect();if(b.top<a.top)list.scrollTop+=b.top-a.top;else if(b.bottom>a.bottom)list.scrollTop+=b.bottom-a.bottom;}}
+    function mrSelectFile(v,index){if(!v.data?.files[index])return;v.file=index;v.line=null;v.anchor=null;v.locationMessage='';if(!v.data.files[index].path.toLowerCase().includes(v.search.toLowerCase()))v.search='';mrRevealTree(v);render(false);mrScrollToFile(v);}
+    // Shared layout preference; tree expansion and scroll positions remain scoped to each MR.
+    const mrTreeLayout = { width: 320, hidden: false };
+    try {
+        const saved = Number(localStorage.getItem('ops-studio-mr-tree-width'));
+        if (Number.isFinite(saved) && saved >= 220 && saved <= 560)
+            mrTreeLayout.width = saved;
+    }
+    catch { }
+    const mrFolderSvg = '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M2.5 5.2a1.5 1.5 0 0 1 1.5-1.5h4l2 2H16a1.5 1.5 0 0 1 1.5 1.5v8A1.5 1.5 0 0 1 16 16.7H4a1.5 1.5 0 0 1-1.5-1.5Z"/></svg>';
+    const mrFileSvg = '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 2.8h6l4 4v10.4H5Z"/><path d="M11 2.8v4h4M8.5 10l-2 2 2 2m3-4 2 2-2 2"/></svg>';
+    function mrTreeView(id) { const v = mrData(id); return v.tree || (v.tree = { closed: v.folders, searchClosed: new Set(), ready: false, lastFile: '' }); }
+    function mrBuildTree(files, threads, query) {
+        const root = { children: new Map(), files: [], count: 0, comments: 0, path: '' }, notesByPath = new Map();
+        for (const note of threads) {
+            if (note.resolved)
+                continue;
+            for (const path of new Set([note.path, note.oldPath].filter(Boolean))) {
+                if (!notesByPath.has(path))
+                    notesByPath.set(path, new Set());
+                notesByPath.get(path).add(note);
+            }
+        }
+        files.forEach((f, index) => { if (query && !f.path.toLowerCase().includes(query.toLowerCase()))
+            return; const parts = f.path.split('/'), name = parts.pop(), count = new Set([...(notesByPath.get(f.path) || []), ...(notesByPath.get(f.oldPath || f.path) || [])]).size; let node = root, path = ''; node.count++; node.comments += count; for (const part of parts) {
+            path += (path ? '/' : '') + part;
+            if (!node.children.has(part))
+                node.children.set(part, { name: part, path, children: new Map(), files: [], count: 0, comments: 0 });
+            node = node.children.get(part);
+            node.count++;
+            node.comments += count;
+        } node.files.push({ f, index, name, comments: count }); });
+        return root;
+    }
+    function mrWalkFolders(node, fn) { for (const folder of node.children.values()) {
+        fn(folder);
+        mrWalkFolders(folder, fn);
+    } }
+    function mrRevealTree(v) { const t = v.tree || (v.tree = { closed: v.folders, searchClosed: new Set(), ready: false, lastFile: '' }), path = v.data?.files[v.file]?.path; if (!path)
+        return; const parts = path.split('/'); parts.pop(); let prefix = ''; for (const part of parts) {
+        prefix += (prefix ? '/' : '') + part;
+        t.closed.delete(prefix);
+    } }
+    function mrTreeMarkup(node, depth, v, t, filtering) { const folders = [...node.children.values()].sort((a, b) => a.name.localeCompare(b.name)), files = [...node.files].sort((a, b) => a.name.localeCompare(b.name)); return folders.map(n => { const open = !(filtering ? t.searchClosed : t.closed).has(n.path); return `<li class="mr-tree-node" role="none"><button class="mr-tree-folder mr-tree-row" role="treeitem" aria-expanded="${open}" aria-level="${depth + 1}" data-tree-folder="${escapeHtml(n.path)}" title="${escapeHtml(n.path)} · ${n.count} 个变更文件"><span class="mr-tree-arrow">${open ? '⌄' : '›'}</span><span class="mr-tree-folder-icon">${mrFolderSvg}</span><span class="mr-tree-name">${escapeHtml(n.name)}</span><span class="mr-tree-count">${n.count}</span>${n.comments ? `<span class="mr-tree-discussion" title="${n.comments} 条未关闭意见">${n.comments}</span>` : ''}</button>${open ? `<ul role="group">${mrTreeMarkup(n, depth + 1, v, t, filtering)}</ul>` : ''}</li>`; }).join('') + files.map(({ f, index, name, comments }) => `<li role="none"><button class="mr-tree-file mr-tree-row ${v.file === index ? 'selected' : ''}" role="treeitem" aria-level="${depth + 1}" aria-selected="${v.file === index}" data-mrw-file="${index}" title="${escapeHtml(f.path)}${f.status === 'renamed' ? '\n原路径：' + escapeHtml(f.oldPath) : ''}"><span class="mr-tree-arrow"></span><span class="mr-tree-file-icon ${name.endsWith('.vue') ? 'vue' : ''}">${mrFileSvg}</span><span class="mr-tree-name">${escapeHtml(name)}</span>${comments ? `<span class="mr-tree-discussion" title="${comments} 条未关闭意见">${comments}</span>` : ''}<span class="mr-tree-change ${escapeHtml(f.status)}" title="${{ added: '新增', deleted: '删除', renamed: '重命名', modified: '修改' }[f.status] || '修改'}">${{ added: 'A', deleted: 'D', renamed: 'R', modified: 'M' }[f.status] || 'M'}</span></button></li>`).join(''); }
+    function mrFileTree(r, v) {
+        const t = mrTreeView(r.id), full = mrBuildTree(v.data.files, v.data.threads, ''), root = v.search ? mrBuildTree(v.data.files, v.data.threads, v.search) : full;
+        if (!t.ready) {
+            mrWalkFolders(full, n => t.closed.add(n.path));
+            t.ready = true;
+        }
+        if (t.lastFile !== v.data.files[v.file]?.path) {
+            mrRevealTree(v);
+            t.lastFile = v.data.files[v.file]?.path;
+            v.locateFile = true;
+        }
+        const allClosed = [...full.children.values()].every(n => t.closed.has(n.path));
+        return `<aside class="mr-file-list mr-tree-sidebar ${mrTreeLayout.hidden ? 'mr-tree-hidden' : ''}">${mrTreeLayout.hidden ? '<button class="mr-tree-reopen" data-tree-hide title="展开目录">☷<span>目录</span></button>' : `<div class="mr-tree-tools"><div class="mr-tree-title"><strong>变更目录</strong><span>${root.count}${v.search ? ' / ' + v.data.files.length : ''} 个文件</span><button class="mr-tree-icon-button" data-tree-hide aria-label="收起目录" title="收起目录">‹</button></div><div class="mr-tree-search-wrap"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8" cy="8" r="5"/><path d="m12 12 5 5"/></svg><input id="mr-file-search" data-mrw-file-search type="search" placeholder="搜索文件名或路径" aria-label="筛选变更文件" value="${escapeHtml(v.search)}"></div><div class="mr-tree-commands"><button class="qw-link" data-tree-reveal title="展开并定位当前文件">⌖ 定位当前</button><button class="qw-link" data-mrw-folders>${allClosed ? '全部展开' : '全部折叠'}</button></div></div><div class="mr-file-scroll mr-tree-scroll" tabindex="0" aria-label="可滚动的分层变更目录"><ul class="mr-tree-root" role="tree" aria-label="变更目录树">${mrTreeMarkup(root, 0, v, t, !!v.search) || '<li class="mr-tree-empty">没有匹配的变更文件<button class="qw-link" data-tree-clear>清空搜索</button></li>'}</ul></div><div class="mr-tree-legend"><span><b class="mr-tree-change modified">M</b> 修改</span><span><b class="mr-tree-change added">A</b> 新增</span><span class="mr-tree-legend-note"><i class="mr-tree-discussion">1</i> 未关闭意见</span></div><div class="mr-tree-foot"><span>拖拽分隔条调整宽度</span><button class="qw-link" data-tree-reset>重置</button></div>`}</aside><div class="mr-tree-splitter" role="separator" tabindex="0" aria-label="调整目录与代码宽度" aria-orientation="vertical" aria-valuemin="220" aria-valuemax="560" aria-valuenow="${mrTreeLayout.width}" title="左右拖拽调整宽度 · 双击重置 · 方向键微调"><span></span></div>`;
+    }
+    function mrResizeTree(width, save = true) {
+        const el = document.querySelector('.mr-tree-browser');
+        if (!el)
+            return;
+        const total = el.getBoundingClientRect().width;
+        const max = Math.max(160, Math.min(560, (total || 920) - 300)), min = Math.min(220, max);
+        const desired = Number.isFinite(width) ? Math.round(Math.max(220, Math.min(560, width))) : 320;
+        if (save)
+            mrTreeLayout.width = desired;
+        const shown = Math.round(Math.max(min, Math.min(max, desired)));
+        el.style.setProperty('--mr-tree-width', (mrTreeLayout.hidden ? 42 : shown) + 'px');
+        el.classList.toggle('mr-tree-is-hidden', mrTreeLayout.hidden);
+        const bar = el.querySelector('.mr-tree-splitter');
+        bar.tabIndex = mrTreeLayout.hidden ? -1 : 0;
+        bar.setAttribute('aria-disabled', String(mrTreeLayout.hidden));
+        bar.setAttribute('aria-valuenow', String(shown));
+        bar.setAttribute('aria-valuemin', String(min));
+        bar.setAttribute('aria-valuemax', String(Math.round(max)));
+        if (save)
+            try {
+                localStorage.setItem('ops-studio-mr-tree-width', String(mrTreeLayout.width));
+            }
+            catch { }
+        return shown;
+    }
+    function bindMrFileTree(r, v) {
+        const t = mrTreeView(r.id);
+        mrResizeTree(mrTreeLayout.width, false);
+        document.querySelectorAll('[data-tree-folder]').forEach(b => b.onclick = () => { const path = b.dataset.treeFolder, closed = v.search ? t.searchClosed : t.closed; closed.has(path) ? closed.delete(path) : closed.add(path); render(false); });
+        document.querySelectorAll('[data-tree-hide]').forEach(b => b.onclick = () => { mrTreeLayout.hidden = !mrTreeLayout.hidden; render(false); });
+        document.querySelector('[data-tree-reset]')?.addEventListener('click', () => mrResizeTree(320));
+        document.querySelector('[data-tree-clear]')?.addEventListener('click', () => { v.search = ''; render(false); });
+        document.querySelector('[data-tree-reveal]')?.addEventListener('click', () => { v.search = ''; mrRevealTree(v); render(false); mrScrollToFile(v); });
+        document.querySelector('[data-mrw-folders]')?.addEventListener('click', () => { v.search = ''; const root = mrBuildTree(v.data.files, v.data.threads, ''), closed = [...root.children.values()].every(n => t.closed.has(n.path)); mrWalkFolders(root, n => closed ? t.closed.delete(n.path) : t.closed.add(n.path)); render(false); });
+        const splitter = document.querySelector('.mr-tree-splitter');
+        if (splitter) {
+            splitter.ondblclick = () => { mrTreeLayout.hidden = false; render(false); mrResizeTree(320); };
+            splitter.onkeydown = e => { if (['ArrowLeft', 'ArrowRight', 'Home'].includes(e.key)) {
+                e.preventDefault();
+                if (mrTreeLayout.hidden) {
+                    mrTreeLayout.hidden = false;
+                    render(false);
+                }
+                mrResizeTree(e.key === 'Home' ? 320 : mrTreeLayout.width + (e.key === 'ArrowLeft' ? -1 : 1) * (e.shiftKey ? 40 : 16));
+            } };
+            splitter.onpointerdown = e => {
+                if (mrTreeLayout.hidden || e.button !== 0) return;
+                e.preventDefault();
+                splitter.setPointerCapture?.(e.pointerId);
+                const x = e.clientX, width = Number(splitter.getAttribute('aria-valuenow'));
+                document.body.classList.add('mr-tree-dragging');
+                // Polling can replace the separator mid-drag, so track the pointer on window.
+                const move = event => {
+                    if (event.pointerId !== e.pointerId) return;
+                    const current = mrResizeTree(width + event.clientX - x, false);
+                    if (current !== undefined) mrTreeLayout.width = current;
+                };
+                const end = event => {
+                    if (event?.pointerId !== undefined && event.pointerId !== e.pointerId) return;
+                    document.body.classList.remove('mr-tree-dragging');
+                    window.removeEventListener('pointermove', move);
+                    window.removeEventListener('pointerup', end);
+                    window.removeEventListener('pointercancel', end);
+                    window.removeEventListener('blur', end);
+                    mrResizeTree(mrTreeLayout.width);
+                    if (splitter.hasPointerCapture?.(e.pointerId)) splitter.releasePointerCapture(e.pointerId);
+                };
+                window.addEventListener('pointermove', move);
+                window.addEventListener('pointerup', end);
+                window.addEventListener('pointercancel', end);
+                window.addEventListener('blur', end);
+            };
+        }
+        const scroll = document.querySelector('.mr-tree-scroll');
+        scroll?.addEventListener('keydown', e => {
+            if (!['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
+            e.preventDefault();
+            const items = [...scroll.querySelectorAll('[role="treeitem"]')], active = document.activeElement, i = items.indexOf(active);
+            const closed = v.search ? t.searchClosed : t.closed;
+            let next;
+            if (e.key === 'ArrowDown') next = items[Math.min(items.length - 1, i + 1)];
+            if (e.key === 'ArrowUp') next = items[Math.max(0, i - 1)];
+            if (e.key === 'Home') next = items[0];
+            if (e.key === 'End') next = items.at(-1);
+            if (e.key === 'ArrowRight' && active.matches('[data-tree-folder]')) {
+                if (active.getAttribute('aria-expanded') === 'false') {
+                    const path = active.dataset.treeFolder;
+                    closed.delete(path);
+                    render(false);
+                    next = [...document.querySelectorAll('[data-tree-folder]')].find(b => b.dataset.treeFolder === path);
+                } else next = items[i + 1];
+            }
+            if (e.key === 'ArrowLeft') {
+                if (active.matches('[data-tree-folder][aria-expanded="true"]')) {
+                    const path = active.dataset.treeFolder;
+                    closed.add(path);
+                    render(false);
+                    next = [...document.querySelectorAll('[data-tree-folder]')].find(b => b.dataset.treeFolder === path);
+                } else next = active.closest('ul[role="group"]')?.parentElement.querySelector('[data-tree-folder]');
+            }
+            next?.focus();
+        });
+    }
+    window.addEventListener('resize', () => mrResizeTree(mrTreeLayout.width, false));
+
     function mrCode(r){
       const v=mrData(r.id),d=v.data,file=d?.files[v.file],files=d?.files||[],stale=d&&(d.stale||d.sha!==r.sha),disabled=mrWorkbench.busy||v.loading;
-      const groups=new Map();files.forEach((f,i)=>{if(!f.path.toLowerCase().includes(v.search.toLowerCase()))return;const slash=f.path.lastIndexOf('/'),dir=slash<0?'':f.path.slice(0,slash);if(!groups.has(dir))groups.set(dir,[]);groups.get(dir).push({f,i});});
-      const tree=[...groups].map(([dir,items])=>{const expanded=!v.folders.has(dir);return `<section class="mr-file-folder"><button class="mr-folder-toggle" data-mrw-folder="${escapeHtml(dir)}" aria-expanded="${expanded}" title="${escapeHtml(dir||'根目录')}"><span>${expanded?'▾':'▸'}</span><span>${escapeHtml(dir||'根目录')}</span><small>${items.length}</small></button>${expanded?items.map(({f,i})=>{const comments=d.threads.filter(n=>mrNoteFile(n,f)&&!n.resolved).length;return `<button class="mr-file-item ${i===v.file?'selected':''}" data-mrw-file="${i}" aria-current="${i===v.file?'true':'false'}" title="${escapeHtml(f.path)}"><span class="mr-file-symbol">${{added:'A',deleted:'D',renamed:'R',modified:'M'}[f.status]||'M'}</span><span class="mr-file-name">${escapeHtml(f.path.split('/').at(-1))}</span>${comments?`<span class="mr-file-comments" title="${comments} 条未关闭意见">意见 ${comments}</span>`:''}</button>`;}).join(''):''}</section>`;}).join('');
       let oldLine=0,newLine=0,inHunk=false;
       const noteLines=new Map();for(const n of d?.threads||[]){const p=mrNotePosition(n);if(!p||!mrNoteFile(n,file)||!mrNoteCurrent(n,d)||(!v.showClosed&&n.resolved))continue;const key=p.side+':'+p.line;if(!noteLines.has(key))noteLines.set(key,[]);noteLines.get(key).push(n);}
       const code=file?.diff.split('\n').map(text=>{const m=text.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);let old='',next='',kind='';if(m){oldLine=+m[1];newLine=+m[2];inHunk=true;kind='hunk';}else if(inHunk&&text.startsWith('+')){next=newLine++;kind='add';}else if(inHunk&&text.startsWith('-')){old=oldLine++;kind='del';}else if(inHunk&&text.startsWith(' ')){old=oldLine++;next=newLine++;}else if(!text.startsWith('\\'))inHunk=false;
@@ -1622,7 +1783,7 @@
         const notes=[...(noteLines.get('old:'+old)||[]),...(noteLines.get('new:'+next)||[])],anchor=v.anchor,highlight=anchor?anchor.path===file.path&&(anchor.side==='old'?old:next)===anchor.line:next!==''&&v.line===next;
         return `<tr class="${kind} ${highlight?'highlight':''} ${notes.length?'has-review':''}" ${next!==''?`data-mrw-line-row="${next}"`:''} ${old!==''?`data-mrw-old-row="${old}"`:''}><td>${old}</td><td>${canAdd?`<button class="qw-link" data-mrw-line="${next}" aria-label="在新代码第 ${next} 行添加意见" ${disabled?'disabled':''}>${next} ＋</button>`:next}</td><td><code>${escapeHtml(text)}</code></td></tr>${notes.map(n=>mrInlineNote(v,n)).join('')}`;
       }).join('')||'';
-      return `<section class="mr-code-section ${v.wide?'mr-code-wide':''}"><div class="mr-code-heading"><button class="qw-link" data-mrw-code aria-expanded="${v.open}">${v.open?'▾':'▸'} 代码变更${d?'（'+files.length+' 个文件）':''}</button><div>${v.open&&d?`${mrCollapseAll(v)}<button class="qw-link" data-mrw-wide>${v.wide?'退出放大':'放大检视'}</button>`:''}<button class="qw-link" data-mrw-load ${disabled||r.running||r.queued?'disabled':''}>${v.loading?'读取中…':'刷新代码与意见'}</button></div></div>${v.error||v.writeError?`<p role="alert" class="mr-workbench-error">${escapeHtml(v.error||v.writeError)}</p>`:''}${stale?'<p role="alert" class="mr-workbench-error">提交已变化，当前检视结果不可写入。请重新发送该 MR 链接，完成新提交的检视。</p>':''}${d?.writePending?`<p role="alert" class="mr-workbench-error">${escapeHtml(d.writePending)}结果待核对。刷新将只读取远端，不会重复提交。</p>`:''}${v.locationMessage?`<p role="status" class="mr-workbench-error">${escapeHtml(v.locationMessage)}</p>`:''}${v.open?(!d?`<p class="qw-muted">${v.loading?'正在通过 CodeHub 读取代码变更与检视意见…':r.running||r.queued?'任务正在执行或排队，结束后可刷新代码与意见。':r.workbenchMissing?'记录已移除，无法读取代码。':'点击“刷新代码与意见”读取当前提交的代码变更。'}</p>`:`<p class="qw-muted">提交 ${escapeHtml(d.sha.slice(0,12))} · ${escapeHtml(qwDate(d.readAt))} · 点击新增行号添加意见</p><div class="mr-code-browser" data-mrw-browser="${escapeHtml(r.id)}" data-file-path="${escapeHtml(file?.path||'')}"><aside class="mr-file-list"><div class="mr-file-tools"><div><strong>变更目录</strong><span>${[...groups.values()].reduce((sum,items)=>sum+items.length,0)} / ${files.length}</span></div><input id="mr-file-search" type="search" data-mrw-file-search aria-label="筛选变更文件" placeholder="搜索文件名或路径…" value="${escapeHtml(v.search)}"><button class="qw-link" data-mrw-folders>${groups.size&&[...groups.keys()].every(dir=>v.folders.has(dir))?'展开目录':'折叠目录'}</button></div><div class="mr-file-scroll" tabindex="0" aria-label="可滚动的变更文件列表">${tree||'<p class="qw-muted">无匹配文件</p>'}</div><div class="mr-file-foot">↑ ↓ 切换文件</div></aside><div class="mr-diff-pane"><header>${escapeHtml(file?.path||'无代码变更')}${file?.status==='renamed'?`<small>原路径：${escapeHtml(file.oldPath)}</small>`:''}</header>${file?.unavailable?'<p class="qw-muted">该文件为二进制、内容过大或 diff 未返回，无法展示行级差异。</p>':file&&!file.diff?'<p class="qw-muted">此文件没有文本 diff（可能仅属性变化）。</p>':`<div class="mr-diff-scroll" tabindex="0" aria-label="可滚动的代码差异"><table aria-label="代码差异"><thead><tr><th>旧行</th><th>新行</th><th>代码差异 · 意见显示在对应行下方</th></tr></thead><tbody>${code}</tbody></table></div>`}</div></div><footer class="mr-code-footer"><span>文件 ${files.length?v.file+1:0} / ${files.length}</span><div><button class="button small" data-mrw-file-step="-1" ${!files.length||v.file===0?'disabled':''}>← 上个文件</button><button class="button small" data-mrw-file-step="1" ${v.file>=files.length-1?'disabled':''}>下个文件 →</button></div></footer>`):''}${v.mode==='create'?mrEditor(r,'create','new'):''}</section>`;
+      return `<section class="mr-code-section ${v.wide?'mr-code-wide':''}"><div class="mr-code-heading"><button class="qw-link" data-mrw-code aria-expanded="${v.open}">${v.open?'▾':'▸'} 代码变更${d?'（'+files.length+' 个文件）':''}</button><div>${v.open&&d?`${mrCollapseAll(v)}<button class="qw-link" data-mrw-wide>${v.wide?'退出放大':'放大检视'}</button>`:''}<button class="qw-link" data-mrw-load ${disabled||r.running||r.queued?'disabled':''}>${v.loading?'读取中…':'刷新代码与意见'}</button></div></div>${v.error||v.writeError?`<p role="alert" class="mr-workbench-error">${escapeHtml(v.error||v.writeError)}</p>`:''}${stale?'<p role="alert" class="mr-workbench-error">提交已变化，当前检视结果不可写入。请重新发送该 MR 链接，完成新提交的检视。</p>':''}${d?.writePending?`<p role="alert" class="mr-workbench-error">${escapeHtml(d.writePending)}结果待核对。刷新将只读取远端，不会重复提交。</p>`:''}${v.locationMessage?`<p role="status" class="mr-workbench-error">${escapeHtml(v.locationMessage)}</p>`:''}${v.open?(!d?`<p class="qw-muted">${v.loading?'正在通过 CodeHub 读取代码变更与检视意见…':r.running||r.queued?'任务正在执行或排队，结束后可刷新代码与意见。':r.workbenchMissing?'记录已移除，无法读取代码。':'点击“刷新代码与意见”读取当前提交的代码变更。'}</p>`:`<p class="qw-muted">提交 ${escapeHtml(d.sha.slice(0,12))} · ${escapeHtml(qwDate(d.readAt))} · 点击新增行号添加意见</p><div class="mr-code-browser mr-tree-browser" data-mrw-browser="${escapeHtml(r.id)}" data-file-path="${escapeHtml(file?.path||'')}">${mrFileTree(r,v)}<div class="mr-diff-pane"><header class="mr-tree-diff-heading"><div>${escapeHtml(file?.path||'无代码变更')}${file?.status==='renamed'?`<small>原路径：${escapeHtml(file.oldPath)}</small>`:''}</div><button class="qw-link" data-tree-hide>${mrTreeLayout.hidden?'展开目录':'收起目录'}</button></header>${file?.unavailable?'<p class="qw-muted">该文件为二进制、内容过大或 diff 未返回，无法展示行级差异。</p>':file&&!file.diff?'<p class="qw-muted">此文件没有文本 diff（可能仅属性变化）。</p>':`<div class="mr-diff-scroll" tabindex="0" aria-label="可滚动的代码差异"><table aria-label="代码差异"><thead><tr><th>旧行</th><th>新行</th><th>代码差异 · 意见显示在对应行下方</th></tr></thead><tbody>${code}</tbody></table></div>`}</div></div><footer class="mr-code-footer"><span>文件 ${files.length?v.file+1:0} / ${files.length}</span><div><button class="button small" data-mrw-file-step="-1" ${!files.length||v.file===0?'disabled':''}>← 上个文件</button><button class="button small" data-mrw-file-step="1" ${v.file>=files.length-1?'disabled':''}>下个文件 →</button></div></footer>`):''}${v.mode==='create'?mrEditor(r,'create','new'):''}</section>`;
     }
     function mrEditor(r,mode,key){const v=mrData(r.id),draft=mrDraft(r.id)[key],stale=draft&&(draft.sha!==v.data?.sha||(mode!=='create'&&draft.fingerprint!==v.data?.threads.find(n=>n.id===key)?.fingerprint));return `<form data-mrw-form="${mode}" data-mrw-key="${escapeHtml(key)}"><label>${mode==='resolve'?'关闭依据（保留在本项目处理记录）':mode==='create'?'新增行检视意见 · '+escapeHtml(draft?.path||'')+':'+(draft?.line||''):'回复讨论'}<textarea data-mrw-draft="${escapeHtml(key)}" required maxlength="${mode==='resolve'?4000:10000}" placeholder="${mode==='resolve'?'说明已核实的修复或关闭原因':'填写具体意见'}">${escapeHtml(draft?.body||'')}</textarea></label>${stale?'<p role="alert">提交或讨论已更新，请收起草稿、核对最新内容后重新打开此操作。</p>':''}<div class="head-actions"><button type="submit" class="button primary" ${mrWorkbench.busy||stale?'disabled':''}>${mrWorkbench.busy?'提交中…':mode==='resolve'?'确认关闭':mode==='reply'?'提交回复':'提交检视意见'}</button><button type="button" class="qw-link" data-mrw-cancel ${mrWorkbench.busy?'disabled':''}>收起并保留草稿</button></div></form>`;}
     function mrNotes(r){
@@ -1647,21 +1808,19 @@
       document.querySelectorAll('[data-mrw-next]').forEach(b=>b.onclick=()=>mrRequestSwitch(()=>{const rows=mrRows(),i=rows.findIndex(v=>v.id===groupMrUi.selected);if(rows[i+(+b.dataset.mrwNext)])mrSetSelected(rows[i+(+b.dataset.mrwNext)].id);}));
       document.querySelectorAll('[data-mrw-focus]').forEach(b=>b.onclick=()=>mrRequestSwitch(mrBackToList));
       if(!r)return;
+      bindMrFileTree(r,v);
       document.querySelector('[data-mrw-load]')?.addEventListener('click',()=>mrLoad(r.id));
       document.querySelector('[data-mrw-code]')?.addEventListener('click',()=>{v.open=!v.open;if(!v.open)v.wide=false;if(v.open){mrEnterFocus();if(!v.data&&!v.loading){void mrLoad(r.id);return;}}render(false);});
-      document.querySelector('[data-mrw-file-search]')?.addEventListener('input',e=>{v.search=e.target.value;if(v.search)for(const f of v.data?.files||[]){if(f.path.toLowerCase().includes(v.search.toLowerCase()))v.folders.delete(f.path.includes('/')?f.path.slice(0,f.path.lastIndexOf('/')):'');}render(false);});
+      document.querySelector('[data-mrw-file-search]')?.addEventListener('input',e=>{v.search=e.target.value;mrTreeView(r.id).searchClosed.clear();v.fileScroll=0;render(false);const list=document.querySelector('.mr-file-scroll');if(list)list.scrollTop=0;});
       document.querySelectorAll('[data-mrw-file]').forEach(b=>b.onclick=()=>mrSelectFile(v,+b.dataset.mrwFile));
       document.querySelector('[data-mrw-closed]')?.addEventListener('change',e=>{v.showClosed=e.target.checked;render(false);});
-      document.querySelectorAll('[data-mrw-folder]').forEach(b=>b.onclick=()=>{const dir=b.dataset.mrwFolder;v.folders.has(dir)?v.folders.delete(dir):v.folders.add(dir);render(false);});
-      document.querySelector('[data-mrw-folders]')?.addEventListener('click',()=>{const dirs=[...new Set((v.data?.files||[]).map(f=>f.path.includes('/')?f.path.slice(0,f.path.lastIndexOf('/')):''))],all=dirs.every(dir=>v.folders.has(dir));dirs.forEach(dir=>all?v.folders.delete(dir):v.folders.add(dir));v.search='';render(false);});
       document.querySelectorAll('[data-mrw-file-step]').forEach(b=>b.onclick=()=>mrSelectFile(v,v.file+Number(b.dataset.mrwFileStep)));
-      document.querySelector('.mr-file-scroll')?.addEventListener('keydown',e=>{if(!['ArrowUp','ArrowDown'].includes(e.key))return;const visible=[...document.querySelectorAll('[data-mrw-file]')].map(b=>Number(b.dataset.mrwFile)),i=visible.indexOf(v.file),next=i<0?visible[0]:visible[i+(e.key==='ArrowDown'?1:-1)];if(next===undefined)return;e.preventDefault();mrSelectFile(v,next);document.querySelector('[data-mrw-file="'+next+'"]')?.focus({preventScroll:true});});
       document.querySelector('[data-mrw-wide]')?.addEventListener('click',()=>{v.wide=!v.wide;render(false);});
       document.querySelector('.mr-code-section')?.addEventListener('keydown',e=>{if(e.key==='Escape'&&v.wide){v.wide=false;render(false);}});
       document.querySelectorAll('[data-mrw-note-toggle]').forEach(b=>b.onclick=()=>{const id=b.dataset.mrwNoteToggle;v.collapsedNotes.has(id)?v.collapsedNotes.delete(id):v.collapsedNotes.add(id);render(false);});
       document.querySelectorAll('[data-mrw-notes-toggle]').forEach(b=>b.onclick=()=>{const notes=v.data?.threads||[],all=notes.every(n=>v.collapsedNotes.has(n.id));notes.forEach(n=>all?v.collapsedNotes.delete(n.id):v.collapsedNotes.add(n.id));render(false);});
       document.querySelectorAll('[data-mrw-discussion]').forEach(b=>b.onclick=()=>{const id=b.dataset.mrwDiscussion;mrWorkbench.tab='notes';v.collapsedNotes.delete(id);v.wide=false;render(false);[...document.querySelectorAll('[data-mrw-note-card]')].find(el=>el.dataset.mrwNoteCard===id)?.scrollIntoView?.({block:'center'});});
-      document.querySelectorAll('[data-mrw-note-code]').forEach(b=>b.onclick=async()=>{const id=b.dataset.mrwNoteCode;mrWorkbench.tab='code';if(!v.data)await mrLoad(r.id);if(groupMrUi.selected!==r.id||!mrWorkbench.focus)return;const n=v.data?.threads.find(n=>n.id===id);if(!n)return;const i=v.data.files.findIndex(f=>mrNoteFile(n,f));v.anchor=null;v.line=null;if(i<0){v.locationMessage='该意见对应文件不在当前变更中，可能属于历史提交';render(false);return;}v.file=i;v.search='';v.open=true;v.collapsedNotes.delete(id);v.folders.delete(v.data.files[i].path.split('/').slice(0,-1).join('/'));mrEnterFocus();const position=mrNotePosition(n),current=mrNoteCurrent(n,v.data);v.anchor=current&&position?{...position,path:v.data.files[i].path}:null;v.locationMessage=current?'':'该意见属于历史提交，不能按旧版本行号定位当前代码。';render(false);const target=current&&position?document.querySelector('[data-mrw-'+(position.side==='old'?'old-row':'line-row')+'="'+position.line+'"]'):null;if(target)target.scrollIntoView?.({block:'center'});else{if(current&&position){v.locationMessage='该行未出现在当前 diff 中，无法精确定位。';render(false);}document.querySelector('.mr-code-section')?.scrollIntoView?.({block:'start'});}document.querySelector('[data-mrw-file="'+i+'"]')?.scrollIntoView?.({block:'nearest'});});
+      document.querySelectorAll('[data-mrw-note-code]').forEach(b=>b.onclick=async()=>{const id=b.dataset.mrwNoteCode;mrWorkbench.tab='code';if(!v.data)await mrLoad(r.id);if(groupMrUi.selected!==r.id||!mrWorkbench.focus)return;const n=v.data?.threads.find(n=>n.id===id);if(!n)return;const i=v.data.files.findIndex(f=>mrNoteFile(n,f));v.anchor=null;v.line=null;if(i<0){v.locationMessage='该意见对应文件不在当前变更中，可能属于历史提交';render(false);return;}v.file=i;v.search='';v.open=true;v.collapsedNotes.delete(id);mrRevealTree(v);mrEnterFocus();const position=mrNotePosition(n),current=mrNoteCurrent(n,v.data);v.anchor=current&&position?{...position,path:v.data.files[i].path}:null;v.locationMessage=current?'':'该意见属于历史提交，不能按旧版本行号定位当前代码。';render(false);const target=current&&position?document.querySelector('[data-mrw-'+(position.side==='old'?'old-row':'line-row')+'="'+position.line+'"]'):null;if(target)target.scrollIntoView?.({block:'center'});else{if(current&&position){v.locationMessage='该行未出现在当前 diff 中，无法精确定位。';render(false);}document.querySelector('.mr-code-section')?.scrollIntoView?.({block:'start'});}document.querySelector('[data-mrw-file="'+i+'"]')?.scrollIntoView?.({block:'nearest'});});
       document.querySelectorAll('[data-mrw-thread],[data-mrw-resolve],[data-mrw-line]').forEach(b=>b.onclick=async()=>{if(!v.data){await mrLoad(r.id);return;}const create=b.hasAttribute('data-mrw-line'),mode=create?'create':b.hasAttribute('data-mrw-resolve')?'resolve':'reply',key=create?'new':b.dataset.mrwResolve||b.dataset.mrwThread;v.mode=mode;v.thread=create?'':key;if(!create)v.collapsedNotes.delete(key);if(create){v.anchor=null;v.line=+b.dataset.mrwLine;const old=mrDraft(r.id)[key];if(old?.body&&(old.path!==v.data.files[v.file]?.path||old.line!==v.line)){showToast('已有新增意见草稿，请先提交或放弃草稿再更换位置');return;}}mrDraft(r.id)[key]||= {body:'',operationId:mrOperationId(),sha:v.data.sha,path:create?v.data.files[v.file]?.path:'',line:create?v.line:null};if(!create&&mrDraft(r.id)[key].sha===v.data.sha)mrDraft(r.id)[key].fingerprint=v.data.threads.find(n=>n.id===key)?.fingerprint;render(false);});
       document.querySelectorAll('[data-mrw-draft]').forEach(el=>el.oninput=()=>{mrDraft(r.id)[el.dataset.mrwDraft].body=el.value;});
       document.querySelectorAll('[data-mrw-form]').forEach(form=>form.onsubmit=e=>{e.preventDefault();void mrSubmit(form,r);});

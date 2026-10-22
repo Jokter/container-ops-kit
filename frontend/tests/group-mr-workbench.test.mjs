@@ -54,7 +54,7 @@ test('diff rows keep table layout with all styles loaded, and live removal does 
 
 
 test('large file tree scrolls independently, search reveals collapsed folders and view survives rerender',async t=>{
- const {dom,d}=await setup(t,{fileCount:240});click(d,'.nav-enter[data-mr-open="1"]');await flush();assert.equal(d.querySelectorAll('[data-mrw-file]').length,242)
+ const {dom,d}=await setup(t,{fileCount:240});click(d,'.nav-enter[data-mr-open="1"]');await flush();assert.equal(d.querySelectorAll('[data-mrw-file]').length,2);click(d,'[data-mrw-folders]');click(d,'[data-mrw-folders]');assert.equal(d.querySelectorAll('[data-mrw-file]').length,242)
  d.querySelector('.mr-file-scroll').scrollTop=500;d.querySelector('.mr-diff-scroll').scrollTop=240;d.querySelector('.mr-diff-scroll').scrollLeft=80
  await dom.window.eval('loadGroupMr()');assert.equal(d.querySelector('.mr-file-scroll').scrollTop,500);assert.equal(d.querySelector('.mr-diff-scroll').scrollTop,240);assert.equal(d.querySelector('.mr-diff-scroll').scrollLeft,80)
  click(d,'[data-mrw-folders]');assert.equal(d.querySelectorAll('[data-mrw-file]').length,0);input(dom,'#mr-file-search','file239');assert.equal(d.querySelectorAll('[data-mrw-file]').length,1);click(d,'[data-mrw-file="241"]');assert.match(d.querySelector('.mr-diff-pane>header').textContent,/file239/)
@@ -105,4 +105,48 @@ test('remote merge disables writes immediately even when the cached diff still s
  const {dom,d,records,writes}=await setup(t);click(d,'.nav-enter[data-mr-open="1"]');await flush();assert.equal(d.querySelector('[data-mrw-resolve="thread"]').disabled,false)
  records[0].phase='DONE';records[0].status='已确认远端 MR 已合入';await dom.window.eval('loadGroupMr()')
  assert.equal(d.querySelector('[data-mrw-resolve="thread"]').disabled,true);assert.equal(d.querySelector('[data-mrw-line]'),null);assert.equal(d.querySelector('[data-mr-review-id]').dataset.mrReviewId,'1');assert.equal(writes.length,0)
+})
+
+test('nested tree keeps search expansion separate, aggregates opinions and reveals a hidden selected file',async t=>{
+ const {dom,d}=await setup(t,{fileCount:48,extraThreads:[{id:'nested',path:'src/group2/file47.ts',body:'检查边界',resolved:false}]});click(d,'.nav-enter[data-mr-open="1"]');await flush()
+ assert.equal(d.querySelector('[data-tree-folder="src"] .mr-tree-count').textContent,'50')
+ assert.equal(d.querySelector('[data-tree-folder="src"] .mr-tree-discussion').textContent,'2')
+ assert.equal(d.querySelector('[data-tree-folder="src/group2"]').getAttribute('aria-expanded'),'false')
+ input(dom,'#mr-file-search','file47');assert.equal(d.querySelectorAll('[data-mrw-file]').length,1)
+ assert.equal(d.querySelector('[data-tree-folder="src/group2"]').closest('ul').getAttribute('role'),'group')
+ click(d,'[data-tree-folder="src/group2"]');assert.equal(d.querySelectorAll('[data-mrw-file]').length,0)
+ input(dom,'#mr-file-search','');assert.equal(d.querySelector('[data-tree-folder="src/group2"]').getAttribute('aria-expanded'),'false')
+ click(d,'[data-mrw-folders]');click(d,'[data-tree-reveal]');assert.ok(d.querySelector('[data-mrw-file="0"]'))
+ input(dom,'#mr-file-search','file47');click(d,'[data-mrw-file="49"]');input(dom,'#mr-file-search','')
+ assert.equal(d.querySelector('[data-tree-folder="src/group2"]').getAttribute('aria-expanded'),'true')
+ await dom.window.eval('loadGroupMr()');assert.ok(d.querySelector('[data-mrw-file="49"]').classList.contains('selected'))
+ assert.equal(d.querySelector('[data-tree-folder="src/group1"]').getAttribute('aria-expanded'),'false')
+})
+
+test('divider drag survives background render, persists width, clamps and restores after sidebar toggle',async t=>{
+ const {dom,d}=await setup(t);click(d,'.nav-enter[data-mr-open="1"]');await flush();const w=dom.window
+ const pointer=(target,type,x,id=1)=>{const e=new w.MouseEvent(type,{bubbles:true,cancelable:true,clientX:x,button:0});Object.defineProperty(e,'pointerId',{value:id});target.dispatchEvent(e)}
+ const width=()=>Number(d.querySelector('.mr-tree-splitter').getAttribute('aria-valuenow'))
+ pointer(d.querySelector('.mr-tree-splitter'),'pointerdown',320);pointer(w,'pointermove',430);assert.equal(width(),430)
+ await w.eval('loadGroupMr()');pointer(w,'pointermove',470);assert.equal(width(),470);pointer(w,'pointerup',470)
+ assert.equal(w.localStorage.getItem('ops-studio-mr-tree-width'),'470');assert.equal(d.body.classList.contains('mr-tree-dragging'),false)
+ d.querySelector('.mr-file-scroll').scrollTop=190;click(d,'.mr-tree-title [data-tree-hide]');assert.equal(d.querySelector('.mr-code-browser').style.getPropertyValue('--mr-tree-width'),'42px')
+ click(d,'.mr-tree-reopen');assert.equal(width(),470);assert.equal(d.querySelector('.mr-file-scroll').scrollTop,190)
+ d.querySelector('.mr-tree-splitter').dispatchEvent(new w.KeyboardEvent('keydown',{key:'ArrowRight',shiftKey:true,bubbles:true}));assert.equal(width(),510)
+ pointer(d.querySelector('.mr-tree-splitter'),'pointerdown',510);pointer(w,'pointermove',2000);assert.equal(width(),560);pointer(w,'pointercancel',2000)
+ d.querySelector('.mr-tree-splitter').dispatchEvent(new w.MouseEvent('dblclick',{bubbles:true}));assert.equal(width(),320)
+ pointer(d.querySelector('.mr-tree-splitter'),'pointerdown',320);pointer(w,'pointermove',0);assert.equal(width(),220);w.dispatchEvent(new w.Event('blur'));assert.equal(d.body.classList.contains('mr-tree-dragging'),false)
+ click(d,'[data-tree-reset]');assert.equal(width(),320)
+ const browser=d.querySelector('.mr-code-browser');browser.getBoundingClientRect=()=>({width:600});w.dispatchEvent(new w.Event('resize'));assert.equal(width(),300);assert.equal(w.localStorage.getItem('ops-studio-mr-tree-width'),'320')
+ browser.getBoundingClientRect=()=>({width:1000});w.dispatchEvent(new w.Event('resize'));assert.equal(width(),320)
+})
+
+test('tree keyboard navigation expands folders and storage denial does not break resizing',async t=>{
+ const {dom,d}=await setup(t,{fileCount:16});click(d,'.nav-enter[data-mr-open="1"]');await flush();const w=dom.window
+ const key=(selector,key)=>d.querySelector(selector).dispatchEvent(new w.KeyboardEvent('keydown',{key,bubbles:true,cancelable:true}))
+ d.querySelector('[data-tree-folder="src/group0"]').focus();key('[data-tree-folder="src/group0"]','ArrowRight');assert.ok(d.querySelector('[data-mrw-file="2"]'))
+ key('[data-tree-folder="src/group0"]','ArrowRight');assert.equal(d.activeElement.dataset.mrwFile,'2');key('[data-mrw-file="2"]','ArrowLeft');assert.equal(d.activeElement.dataset.treeFolder,'src/group0')
+ key('[data-tree-folder="src/group0"]','ArrowLeft');assert.equal(d.querySelector('[data-mrw-file="2"]'),null)
+ Object.defineProperty(w,'localStorage',{get(){throw new Error('storage unavailable')}})
+ key('.mr-tree-splitter','ArrowRight');assert.equal(d.querySelector('.mr-tree-splitter').getAttribute('aria-valuenow'),'336')
 })
