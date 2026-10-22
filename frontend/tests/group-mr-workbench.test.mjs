@@ -4,18 +4,21 @@ import {readFile} from 'node:fs/promises'
 import {JSDOM} from 'jsdom'
 const html=await readFile(new URL('../../index.html',import.meta.url),'utf8'),sha='a'.repeat(40),flush=()=>new Promise(r=>setTimeout(r,40))
 const row=id=>({id:String(id),repo:'MAE-M/Access/Repo'+id,iid:String(id),sha,phase:'ISSUES',status:'待修改',sender:'developer',events:[],reviewComments:[],writePending:'',updatedAt:'2026-10-22T10:00:00Z'})
-async function setup(t,{unsupported=false,failWrite=false,failReloadAfterClose=false,fileCount=0,extraThreads=[]}={}){
- const records=Array.from({length:36},(_,i)=>row(i+1)),writes=[];let closed=false,replies=[]
+async function setup(t,{unsupported=false,failWrite=false,failReloadAfterClose=false,fileCount=0,extraThreads=[],contextFixture=false,failContext=false}={}){
+ const records=Array.from({length:36},(_,i)=>row(i+1)),writes=[],fileReads=[];let closed=false,replies=[]
  const snapshot=()=>({sha,state:'opened',files:[{path:'src/a.ts',oldPath:'src/a.ts',status:'modified',diff:'@@ -1,3 +1,3 @@\n old\n-deleted\n+<script>alert(1)</script>\n tail',unavailable:false},{path:'src/large.bin',status:'added',diff:'',unavailable:true},...Array.from({length:fileCount},(_,i)=>({path:'src/group'+Math.floor(i/16)+'/file'+i+'.ts',oldPath:'src/group'+Math.floor(i/16)+'/file'+i+'.ts',diff:'@@ -1 +1 @@\n-old\n+new',status:'modified'}))],threads:[{id:'thread',body:'修复边界问题',author:'reviewer',resolved:closed,resolvable:true,path:'src/a.ts',line:2,headSha:sha,fingerprint:'f'.repeat(64),notes:[{id:'1',body:'修复边界问题',author:'reviewer'},...replies]},...extraThreads],capabilities:{reply:!unsupported,create:!unsupported,reason:unsupported?'CLI 不支持':''},writePending:'',readAt:'2026-10-22T10:00:00Z'})
+ const workspace=()=>{const value=snapshot();if(contextFixture){value.sha=records[0].sha;value.files[0].diff='@@ -31,3 +31,3 @@\n line31\n-old32\n+new32\n line33\n@@ -71 +71 @@\n-old71\n+new71';value.threads[0].line=32;}return value;};
+ const expanded='@@ -1,80 +1,80 @@\n'+Array.from({length:80},(_,i)=>i===31?'-old32\n+new32':i===70?'-old71\n+new71':' line'+(i+1)).join('\n');
  const response=(data,ok=true)=>({ok,status:ok?200:409,json:async()=>data})
  const dom=new JSDOM(html,{runScripts:'dangerously',url:'http://localhost/#/automation/group-mr',beforeParse(w){w.scrollTo=()=>{};const timeout=w.setTimeout.bind(w);w.setTimeout=(fn,delay,...args)=>delay>500?0:timeout(fn,delay,...args);w.fetch=async(url,options)=>{
-  if(url.endsWith('/workspace')){if(options?.method==='POST'){const data=JSON.parse(options.body);writes.push(data);if(failWrite)return response({message:'写入结果待核对'},false);if(data.action==='resolve')closed=true;else replies.push({id:'2',body:data.body,author:'owner'});return response({ok:true})}if(closed&&failReloadAfterClose)return response({message:'刷新失败'},false);return response(snapshot())}
+  if(url.includes('/file-context?')){fileReads.push(url);const q=new URL(url,'http://localhost').searchParams;return failContext?response({message:'完整文件读取失败'},false):response({sha:q.get('sha'),path:q.get('path'),originalDiff:workspace().files[0].diff,diff:expanded});}
+  if(url.endsWith('/workspace')){if(options?.method==='POST'){const data=JSON.parse(options.body);writes.push(data);if(failWrite)return response({message:'写入结果待核对'},false);if(data.action==='resolve')closed=true;else replies.push({id:'2',body:data.body,author:'owner'});return response({ok:true})}if(closed&&failReloadAfterClose)return response({message:'刷新失败'},false);return response(workspace())}
   if(url==='/api/automation/group-mr')return response({config:{enabled:false},pending:records,history:[],monitor:{},metrics:{pending:records.length}})
   if(url==='/api/automation/knowledge')return response({items:[],reviews:[]})
   if(url.startsWith('/api/automation/effectiveness'))return response({total:0,stages:{},reviews:0,merged:0,anomalies:0,rejected:0})
   return response([])
  }}})
- t.after(async()=>{for(let i=0;i<20&&dom.window.eval('Object.values(mrWorkbench.cache).some(v=>v.loading)');i++)await flush();dom.window.close()});await flush();return {dom,d:dom.window.document,records,writes}
+ t.after(async()=>{for(let i=0;i<20&&dom.window.eval('Object.values(mrWorkbench.cache).some(v=>v.loading)');i++)await flush();dom.window.close()});await flush();return {dom,d:dom.window.document,records,writes,fileReads}
 }
 const click=(d,selector)=>{assert.ok(d.querySelector(selector),selector);d.querySelector(selector).click()}
 const input=(dom,selector,value)=>{const el=dom.window.document.querySelector(selector);el.value=value;el.dispatchEvent(new dom.window.Event('input',{bubbles:true}))}
@@ -189,3 +192,36 @@ test('unconfirmed closure keeps unresolved badges and the draft',async t=>{
  assert.match(d.querySelector('[data-mrw-open-notes]').textContent,/未关闭 1/)
  assert.equal(d.querySelector('[data-mrw-draft="thread"]').value,'已核对')
 })
+
+
+test('diff gaps expand in both directions, preserve comments and cache per file, then show the entire file',async t=>{
+ const {dom,d,fileReads,records}=await setup(t,{contextFixture:true});click(d,'.nav-enter[data-mr-open="1"]');await flush()
+ assert.equal(d.querySelectorAll('[data-mrw-line-row]').length,4);assert.ok(d.querySelector('[data-mrw-context-gap="1:1"][data-mrw-context-side="bottom"]'))
+ click(d,'[data-mrw-context-gap="1:1"][data-mrw-context-side="bottom"]');await flush()
+ assert.equal(fileReads.length,1);assert.ok(d.querySelector('[data-mrw-line-row="11"]'));assert.equal(d.querySelector('[data-mrw-line-row="10"]'),null)
+ click(d,'[data-mrw-context-gap="34:34"][data-mrw-context-side="top"]');assert.ok(d.querySelector('[data-mrw-line-row="53"]'));assert.equal(d.querySelector('[data-mrw-line-row="54"]'),null)
+ click(d,'[data-mrw-context-gap="34:34"][data-mrw-context-side="bottom"]');assert.ok(d.querySelector('[data-mrw-line-row="54"]'));assert.equal(d.querySelector('[data-mrw-context-gap="34:34"]'),null)
+ assert.match(d.querySelector('[data-mrw-line-row="32"]').nextElementSibling.textContent,/修复边界/)
+ assert.equal(d.querySelector('[data-mrw-line="11"]'),null);assert.ok(d.querySelector('[data-mrw-line="32"]'))
+ click(d,'[data-mrw-file="1"]');click(d,'[data-mrw-file="0"]');assert.ok(d.querySelector('[data-mrw-line-row="11"]'));assert.equal(fileReads.length,1)
+ await dom.window.eval('loadGroupMr()');assert.ok(d.querySelector('[data-mrw-line-row="54"]'))
+ click(d,'[data-mrw-context-all]');assert.equal(d.querySelectorAll('[data-mrw-line-row]').length,80);assert.equal(d.querySelectorAll('.mr-context-gap').length,0)
+ assert.equal(d.querySelectorAll('[data-mrw-old-row]').length,80);assert.equal(d.querySelector('[data-mrw-line-row="71"]').classList.contains('add'),true)
+ click(d,'[data-mrw-context-all]');assert.equal(d.querySelectorAll('[data-mrw-line-row]').length,4);assert.equal(fileReads.length,1)
+ records[0].sha='b'.repeat(40);await dom.window.eval('loadGroupMr()');await dom.window.eval('mrLoad("1")');click(d,'[data-mrw-context-all]');await flush()
+ assert.equal(fileReads.length,2);assert.ok(fileReads[1].includes('sha='+records[0].sha))
+})
+
+test('failed full-file read keeps the original diff and does not retry automatically',async t=>{
+ const {dom,d,fileReads,writes}=await setup(t,{contextFixture:true,failContext:true});click(d,'.nav-enter[data-mr-open="1"]');await flush()
+ click(d,'[data-mrw-context-all]');await flush();assert.match(d.querySelector('.mr-diff-pane [role="alert"]').textContent,/完整文件读取失败/)
+ assert.equal(d.querySelectorAll('[data-mrw-line-row]').length,4);assert.equal(d.querySelector('[data-mrw-context-all]').disabled,false)
+ await dom.window.eval('loadGroupMr()');assert.equal(fileReads.length,1);assert.equal(writes.length,0)
+})
+
+test('zero-context insertion and deletion keep the following gap on the correct old and new lines',async t=>{
+ const {dom}=await setup(t);
+ const gaps=diff=>JSON.parse(dom.window.eval(`JSON.stringify(mrDiffSegments({diff:${JSON.stringify(diff)},status:'modified'},null).filter(p=>p.kind==='gap').map(p=>p.key))`));
+ assert.deepEqual(gaps('@@ -5,0 +6 @@\n+inserted'),['1:1','6:7']);
+ assert.deepEqual(gaps('@@ -6 +5,0 @@\n-deleted'),['1:1','7:6']);
+});

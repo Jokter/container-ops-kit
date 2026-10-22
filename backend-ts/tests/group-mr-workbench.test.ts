@@ -3,18 +3,19 @@ import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
 import {TaskStore} from '../src/platform/store.js';
 import {GroupMrService,type Entry} from '../src/modules/automation/group-mr.js';
-import {reviewThreads,reviewFiles,addedLines,supportsReviewCommand} from '../src/modules/automation/group-mr-workbench.js';
+import {reviewThreads,reviewFiles,reviewFileText,fullReviewDiff,addedLines,supportsReviewCommand} from '../src/modules/automation/group-mr-workbench.js';
 const sha='a'.repeat(40),other='b'.repeat(40),diff='@@ -1,2 +1,3 @@\n old\n+new\n tail';
 const help=(kind:string)=>`Usage: codehub-cli mr review ${kind} <iid>${kind==='reply'?' <discussion-id>':''} [options]\nOptions:\n  -p, --project <project>\n  --body <body>\n  --path <path>\n  --line <line>`;
 function fixture(mode='ok'){
  const store=new TaskStore(':memory:');let resolved=false,reply='',extra=false,head=sha,views=0;
- const writes:string[][]=[];
+ const writes:string[][]=[],reads:string[][]=[];
  const notes=()=>[{id:'thread',resolved,notes:[{id:'1',body:'Please fix',resolvable:true,author:{username:'reviewer'},position:{new_path:'src/a.ts',new_line:2,head_sha:sha}},...(reply?[{id:'2',body:reply,author:{username:'owner'}}]:[]),...(extra?[{id:'3',body:'changed concurrently',author:{username:'developer'}}]:[])]}];
  const service=new GroupMrService(store,async args=>{
   let value:unknown={};
   if(args.includes('--help'))return {exitCode:0,output:mode==='unsupported'?'unknown command':help(args[3]!)};
   if(args[2]==='view'){views++;value={iid:1,state:mode==='closed'?'closed':'opened',sha:mode==='changed-read'&&views>1?other:head};}
   else if(args[2]==='changes')value={changes:[{new_path:'src/a.ts',old_path:'src/a.ts',diff}]};
+  else if(args[1]==='repo'&&args[2]==='file'&&args[3]==='get'){reads.push([...args]);value={file_path:'src/a.ts',encoding:'base64',content:Buffer.from('old\nnew\ntail\n').toString('base64')};}
   else if(args[3]==='list')value=notes();
   else if(args[2]==='review'){
    writes.push([...args]);
@@ -28,8 +29,36 @@ function fixture(mode='ok'){
  });
  const e:Entry={id:randomUUID(),repo:'MAE-M/Access/Demo',iid:'1',url:'https://codehub-y.huawei.com/MAE-M/Access/Demo/merge_requests/1',sha,previousSha:'',messageId:'1',sender:'developer',shortcut:false,phase:'ISSUES',status:'待修改',detail:'',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),writePending:'',events:[]};
  store.putRecord('group-mr-entry',e.id,e);
- return {service,store,e,writes,notes,setHead:()=>{head=other;},changeThread:()=>{extra=true;},shutdown:async()=>{await service.close();store.close();}};
+ return {service,store,e,writes,reads,notes,setHead:()=>{head=other;},changeThread:()=>{extra=true;},shutdown:async()=>{await service.close();store.close();}};
 }
+test('full diff reconstructs gaps and shifted old line numbers, including empty, renamed and deleted files',()=>{
+ const file={path:'new.ts',oldPath:'old.ts',status:'renamed',unavailable:false,diff:'@@ -2,2 +2,3 @@\n-old\n+new\n+extra\n same\n@@ -6 +7 @@\n-last\n+changed'};
+ assert.equal(fullReviewDiff(file,'first\nnew\nextra\nsame\ngap1\ngap2\nchanged\ntail\n'),'@@ -1,7 +1,8 @@\n first\n-old\n+new\n+extra\n same\n gap1\n gap2\n-last\n+changed\n tail');
+ assert.equal(fullReviewDiff({...file,diff:'@@ -0,0 +1,1 @@\n+new'},'new'),'@@ -0,0 +1,1 @@\n+new');
+ assert.equal(fullReviewDiff({...file,status:'deleted',diff:'@@ -1,2 +0,0 @@\n-a\n-b'},''),'@@ -1,2 +0,0 @@\n-a\n-b');
+ assert.equal(fullReviewDiff({...file,diff:''},'same\n'),'@@ -1,1 +1,1 @@\n same');
+ assert.equal(fullReviewDiff({...file,diff:''},''),'@@ -0,0 +0,0 @@\n');
+ assert.equal(fullReviewDiff({...file,diff:'@@ -1 +1 @@\n-a\n+b\n\\ No newline at end of file'},'b'),'@@ -1,1 +1,1 @@\n-a\n+b');
+ assert.throws(()=>fullReviewDiff(file,'wrong content'),/不一致/);
+ assert.throws(()=>fullReviewDiff({...file,diff:'@@ -1,2 +1,1 @@\n same'},'same'),/不一致/);
+ assert.throws(()=>fullReviewDiff({...file,unavailable:true},''),/不完整/);
+});
+test('file decoding rejects wrong path, binary, invalid encoding and truncated output without logging source',()=>{
+ const encode=(content:string)=>({file_path:'a.ts',encoding:'base64',content:Buffer.from(content).toString('base64')});
+ assert.equal(reviewFileText(JSON.stringify(encode('你好\r\n<script>')),'a.ts'),'你好\r\n<script>');
+ assert.equal(reviewFileText(JSON.stringify(encode('')),'a.ts'),'');
+ for(const data of [{...encode('x'),file_path:'other'},{...encode('x'),truncated:true},{...encode('x'),size:99},{...encode('x'),content:'?'},encode('a\0b'),{...encode('x'),content:'/w=='}])assert.throws(()=>reviewFileText(JSON.stringify(data),'a.ts'));
+});
+test('file context is a read pinned to the head and restricted to the current MR files',async()=>{
+ const f=fixture();try{
+  const result=await f.service.reviewFileContext(f.e.id,{sha,path:'src/a.ts'});
+  assert.equal(result.sha,sha);assert.equal(result.originalDiff,diff);assert.match(result.diff,/\+new/);assert.equal(f.reads.length,1);
+  assert.ok(f.reads[0]!.includes('--file-path=src/a.ts'));assert.equal(f.reads[0]![f.reads[0]!.indexOf('--ref')+1],sha);assert.equal(f.writes.length,0);
+  await assert.rejects(f.service.reviewFileContext(f.e.id,{sha,path:'../other'}),/不在当前变更/);assert.equal(f.reads.length,1);
+  f.setHead();await assert.rejects(f.service.reviewFileContext(f.e.id,{sha,path:'src/a.ts'}),/提交或状态已变化/);assert.equal(f.reads.length,1);
+ }finally{await f.shutdown();}
+ const changed=fixture('changed-read');try{await assert.rejects(changed.service.reviewFileContext(changed.e.id,{sha,path:'src/a.ts'}),/提交或状态已变化/);assert.equal(changed.writes.length,0);}finally{await changed.shutdown();}
+});
 test('workbench parsers preserve threads/positions, reject incomplete data, and map only added lines',()=>{
  const f=fixture();try{const threads=reviewThreads(JSON.stringify(f.notes()));assert.equal(threads[0]!.line,2);assert.equal(threads[0]!.notes[0]!.author,'reviewer');assert.equal(threads[0]!.resolvable,true);assert.equal(threads[0]!.fingerprint.length,64);
  assert.deepEqual([...addedLines(diff)],[2]);assert.equal(reviewFiles(JSON.stringify({changes:[{new_path:'x',binary:true}]}))[0]!.unavailable,true);

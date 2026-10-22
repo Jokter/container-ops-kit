@@ -1,4 +1,4 @@
-import {reviewAction,reviewSha,reviewThreads,reviewFiles,addedLines,supportsReviewCommand,type ReviewThread,type ReviewCapabilities,type ReviewWorkspace} from './group-mr-workbench.js';
+import {reviewAction,reviewSha,reviewThreads,reviewFiles,reviewFileRequest,reviewFileText,fullReviewDiff,addedLines,supportsReviewCommand,type ReviewThread,type ReviewCapabilities,type ReviewWorkspace} from './group-mr-workbench.js';
 import {parseReviewAssessment,discussionFingerprint,ownsDiscussion,developerReplied,type ClosureDiscussion,type OwnedDiscussion,type ReviewAssessment} from './review-closure.js';
 import {AsyncLocalStorage} from 'node:async_hooks';
 import {setTimeout as delay} from 'node:timers/promises';
@@ -115,7 +115,7 @@ export function groupMrAccessFailure(result:{exitCode:number;output:string}):boo
 function retryableRead(args:readonly string[]):boolean{
  if(args[0]==='welink-cli')return args[1]==='im'&&(args[2]==='query-history-message'||(args[2]==='send-to-group'&&args.includes('--help')));
  if(args[0]!=='codehub-cli')return false;
- return args[1]==='user'||(args[1]==='mr'&&(['view','gate','pipeline','changes'].includes(args[2]??'')||(args[2]==='review'&&args[3]==='list')));
+ return args[1]==='user'||(args[1]==='repo'&&args[2]==='file'&&args[3]==='get')||(args[1]==='mr'&&(['view','gate','pipeline','changes'].includes(args[2]??'')||(args[2]==='review'&&args[3]==='list')));
 }
 interface ExecutionContext {entry:Entry|undefined;command:string;diagnostic:Record<string,unknown>;trace:Record<string,unknown>[]}
 interface QueuedJob {entry:Entry;run:()=>Promise<void>;resolve:()=>void;reject:(error:unknown)=>void}
@@ -257,6 +257,19 @@ export class GroupMrService {
    e.reviewComments=threads.filter(n=>n.resolvable).map(({id,body,resolved})=>({id,body,resolved}));this.save(e);
    result={sha,state:initial.state,files,threads,capabilities,writePending:e.writePending,stale:sha!==e.sha,readAt:new Date().toISOString(),confirmedOperationId:e.manualReviewLastOperation||''};
   });if(!result)throw Error('检视数据未完成');return result;
+ }
+ async reviewFileContext(id:string,value:unknown){
+  const input=reviewFileRequest.parse(value),e=this.workbenchEntry(id);
+  let result:{sha:string;path:string;diff:string;originalDiff:string}|undefined;
+  await this.enqueue(e,async()=>{
+   await this.workbenchHead(e,input.sha);
+   const file=reviewFiles(await this.code(['mr','changes',e.iid,'-p',e.repo])).find(f=>f.path===input.path);
+   if(!file||file.unavailable)throw Object.assign(Error('文件不在当前变更中或差异不完整，无法展开'),{statusCode:409});
+   const content=file.status==='deleted'?'':reviewFileText(await this.code(['repo','file','get','-p',e.repo,'--file-path='+file.path,'--ref',input.sha]),file.path);
+   const diff=fullReviewDiff(file,content);await this.workbenchHead(e,input.sha);
+   result={sha:input.sha,path:file.path,diff,originalDiff:file.diff};
+  });
+  if(!result)throw Error('文件内容未读取完成');return result;
  }
  async reviewWorkspaceAction(id:string,value:unknown){
   const input=reviewAction.parse(value),e=this.workbenchEntry(id),operationKey=e.repo+':'+e.iid+':'+input.operationId,operationHash=createHash('sha256').update(JSON.stringify(input)).digest('hex');
@@ -672,6 +685,7 @@ ${scope}
 }
 export function groupMrRoutes(app:FastifyInstance,service:GroupMrService){
  app.get('/api/automation/group-mr/records/:id/workspace',async request=>service.reviewWorkspace(z.object({id:z.uuid()}).parse(request.params).id));
+ app.get('/api/automation/group-mr/records/:id/file-context',async request=>service.reviewFileContext(z.object({id:z.uuid()}).parse(request.params).id,request.query));
  app.post('/api/automation/group-mr/records/:id/workspace',async request=>service.reviewWorkspaceAction(z.object({id:z.uuid()}).parse(request.params).id,request.body));
  app.post('/api/automation/group-mr/records/:id/continue-review',async request=>service.continueReview(z.object({id:z.uuid()}).parse(request.params).id,request.body));
  app.post('/api/automation/group-mr/records/:id/merge',async request=>service.mergeRecord(z.object({id:z.uuid()}).parse(request.params).id,request.body));

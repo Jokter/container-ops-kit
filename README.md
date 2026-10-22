@@ -233,9 +233,12 @@ JS 初始化和基线测试前后会记录整个仓库内的文件指纹（包�
 
 「刷新代码与意见」通过已配置的 `codehub-cli mr changes`、`mr review list` 读取当前提交和完整讨论。可定位意见所在文件、查看回复、填写关闭依据并执行 `mr review resolve`。关闭依据保存在本项目处理记录；关闭结果必须在远端再次读取确认。关闭意见不会直接审核或合并 MR，可点击「继续原检视流程」重新进入原有 Agent / 流水线 / 人工审核 / 合并门禁流程。
 
+diff 的折叠区支持向上 / 向下展开 20 行，也可「展开全部」查看完整文件，再切回「仅看差异」。首次展开通过 `codehub-cli repo file get --ref <SHA>` 按当前提交读取文本，校验变更内容后补齐上下文；切换文件保留展开状态，提交变化后重新读取。二进制、非 UTF-8、差异不完整、超过 2 MiB 或展开后超过 20000 行的文件会给出提示。MR 详情顶部常驻「一键审核」，沿用列表的直接通过逻辑及原有门禁；处理记录中仍保留通过 / 不通过选项。
+
 新增接口（均只作用于已存在的群组 MR 记录）：
 
 - `GET /api/automation/group-mr/records/:id/workspace`：返回当前 SHA、文件 diff、完整讨论、写入能力和待核对状态。
+- `GET /api/automation/group-mr/records/:id/file-context?sha=...&path=...`：只读当前 MR 变更文件，返回校验后的完整 diff；读取前后核对 SHA。
 - `POST /api/automation/group-mr/records/:id/workspace`：`resolve` / `reply` / `create`。请求携带 SHA、唯一 `operationId`；回复和关闭还携带讨论指纹，关闭需要明确确认及依据。新增意见只接受当前 diff 中的新增行。
 - `POST /api/automation/group-mr/records/:id/continue-review`：携带当前 SHA，按原任务策略继续流程。
 
