@@ -76,7 +76,7 @@ for(const scenario of ['review-denied','approve-denied','merge-denied','review-a
  try{await service.submitReview(e.id,{sha,decision:'pass',reason:''});while(service['background'].size)await Promise.allSettled(service['background']);
   assert.equal(sent.length,1);assert.ok(sent[0]?.includes(e.url));assert.ok(sent[0]?.includes('发送人：developer'));assert.ok(!sent[0]?.includes('无检视权限'));
   if(scenario==='merged'||scenario.startsWith('review')){assert.equal(service.list()[0]?.phase,'DONE');assert.match(sent[0]??'',/MR 已合入/);}
-  else if(scenario.endsWith('timeout')){assert.equal(service.list()[0]?.phase,'INTERRUPTED');assert.equal(service.list()[0]?.writePending,role);assert.ok(sent[0]?.includes(role==='合并'?'无法合入':'无法审核'));assert.equal(writes.length,1);}
+  else if(scenario.endsWith('timeout')){assert.equal(service.list()[0]?.phase,'ISSUES');assert.equal(service.list()[0]?.writePending,role);assert.ok(sent[0]?.includes(role==='合并'?'无法合入':'无法审核'));assert.equal(writes.length,1);}
   else{assert.equal(service.list()[0]?.phase,'NO_PERMISSION');assert.ok(sent[0]?.includes('无'+role+'权限'));assert.equal(merged,false);assert.equal(writes.length,scenario.endsWith('absent')?0:1);}
  }finally{await service.close();store.close();}
 });

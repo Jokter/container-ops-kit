@@ -1,3 +1,7 @@
+import {execFile} from 'node:child_process';
+import {mkdtemp,writeFile,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import {createHash} from 'node:crypto';
 import {stripVTControlCharacters} from 'node:util';
 import {z} from 'zod';
@@ -14,7 +18,7 @@ export const reviewAction=z.discriminatedUnion('action',[
 ]);
 export interface ReviewNote {id:string;body:string;author:string;time:string;system:boolean;}
 export interface ReviewThread {id:string;body:string;author:string;resolved:boolean;resolvable:boolean;path:string;oldPath:string;line:number|null;oldLine:number|null;headSha:string;notes:ReviewNote[];fingerprint:string;}
-export interface ReviewFile {path:string;oldPath:string;diff:string;status:string;unavailable:boolean;}
+export interface ReviewFile {path:string;oldPath:string;diff:string;status:string;unavailable:boolean;binary?:boolean;}
 export const reviewFileRequest=z.object({sha:reviewSha,path}).strict();
 // The CLI file endpoint returns base64; never treat logs or a partial response as source.
 export function reviewFileText(output:string,expectedPath:string):string {
@@ -22,14 +26,14 @@ export function reviewFileText(output:string,expectedPath:string):string {
  for(const value of jsonValues(output)){
   const result=schema.safeParse(value);if(!result.success)continue;
   const file=result.data,encoded=file.content.replace(/\s/g,'');
-  if(file.truncated||encoded.length>3*1024*1024)throw Error('文件过大或内容被截断，无法展开完整文件');
+  if(file.truncated||encoded.length>6*1024*1024)throw Error('文件过大或内容被截断，无法展开完整文件');
   if(encoded.length%4!==0||!/^[A-Za-z0-9+/]*={0,2}$/.test(encoded))throw Error('文件内容编码无效');
   const bytes=Buffer.from(encoded,'base64');
   if(bytes.toString('base64')!==encoded)throw Error('文件内容编码无效');
-  if(bytes.length>2*1024*1024||(file.size!==undefined&&file.size!==bytes.length))throw Error('文件过大或内容不完整，无法展开完整文件');
+  if(bytes.length>4*1024*1024||(file.size!==undefined&&file.size!==bytes.length))throw Error('文件过大或内容不完整，无法展开完整文件');
   let text:string;try{text=new TextDecoder('utf-8',{fatal:true,ignoreBOM:true}).decode(bytes);}catch{throw Error('文件不是 UTF-8 文本，无法展开');}
   if(text.includes('\0'))throw Error('二进制文件无法展开');
-  if(text.split('\n').length>20001)throw Error('文件超过 20000 行，请在 CodeHub 查看');
+  if(text.split('\n').length>50001)throw Error('文件超过 50000 行，请在 CodeHub 查看');
   return text;
  }
  throw Error('CodeHub 未返回完整文件内容，请检查 repo file get 的输出');
@@ -60,8 +64,22 @@ export function fullReviewDiff(file:ReviewFile,content:string):string {
   if(oldRead!==oldCount||newRead!==newCount)throw mismatch();
  }
  while(newNext<=source.length){output.push(' '+source[newNext++-1]);oldNext++;}
- if(output.length>20000)throw Error('展开内容超过 20000 行，请在 CodeHub 查看');
+ if(output.length>50000)throw Error('展开内容超过 50000 行，请在 CodeHub 查看');
  return `@@ -${oldNext>1?1:0},${oldNext-1} +${source.length?1:0},${source.length} @@\n${output.join('\n')}`;
+}
+// Compare only pinned file contents in a private temporary directory, never repository paths.
+export async function recoveredReviewDiff(before:string,after:string):Promise<string>{
+ const dir=await mkdtemp(join(tmpdir(),'ops-mr-diff-'));
+ try{
+  await writeFile(join(dir,'before'),before,{mode:0o600});await writeFile(join(dir,'after'),after,{mode:0o600});
+  const patch=await new Promise<string>((resolve,reject)=>{
+   execFile('git',['-c','core.autocrlf=false','diff','--no-index','--no-ext-diff','--no-textconv','--text','--unified=3','--','before','after'],{cwd:dir,encoding:'utf8',timeout:30000,maxBuffer:12*1024*1024},(error,stdout)=>{
+    if(error&&error.code!==1){reject(Error('文件差异计算失败或超时，请在 CodeHub 查看'));return;}resolve(stdout);
+   });
+  });
+  const start=patch.indexOf('@@ '),diff=start<0?'':patch.slice(start);
+  return fullReviewDiff({path:'',oldPath:'',status:'modified',unavailable:false,diff},after);
+ }finally{await rm(dir,{recursive:true,force:true});}
 }
 // A partial list must never be treated as proof that a comment is absent or resolved.
 function rows(output:string,keys:string[]):unknown[]{
@@ -89,7 +107,7 @@ export function reviewThreads(output:string):ReviewThread[]{
 export function reviewFiles(output:string):ReviewFile[]{
  return rows(output,['changes','diffs','items','data','result']).map(value=>{
   const o=obj(value),name=str(o?.new_path??o?.path??o?.old_path);if(!name)throw Error('变更缺少文件路径');
-  return {path:name,oldPath:str(o?.old_path),diff:str(o?.diff??o?.patch),status:o?.deleted_file?'deleted':o?.new_file?'added':o?.renamed_file?'renamed':'modified',unavailable:typeof (o?.diff??o?.patch)!=='string'||o?.too_large===true||o?.collapsed===true||o?.binary===true};
+  return {path:name,oldPath:str(o?.old_path),diff:str(o?.diff??o?.patch),status:o?.deleted_file?'deleted':o?.new_file?'added':o?.renamed_file?'renamed':'modified',binary:o?.binary===true,unavailable:!str(o?.diff??o?.patch)||typeof (o?.diff??o?.patch)!=='string'||o?.too_large===true||o?.collapsed===true||o?.binary===true};
  });
 }
 export function addedLines(diff:string):Set<number>{

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
 import {TaskStore} from '../src/platform/store.js';
 import {GroupMrService,type Entry} from '../src/modules/automation/group-mr.js';
-import {reviewThreads,reviewFiles,reviewFileText,fullReviewDiff,addedLines,supportsReviewCommand} from '../src/modules/automation/group-mr-workbench.js';
+import {reviewThreads,reviewFiles,reviewFileText,fullReviewDiff,recoveredReviewDiff,addedLines,supportsReviewCommand} from '../src/modules/automation/group-mr-workbench.js';
 const sha='a'.repeat(40),other='b'.repeat(40),diff='@@ -1,2 +1,3 @@\n old\n+new\n tail';
 const help=(kind:string)=>`Usage: codehub-cli mr review ${kind} <iid>${kind==='reply'?' <discussion-id>':''} [options]\nOptions:\n  -p, --project <project>\n  --body <body>\n  --path <path>\n  --line <line>`;
 function fixture(mode='ok'){
@@ -13,9 +13,12 @@ function fixture(mode='ok'){
  const service=new GroupMrService(store,async args=>{
   let value:unknown={};
   if(args.includes('--help'))return {exitCode:0,output:mode==='unsupported'?'unknown command':help(args[3]!)};
-  if(args[2]==='view'){views++;value={iid:1,state:mode==='closed'?'closed':'opened',sha:mode==='changed-read'&&views>1?other:head};}
-  else if(args[2]==='changes')value={changes:[{new_path:'src/a.ts',old_path:'src/a.ts',diff}]};
-  else if(args[1]==='repo'&&args[2]==='file'&&args[3]==='get'){reads.push([...args]);value={file_path:'src/a.ts',encoding:'base64',content:Buffer.from('old\nnew\ntail\n').toString('base64')};}
+  if(args[2]==='view'){views++;value={iid:1,diff_refs:mode==='missing-base'?undefined:{base_sha:other},state:mode==='closed'?'closed':'opened',sha:mode==='changed-read'&&views>1?other:head};}
+  else if(args[2]==='changes'){
+   if(mode==='capture'&&!args.includes('--jq'))return {exitCode:0,output:'partial',outputTruncated:true};
+   value={changes:[{new_path:'src/a.ts',old_path:mode==='renamed'?'old/a.ts':'src/a.ts',diff:['capture','large','renamed','missing-base','binary','added','deleted'].includes(mode)?undefined:diff,too_large:mode==='large',binary:mode==='binary',new_file:mode==='added',deleted_file:mode==='deleted'}]};
+  }
+  else if(args[1]==='repo'&&args[2]==='file'&&args[3]==='get'){reads.push([...args]);value={file_path:args.find(a=>a.startsWith('--file-path='))!.slice('--file-path='.length),encoding:'base64',content:Buffer.from(args[args.indexOf('--ref')+1]===other?'old\ntail\n':'old\nnew\ntail\n').toString('base64')};}
   else if(args[3]==='list')value=notes();
   else if(args[2]==='review'){
    writes.push([...args]);
@@ -105,4 +108,24 @@ test('manual pending operation survives service restart and is never replayed',a
  const restarted=new GroupMrService(f.store,async()=>{executed++;return {exitCode:0,output:'[]'};});
  try{await assert.rejects(restarted.reviewWorkspaceAction(f.e.id,input),/待核对/);assert.equal(executed,0);assert.ok(f.store.getRecord<Entry>('group-mr-entry',f.e.id)!.manualReviewPending);}finally{await restarted.close();}
  }finally{f.store.close();}
+});
+
+test('omitted patches recover from immutable MR base/head, including rename/add/delete and capture overflow',async()=>{
+ for(const mode of ['large','capture','renamed','added','deleted']){
+  const f=fixture(mode);try{
+   const result=await f.service.reviewFileContext(f.e.id,{sha,path:'src/a.ts'});
+   assert.match(result.diff,mode==='deleted'?/-old/:/\+new/);assert.equal(f.writes.length,0);
+   assert.equal(f.reads.length,mode==='added'||mode==='deleted'?1:2);
+   if(mode==='renamed')assert.ok(f.reads[1]!.includes('--file-path=old/a.ts'));
+   if(mode!=='added')assert.ok(f.reads.at(-1)!.includes(other));
+  }finally{await f.shutdown();}
+ }
+ for(const mode of ['binary','missing-base']){const f=fixture(mode);try{await assert.rejects(f.service.reviewFileContext(f.e.id,{sha,path:'src/a.ts'}),mode==='binary'?/二进制/:/基线 SHA/);assert.equal(f.writes.length,0);}finally{await f.shutdown();}}
+});
+test('recovery preserves middle edits in large text, empty and newline-only changes',async()=>{
+ const before=Array.from({length:25000},(_,i)=>'line'+i).join('\n')+'\n',after=before.replace('line12345\n','changed\n');
+ const result=await recoveredReviewDiff(before,after);assert.match(result,/-line12345\n\+changed/);assert.ok(result.endsWith(' line24999'));
+ assert.equal(reviewFileText(JSON.stringify({file_path:'x',content:Buffer.from(after).toString('base64')}),'x'),after);
+ assert.match(await recoveredReviewDiff('a','a\n'),/-a\n\+a/);
+ assert.equal(await recoveredReviewDiff('',''),'@@ -0,0 +0,0 @@\n');
 });

@@ -267,3 +267,21 @@ test('按任务策略跳过人工审核时流程明确标记已跳过',async t=>
  openDetails(doc);assert.match([...doc.querySelectorAll('.group-mr-flow li')].find(x=>x.textContent.includes('人工审核')).textContent,/已跳过/)
  assert.match(doc.querySelector('.group-mr-detail').textContent,/按接收时配置跳过人工审核/)
 })
+
+test('current stage is preserved for running writes, unconfirmed results, failures and interruptions',async t=>{
+ const {dom}=await fixture(t,{route:'group-mr'});
+ const task=record=>dom.window.eval('mrTask('+JSON.stringify({id:'state-test',stage:'APPROVE',phase:'ISSUES',status:'审核结果未确认',...record})+')');
+ const pending=task({writePending:'审核'});assert.equal(pending.label,'审核');assert.match(pending.hint,/结果待核对/);assert.equal(pending.action,'去核对');
+ const running=task({phase:'APPROVE',running:true,writePending:'审核'});assert.equal(running.label,'审核');assert.match(running.hint,/后台处理中/);
+ const failed=task({phase:'FAILED',stage:'PIPELINE',status:'查询流水线失败'});assert.equal(failed.label,'流水线');assert.equal(failed.status,'查询流水线失败');assert.match(failed.hint,/失败原因/);
+ const stopped=task({phase:'INTERRUPTED',stage:'PI',status:'服务停止，执行中断'});assert.equal(stopped.label,'Agent 检视');assert.match(stopped.status,/执行中断/);
+ assert.match(task({supersededBy:'new'}).hint,/新记录替代/);
+});
+
+test('Agent reviewing with an in-flight write marker never displays execution interruption or acknowledge controls',async t=>{
+ const row={id:'review-running',repo:'MAE-M/Access/Demo',iid:'1',phase:'PI',stage:'PI',running:true,writePending:'Pi 提交检视意见',status:'Agent 正在全量检视当前提交',events:[]};
+ const {doc}=await fixture(t,{route:'group-mr',records:[row]});
+ assert.equal(doc.querySelector('.nav-stage').textContent,'Agent 检视');assert.match(doc.querySelector('.nav-task-hint').textContent,/后台处理中/);
+ assert.doesNotMatch(doc.querySelector('[data-group-mr-record]').textContent,/执行中断|结果待核对/);
+ openDetails(doc);assert.equal(doc.querySelector('[data-group-mr-action="ack-pi"]'),null);assert.match(doc.querySelector('.group-mr-detail').textContent,/Agent 正在全量检视/);
+});

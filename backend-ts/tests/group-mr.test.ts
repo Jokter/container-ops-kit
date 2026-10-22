@@ -157,7 +157,7 @@ for(const scenario of ['recovered','still-denied','login-failed','login-throws',
   assert.equal(calls.filter(a=>a[1]==='auth').length,1);
   const row=service.list()[0]!;
   if(scenario==='recovered'||scenario==='history-auth')assert.equal(row.phase,'DONE');
-  if(scenario==='still-denied'){assert.equal(views,2);assert.equal(row.phase,'INTERRUPTED');assert.match(row.status,/codehub-cli 登录状态/);}
+  if(scenario==='still-denied'){assert.equal(views,2);assert.equal(row.phase,'FAILED');assert.match(row.status,/codehub-cli 登录状态/);}
   if(scenario==='login-failed'||scenario==='login-throws'){assert.equal(views,1);assert.match(row.status,/login 未完成/);}
   if(scenario==='write-auth'){assert.equal(sends,1);assert.equal(row.reply?.status,'unconfirmed');assert.equal(row.writePending,'群消息回复');}
   assert.doesNotMatch(JSON.stringify(service.summary()),/private-token|private-login-output/);
@@ -273,7 +273,7 @@ test('Pi findings are reported despite failed CI; passed Pi waits before all Cod
    if(args.includes('--help'))return{exitCode:0,output:''};if(args[2]==='send-to-group')value={resultCode:0};return{exitCode:0,output:JSON.stringify(value)};
   });
   service['runPi']=async()=>{pi++;};
-  try{await service['accept']({id:'1',sender:'other',content:'https://codehub-y.huawei.com/MAE-M/Access/Demo/merge_requests/444',quoteId:''},{enabled:true,groupId:'123456789',authorizedSender:'owner123',repositoryPrefix:'MAE-M/Access/',intervalSeconds:5});const row=service.list()[0]!;assert.equal(pi,1);assert.deepEqual(writes,[]);assert.equal(row.phase,scenario==='findings'?'ISSUES':scenario==='changed'?'INTERRUPTED':'FAILED');if(scenario==='passed'){assert.equal(row.piReview?.sha,sha);assert.equal(row.pipelinePassed,false);assert.equal(row.reviewComments?.[0]?.resolved,true);}}
+  try{await service['accept']({id:'1',sender:'other',content:'https://codehub-y.huawei.com/MAE-M/Access/Demo/merge_requests/444',quoteId:''},{enabled:true,groupId:'123456789',authorizedSender:'owner123',repositoryPrefix:'MAE-M/Access/',intervalSeconds:5});const row=service.list()[0]!;assert.equal(pi,1);assert.deepEqual(writes,[]);assert.equal(row.phase,scenario==='findings'?'ISSUES':'FAILED');if(scenario==='passed'){assert.equal(row.piReview?.sha,sha);assert.equal(row.pipelinePassed,false);assert.equal(row.reviewComments?.[0]?.resolved,true);}}
   finally{await service.close();store.close();}
  }
 });
@@ -368,7 +368,7 @@ for(const review of ['allowed','absent','forbidden','failed'] as const)test('aut
  try{await service['accept']({id:'3',sender:'owner123',content:'合入',quoteId:'2',quotedContent:'https://codehub-y.huawei.com/MAE-M/Access/Demo/merge_requests/1'},cfg);
  assert.equal(service.list()[0]?.humanReview,undefined);assert.equal(service.list()[0]?.notification,undefined);assert.equal(service.knowledge.reviews().length,0);
  assert.match(sent[0]??'',/已收到合入指令/);assert.equal(calls[0],'welink');assert.deepEqual([...closed],['mine','others']);assert.equal(calls.includes('pi'),false);
- assert.equal(merged,review!=='failed');assert.equal(service.list()[0]?.phase,review==='failed'?'INTERRUPTED':'DONE');
+ assert.equal(merged,review!=='failed');assert.equal(service.list()[0]?.phase,review==='failed'?'ISSUES':'DONE');
  if(review==='failed')assert.equal(service.list()[0]?.writePending,'检视');else assert.equal(sent.length,2);
  if(review==='absent'){assert.equal(reviewerAdded,true);assert.equal(reviewed,true);assert.notEqual(service.list()[0]?.reviewSkipped,true);}if(review==='forbidden'){assert.equal(service.list()[0]?.reviewSkipped,true);assert.ok(sent.every(text=>!text.includes('无检视权限')));}if(review!=='failed')assert.match(sent.at(-1)??'',/完成审核并合入/);
  }finally{await service.close();store.close();}
@@ -461,7 +461,7 @@ for(const state of ['open','empty','query-error'] as const)test('natural Pi repl
   return {exitCode:0,output:JSON.stringify(value)};
  });
  try{await service['accept']({id:'1',sender:'developer',content:'https://codehub-y.huawei.com/MAE-M/Access/Demo/merge_requests/1',quoteId:''},{enabled:true,groupId:'123456789',authorizedSender:'owner',repositoryPrefix:'MAE-M/Access/',intervalSeconds:5});
- const row=service.list()[0]!;assert.equal(piRuns,1);assert.deepEqual(writes,[]);assert.equal(row.phase,state==='open'?'ISSUES':state==='empty'?'PIPELINE':'INTERRUPTED');assert.equal(row.writePending,state==='query-error'?'Pi 提交检视意见':'');assert.equal(row.piOutput,'检视完成，没有问题。');
+ const row=service.list()[0]!;assert.equal(piRuns,1);assert.deepEqual(writes,[]);assert.equal(row.phase,state==='open'?'ISSUES':state==='empty'?'PIPELINE':'ISSUES');assert.equal(row.writePending,state==='query-error'?'Pi 提交检视意见':'');if(state==='query-error')assert.equal(service.summary().metrics.issues,0);assert.equal(row.piOutput,'检视完成，没有问题。');
  if(state==='query-error'){const before=piRuns;service.acknowledgePi(row.id);assert.equal(piRuns,before);assert.equal(service.list()[0]?.writePending,'');}
  }finally{await service.close();store.close();}
 });
@@ -871,4 +871,15 @@ test('RPC prompt rejection is diagnostic failure, never a successful review',()=
  assert.doesNotMatch(JSON.stringify(stream.diagnostic()),/private error/);
  for(let i=0;i<100;i++)stream.line(JSON.stringify({type:'extension_ui_request'}));
  assert.equal(stream.diagnostic().recentEvents.length,24);
+});
+
+test('restart preserves pipeline waits and marks only unfinished work interrupted without inventing writes',async()=>{
+ const store=new TaskStore(':memory:');let calls=0;
+ const base={repo:'MAE-M/Access/Demo',iid:'1',url:'',sha:'a'.repeat(40),previousSha:'',messageId:'1',sender:'developer',shortcut:false,phase:'PIPELINE',stage:'PIPELINE',status:'等待当前提交触发流水线',detail:'',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),writePending:'',events:[]};
+ for(const [id,extra] of Object.entries({waiting:{pipelineWaiting:true},legacy:{},active:{pipelineWaiting:false},queued:{queued:true,pipelineWaiting:true},write:{pipelineWaiting:false,writePending:'合并'}}))store.putRecord('group-mr-entry',id,{...base,id,...extra});
+ const service=new GroupMrService(store,async()=>{calls++;throw Error('must not execute');});
+ try{for(const id of ['waiting','legacy'])assert.equal(service.list().find(e=>e.id===id)?.phase,'PIPELINE');
+ for(const id of ['active','queued','write'])assert.equal(service.list().find(e=>e.id===id)?.phase,'INTERRUPTED');
+ assert.equal(service.list().find(e=>e.id==='active')?.writePending,'');assert.equal(service.list().find(e=>e.id==='write')?.writePending,'合并');assert.equal(calls,0);
+ }finally{await service.close();store.close();}
 });

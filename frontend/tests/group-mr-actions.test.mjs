@@ -77,3 +77,24 @@ test('MR 独立检视保留列表字段，处理记录滚动经刷新保留，�
  assert.match(d.querySelector('[data-group-mr-record="1"]').textContent,/后续流程正在执行/);
  assert.equal(d.querySelector('.mr-action-overlay'),null);
 });
+
+test('批量合入等待前一条完成后按确认列表顺序执行，明确失败后继续下一条',async t=>{
+ const releases=[];const records=['1','2','3'].map(id=>row(id,'ISSUES'));
+ const {d,calls}=await setup(t,{records,write:(_url,_data,response)=>new Promise(resolve=>releases.push(phase=>resolve(response({phase,status:phase==='DONE'?'已合入':'门禁未通过'}))))});
+ select(d,'3','1','2');d.querySelector('[data-group-mr-action="merge"]:not([data-record-id])').click();d.querySelector('[data-mr-panel-submit]').click();await flush();
+ assert.deepEqual(calls.map(c=>c.url.split('/').at(-2)),['1']);assert.equal(d.querySelector('[data-mr-panel-submit]').disabled,true);
+ releases[0]('DONE');await flush();assert.deepEqual(calls.map(c=>c.url.split('/').at(-2)),['1','2']);
+ releases[1]('ISSUES');await flush();assert.deepEqual(calls.map(c=>c.url.split('/').at(-2)),['1','2','3']);
+ releases[2]('DONE');await flush();assert.match(d.querySelector('.mr-complete-message').textContent,/2 条已合入，1 条未完成/);
+});
+test('合入请求结果未知时停止后续项，不重试或并发提交',async t=>{
+ const {d,calls}=await setup(t,{records:['1','2','3'].map(id=>row(id,'ISSUES')),write:async()=>{throw Error('网络断开');}});
+ select(d,'1','2','3');d.querySelector('[data-group-mr-action="merge"]:not([data-record-id])').click();d.querySelector('[data-mr-panel-submit]').click();await flush();
+ assert.equal(calls.length,1);assert.match(d.querySelector('.mr-targets').textContent,/网络断开/);assert.equal([...d.querySelectorAll('.mr-target')].filter(e=>e.textContent.includes('尚未执行')).length,2);
+});
+
+test('前一条合入返回待核对状态时停止整批后续请求',async t=>{
+ const {d,calls}=await setup(t,{records:['1','2'].map(id=>row(id,'ISSUES')),write:async(_url,_data,response)=>response({phase:'ISSUES',writePending:'合并',status:'合并结果待核对'})});
+ select(d,'1','2');d.querySelector('[data-group-mr-action="merge"]:not([data-record-id])').click();d.querySelector('[data-mr-panel-submit]').click();await flush();
+ assert.equal(calls.length,1);assert.match(d.querySelector('.mr-targets').textContent,/合并结果待核对/);assert.match(d.querySelector('.mr-targets').textContent,/尚未执行/);
+});

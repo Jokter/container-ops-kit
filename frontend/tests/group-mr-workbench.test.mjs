@@ -6,7 +6,7 @@ const html=await readFile(new URL('../../index.html',import.meta.url),'utf8'),sh
 const row=id=>({id:String(id),repo:'MAE-M/Access/Repo'+id,iid:String(id),sha,phase:'ISSUES',status:'待修改',sender:'developer',events:[],reviewComments:[],writePending:'',updatedAt:'2026-10-22T10:00:00Z'})
 async function setup(t,{unsupported=false,failWrite=false,failReloadAfterClose=false,fileCount=0,extraThreads=[],contextFixture=false,failContext=false}={}){
  const records=Array.from({length:36},(_,i)=>row(i+1)),writes=[],fileReads=[];let closed=false,replies=[]
- const snapshot=()=>({sha,state:'opened',files:[{path:'src/a.ts',oldPath:'src/a.ts',status:'modified',diff:'@@ -1,3 +1,3 @@\n old\n-deleted\n+<script>alert(1)</script>\n tail',unavailable:false},{path:'src/large.bin',status:'added',diff:'',unavailable:true},...Array.from({length:fileCount},(_,i)=>({path:'src/group'+Math.floor(i/16)+'/file'+i+'.ts',oldPath:'src/group'+Math.floor(i/16)+'/file'+i+'.ts',diff:'@@ -1 +1 @@\n-old\n+new',status:'modified'}))],threads:[{id:'thread',body:'修复边界问题',author:'reviewer',resolved:closed,resolvable:true,path:'src/a.ts',line:2,headSha:sha,fingerprint:'f'.repeat(64),notes:[{id:'1',body:'修复边界问题',author:'reviewer'},...replies]},...extraThreads],capabilities:{reply:!unsupported,create:!unsupported,reason:unsupported?'CLI 不支持':''},writePending:'',readAt:'2026-10-22T10:00:00Z'})
+ const snapshot=()=>({sha,state:'opened',files:[{path:'src/a.ts',oldPath:'src/a.ts',status:'modified',diff:'@@ -1,3 +1,3 @@\n old\n-deleted\n+<script>alert(1)</script>\n tail',unavailable:false},{path:'src/large.bin',status:'added',diff:'',unavailable:true,binary:true},...Array.from({length:fileCount},(_,i)=>({path:'src/group'+Math.floor(i/16)+'/file'+i+'.ts',oldPath:'src/group'+Math.floor(i/16)+'/file'+i+'.ts',diff:'@@ -1 +1 @@\n-old\n+new',status:'modified'}))],threads:[{id:'thread',body:'修复边界问题',author:'reviewer',resolved:closed,resolvable:true,path:'src/a.ts',line:2,headSha:sha,fingerprint:'f'.repeat(64),notes:[{id:'1',body:'修复边界问题',author:'reviewer'},...replies]},...extraThreads],capabilities:{reply:!unsupported,create:!unsupported,reason:unsupported?'CLI 不支持':''},writePending:'',readAt:'2026-10-22T10:00:00Z'})
  const workspace=()=>{const value=snapshot();if(contextFixture){value.sha=records[0].sha;value.files[0].diff='@@ -31,3 +31,3 @@\n line31\n-old32\n+new32\n line33\n@@ -71 +71 @@\n-old71\n+new71';value.threads[0].line=32;}return value;};
  const expanded='@@ -1,80 +1,80 @@\n'+Array.from({length:80},(_,i)=>i===31?'-old32\n+new32':i===70?'-old71\n+new71':' line'+(i+1)).join('\n');
  const response=(data,ok=true)=>({ok,status:ok?200:409,json:async()=>data})
@@ -57,7 +57,7 @@ test('diff rows keep table layout with all styles loaded, and live removal does 
 
 
 test('large file tree scrolls independently, search reveals collapsed folders and view survives rerender',async t=>{
- const {dom,d}=await setup(t,{fileCount:240});click(d,'.nav-enter[data-mr-open="1"]');await flush();assert.equal(d.querySelectorAll('[data-mrw-file]').length,2);click(d,'[data-mrw-folders]');click(d,'[data-mrw-folders]');assert.equal(d.querySelectorAll('[data-mrw-file]').length,242)
+ const {dom,d}=await setup(t,{fileCount:240});click(d,'.nav-enter[data-mr-open="1"]');await flush();assert.equal(d.querySelectorAll('[data-mrw-file]').length,242);click(d,'[data-mrw-folders]');click(d,'[data-mrw-folders]');assert.equal(d.querySelectorAll('[data-mrw-file]').length,242)
  d.querySelector('.mr-file-scroll').scrollTop=500;d.querySelector('.mr-diff-scroll').scrollTop=240;d.querySelector('.mr-diff-scroll').scrollLeft=80
  await dom.window.eval('loadGroupMr()');assert.equal(d.querySelector('.mr-file-scroll').scrollTop,500);assert.equal(d.querySelector('.mr-diff-scroll').scrollTop,240);assert.equal(d.querySelector('.mr-diff-scroll').scrollLeft,80)
  click(d,'[data-mrw-folders]');assert.equal(d.querySelectorAll('[data-mrw-file]').length,0);input(dom,'#mr-file-search','file239');assert.equal(d.querySelectorAll('[data-mrw-file]').length,1);click(d,'[data-mrw-file="241"]');assert.match(d.querySelector('.mr-diff-pane>header').textContent,/file239/)
@@ -114,7 +114,7 @@ test('nested tree keeps search expansion separate, aggregates opinions and revea
  const {dom,d}=await setup(t,{fileCount:48,extraThreads:[{id:'nested',path:'src/group2/file47.ts',body:'检查边界',resolved:false}]});click(d,'.nav-enter[data-mr-open="1"]');await flush()
  assert.equal(d.querySelector('[data-tree-folder="src"] .mr-tree-count').textContent,'50')
  assert.equal(d.querySelector('[data-tree-folder="src"] .mr-tree-discussion').textContent,'2')
- assert.equal(d.querySelector('[data-tree-folder="src/group2"]').getAttribute('aria-expanded'),'false')
+ assert.equal(d.querySelector('[data-tree-folder="src/group2"]').getAttribute('aria-expanded'),'true');click(d,'[data-tree-folder="src/group2"]')
  input(dom,'#mr-file-search','file47');assert.equal(d.querySelectorAll('[data-mrw-file]').length,1)
  assert.equal(d.querySelector('[data-tree-folder="src/group2"]').closest('ul').getAttribute('role'),'group')
  click(d,'[data-tree-folder="src/group2"]');assert.equal(d.querySelectorAll('[data-mrw-file]').length,0)
@@ -224,4 +224,13 @@ test('zero-context insertion and deletion keep the following gap on the correct 
  const gaps=diff=>JSON.parse(dom.window.eval(`JSON.stringify(mrDiffSegments({diff:${JSON.stringify(diff)},status:'modified'},null).filter(p=>p.kind==='gap').map(p=>p.key))`));
  assert.deepEqual(gaps('@@ -5,0 +6 @@\n+inserted'),['1:1','6:7']);
  assert.deepEqual(gaps('@@ -6 +5,0 @@\n-deleted'),['1:1','7:6']);
+});
+
+test('missing text diff offers recovery and displays escaped recovered rows without unsafe line comments',async t=>{
+ const {dom,d,fileReads}=await setup(t);click(d,'.nav-enter[data-mr-open="1"]');await flush();
+ dom.window.eval("mrData('1').data.files[0].unavailable=true; render(false)");
+ assert.match(d.querySelector('[data-mrw-context-all]').textContent,/读取文件差异/);
+ click(d,'[data-mrw-context-all]');await flush();assert.equal(fileReads.length,1);
+ assert.ok(d.querySelectorAll('[data-mrw-line-row]').length>3);assert.equal(d.querySelector('[data-mrw-add-line]'),null);
+ assert.doesNotMatch(d.querySelector('.mr-diff-pane').textContent,/未返回该文件的差异/);
 });
