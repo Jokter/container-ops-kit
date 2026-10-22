@@ -117,6 +117,8 @@ UT 治理要求 Agent 仅修改 `src/test` 下的测试文件，禁止修改生�
 
 不同能力按需准备 Pi Agent、CodeHub CLI、WeLink CLI / MCP、质量数据源及远程环境访问条件。相关身份认证和操作权限由对应工具与目标系统校验。
 
+项目内置 Skill 保存在 `skills/`，随项目代码更新，当前包含完整的 `code-review-skill`。平台启动 Pi 时统一加载该目录中的 Skill；同名时项目版本优先，个人目录及 Pi 原有资源发现继续保留。Windows 个人目录通过当前用户主目录解析为 `%USERPROFILE%\.agents\skills`，不需要修改用户名或复制文件。明确指定 `--no-skills` 的知识整理等任务不注入 Skill。新增项目 Skill 时放入 `skills/<名称>/SKILL.md`，配套指南、脚本放在该 Skill 目录内；下次启动 Pi 生效。该加载规则只作用于平台启动的 Pi，不修改本机全局配置。
+
 ## 启动
 
 需要 Node.js 22.22.3+（22.x）或 24.15+（24.x）和 npm，支持 npm 10.9.8。Windows 双击 `start.bat`，脚本会按锁文件安装依赖、迁移检测到的旧 H2 数据、编译后端，然后启动：

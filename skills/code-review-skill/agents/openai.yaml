@@ -1,0 +1,13 @@
+interface:
+  display_name: 代码检视
+  short_description: 系统检视代码变更，分析大 SQL、大规格与设计维护风险，提出供开发确认的具体疑点
+  default_prompt: 使用 $code-review-skill 检视本次代码变更，分析相关业务链路并提出有依据、供开发确认的疑点。
+  icon_small: assets/icon.svg
+  icon_large: assets/icon.svg
+policy:
+  products:
+  - chatgpt
+  - codex
+  - api
+  - atlas
+  allow_implicit_invocation: true

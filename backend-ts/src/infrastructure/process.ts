@@ -3,6 +3,7 @@ import {spawn} from 'node:child_process';
 import {access, mkdir, writeFile} from 'node:fs/promises';
 import {constants} from 'node:fs';
 import {delimiter, dirname, join} from 'node:path';
+import {withPiSkills} from './pi-skills.js';
 
 export interface ProcessResult {exitCode:number;output:string;outputTruncated?:boolean;outputChars?:number;terminationReason?:'exit'|'completion-event'|'timeout'}
 async function executable(name:string):Promise<string>{
@@ -29,6 +30,7 @@ export function displayCommand(command:readonly string[]):string {
 }
 export async function runProcess(command:readonly string[],directory:string,timeoutMs:number,logFile?:string,onLine:(line:string,stderr:boolean)=>boolean|void=()=>{},input?:string,signal?:AbortSignal,maxCaptureChars=120000):Promise<ProcessResult>{
   if(!command.length)throw new Error('命令不能为空');
+  signal?.throwIfAborted();command=await withPiSkills(command);
   signal?.throwIfAborted();const program=await executable(command[0]!);signal?.throwIfAborted();let output='',outputChars=0;let stopRequested=false;const captured=(line:string,stderr:boolean)=>{const text=line+'\n';outputChars+=text.length;output+=text.slice(0,Math.max(0,maxCaptureChars-output.length));if(onLine(line,stderr))stopRequested=true;};
   return new Promise((resolve,reject)=>{
     const batch=isBatchFile(program);

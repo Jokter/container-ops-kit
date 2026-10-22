@@ -1,0 +1,10 @@
+{
+  "name": "@ops-studio/skills",
+  "private": true,
+  "pi": {
+    "skills": ["./*/SKILL.md"],
+    "extensions": [],
+    "prompts": [],
+    "themes": []
+  }
+}
