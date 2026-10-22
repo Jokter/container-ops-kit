@@ -15,6 +15,54 @@ export const reviewAction=z.discriminatedUnion('action',[
 export interface ReviewNote {id:string;body:string;author:string;time:string;system:boolean;}
 export interface ReviewThread {id:string;body:string;author:string;resolved:boolean;resolvable:boolean;path:string;oldPath:string;line:number|null;oldLine:number|null;headSha:string;notes:ReviewNote[];fingerprint:string;}
 export interface ReviewFile {path:string;oldPath:string;diff:string;status:string;unavailable:boolean;}
+export const reviewFileRequest=z.object({sha:reviewSha,path}).strict();
+// The CLI file endpoint returns base64; never treat logs or a partial response as source.
+export function reviewFileText(output:string,expectedPath:string):string {
+ const schema=z.object({content:z.string(),file_path:z.literal(expectedPath),encoding:z.literal('base64').optional(),size:z.number().int().nonnegative().optional(),truncated:z.boolean().optional()});
+ for(const value of jsonValues(output)){
+  const result=schema.safeParse(value);if(!result.success)continue;
+  const file=result.data,encoded=file.content.replace(/\s/g,'');
+  if(file.truncated||encoded.length>3*1024*1024)throw Error('文件过大或内容被截断，无法展开完整文件');
+  if(encoded.length%4!==0||!/^[A-Za-z0-9+/]*={0,2}$/.test(encoded))throw Error('文件内容编码无效');
+  const bytes=Buffer.from(encoded,'base64');
+  if(bytes.toString('base64')!==encoded)throw Error('文件内容编码无效');
+  if(bytes.length>2*1024*1024||(file.size!==undefined&&file.size!==bytes.length))throw Error('文件过大或内容不完整，无法展开完整文件');
+  let text:string;try{text=new TextDecoder('utf-8',{fatal:true,ignoreBOM:true}).decode(bytes);}catch{throw Error('文件不是 UTF-8 文本，无法展开');}
+  if(text.includes('\0'))throw Error('二进制文件无法展开');
+  if(text.split('\n').length>20001)throw Error('文件超过 20000 行，请在 CodeHub 查看');
+  return text;
+ }
+ throw Error('CodeHub 未返回完整文件内容，请检查 repo file get 的输出');
+}
+// Fill only unchanged gaps from the pinned head. Deleted lines remain from the MR diff.
+// Validate every hunk against the fetched source before displaying any expanded rows.
+export function fullReviewDiff(file:ReviewFile,content:string):string {
+ if(file.unavailable)throw Error('该文件的差异不完整，无法展开');
+ const source=content?content.replace(/\r\n/g,'\n').split('\n'):[];if(content.endsWith('\n'))source.pop();
+ const output:string[]=[];let oldNext=1,newNext=1,index=0;
+ const patch=file.diff.replace(/\r\n/g,'\n').split('\n');
+ const mismatch=()=>Error('文件内容与当前差异不一致，请刷新代码后重试');
+ while(index<patch.length){
+  const text=patch[index++]!;if(!text&&index===patch.length)break;
+  const h=text.match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/);if(!h)throw mismatch();
+  const oldCount=Number(h[2]??1),newCount=Number(h[4]??1),oldStart=Number(h[1])+(oldCount===0?1:0),newStart=Number(h[3])+(newCount===0?1:0);
+  const gap=newStart-newNext;if(gap<0||oldStart-oldNext!==gap||newStart>source.length+1)throw mismatch();
+  for(let n=0;n<gap;n++)output.push(' '+source[newNext++-1]);oldNext+=gap;
+  let oldRead=0,newRead=0;
+  while(index<patch.length&&!patch[index]!.startsWith('@@ ')){
+   const row=patch[index++]!;
+   if(row.startsWith('\\'))continue;
+   if(!row&&index===patch.length)break;
+   const kind=row[0];if(kind!==' '&&kind!=='+'&&kind!=='-')throw mismatch();
+   if(kind!=='-'){if(source[newNext-1]!==row.slice(1))throw mismatch();newNext++;newRead++;}
+   if(kind!=='+'){oldNext++;oldRead++;}output.push(row);
+  }
+  if(oldRead!==oldCount||newRead!==newCount)throw mismatch();
+ }
+ while(newNext<=source.length){output.push(' '+source[newNext++-1]);oldNext++;}
+ if(output.length>20000)throw Error('展开内容超过 20000 行，请在 CodeHub 查看');
+ return `@@ -${oldNext>1?1:0},${oldNext-1} +${source.length?1:0},${source.length} @@\n${output.join('\n')}`;
+}
 // A partial list must never be treated as proof that a comment is absent or resolved.
 function rows(output:string,keys:string[]):unknown[]{
  const values=jsonValues(output);

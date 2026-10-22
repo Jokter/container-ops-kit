@@ -357,3 +357,8 @@
 .group-mr-workspace .mr-tree-row.has-open-notes.selected .mr-tree-name{color:#3057b2}
 .group-mr-workspace .mr-tree-discussion{gap:3px;color:#8c590e;background:#ffe6b3;font-weight:600;min-width:27px}
 .group-mr-workspace .mr-tree-discussion>svg{width:12px;height:12px;fill:none;stroke:currentColor;stroke-width:1.25;stroke-linejoin:round;flex:none}
+.group-mr-workspace .mr-context-gap td{background:#f1f5f9!important;padding:7px 12px!important;white-space:normal!important}
+.group-mr-workspace .mr-context-gap td>div{display:flex;align-items:center;justify-content:center;gap:20px;color:#64748b;font:12px/1.5 system-ui}
+.group-mr-workspace .mr-context-gap button{white-space:nowrap}
+.group-mr-workspace .mr-tree-diff-heading>div{flex:1;min-width:0}
+.group-mr-workspace .nav-prev-next{flex-wrap:wrap}
