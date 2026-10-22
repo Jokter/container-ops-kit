@@ -4,12 +4,12 @@ import {readFile} from 'node:fs/promises'
 import {JSDOM} from 'jsdom'
 const html=await readFile(new URL('../../index.html',import.meta.url),'utf8'),sha='a'.repeat(40),flush=()=>new Promise(r=>setTimeout(r,40))
 const row=id=>({id:String(id),repo:'MAE-M/Access/Repo'+id,iid:String(id),sha,phase:'ISSUES',status:'待修改',sender:'developer',events:[],reviewComments:[],writePending:'',updatedAt:'2026-10-22T10:00:00Z'})
-async function setup(t,{unsupported=false,failWrite=false,fileCount=0,extraThreads=[]}={}){
+async function setup(t,{unsupported=false,failWrite=false,failReloadAfterClose=false,fileCount=0,extraThreads=[]}={}){
  const records=Array.from({length:36},(_,i)=>row(i+1)),writes=[];let closed=false,replies=[]
  const snapshot=()=>({sha,state:'opened',files:[{path:'src/a.ts',oldPath:'src/a.ts',status:'modified',diff:'@@ -1,3 +1,3 @@\n old\n-deleted\n+<script>alert(1)</script>\n tail',unavailable:false},{path:'src/large.bin',status:'added',diff:'',unavailable:true},...Array.from({length:fileCount},(_,i)=>({path:'src/group'+Math.floor(i/16)+'/file'+i+'.ts',oldPath:'src/group'+Math.floor(i/16)+'/file'+i+'.ts',diff:'@@ -1 +1 @@\n-old\n+new',status:'modified'}))],threads:[{id:'thread',body:'修复边界问题',author:'reviewer',resolved:closed,resolvable:true,path:'src/a.ts',line:2,headSha:sha,fingerprint:'f'.repeat(64),notes:[{id:'1',body:'修复边界问题',author:'reviewer'},...replies]},...extraThreads],capabilities:{reply:!unsupported,create:!unsupported,reason:unsupported?'CLI 不支持':''},writePending:'',readAt:'2026-10-22T10:00:00Z'})
  const response=(data,ok=true)=>({ok,status:ok?200:409,json:async()=>data})
  const dom=new JSDOM(html,{runScripts:'dangerously',url:'http://localhost/#/automation/group-mr',beforeParse(w){w.scrollTo=()=>{};const timeout=w.setTimeout.bind(w);w.setTimeout=(fn,delay,...args)=>delay>500?0:timeout(fn,delay,...args);w.fetch=async(url,options)=>{
-  if(url.endsWith('/workspace')){if(options?.method==='POST'){const data=JSON.parse(options.body);writes.push(data);if(failWrite)return response({message:'写入结果待核对'},false);if(data.action==='resolve')closed=true;else replies.push({id:'2',body:data.body,author:'owner'});return response({ok:true})}return response(snapshot())}
+  if(url.endsWith('/workspace')){if(options?.method==='POST'){const data=JSON.parse(options.body);writes.push(data);if(failWrite)return response({message:'写入结果待核对'},false);if(data.action==='resolve')closed=true;else replies.push({id:'2',body:data.body,author:'owner'});return response({ok:true})}if(closed&&failReloadAfterClose)return response({message:'刷新失败'},false);return response(snapshot())}
   if(url==='/api/automation/group-mr')return response({config:{enabled:false},pending:records,history:[],monitor:{},metrics:{pending:records.length}})
   if(url==='/api/automation/knowledge')return response({items:[],reviews:[]})
   if(url.startsWith('/api/automation/effectiveness'))return response({total:0,stages:{},reviews:0,merged:0,anomalies:0,rejected:0})
@@ -149,4 +149,43 @@ test('tree keyboard navigation expands folders and storage denial does not break
  key('[data-tree-folder="src/group0"]','ArrowLeft');assert.equal(d.querySelector('[data-mrw-file="2"]'),null)
  Object.defineProperty(w,'localStorage',{get(){throw new Error('storage unavailable')}})
  key('.mr-tree-splitter','ArrowRight');assert.equal(d.querySelector('.mr-tree-splitter').getAttribute('aria-valuenow'),'336')
+})
+
+test('directory shortcut filters closed and ordinary discussions while including MR-wide opinions',async t=>{
+ const extraThreads=[{id:'chat',path:'src/large.bin',body:'普通讨论',resolvable:false,resolved:false},{id:'done',path:'src/a.ts',body:'已修复',resolvable:true,resolved:true},{id:'general',body:'整体待办',resolvable:true,resolved:false}]
+ const {dom,d}=await setup(t,{extraThreads});click(d,'.nav-enter[data-mr-open="1"]');await flush()
+ assert.match(d.querySelector('[data-mrw-open-notes]').textContent,/未关闭 2/)
+ assert.equal(d.querySelector('[data-mrw-file="1"] .mr-tree-discussion'),null)
+ assert.equal(d.querySelector('[data-tree-folder="src"] .mr-tree-discussion').textContent,'1')
+ assert.ok(d.querySelector('[data-tree-folder="src"]').classList.contains('has-open-notes'))
+ assert.ok(d.querySelector('[data-mrw-file="0"]').classList.contains('has-open-notes'))
+ assert.ok(d.querySelector('[data-mrw-file="0"] .mr-tree-discussion svg'))
+ assert.equal(d.querySelector('[data-mrw-file="1"]').classList.contains('has-open-notes'),false)
+ click(d,'[data-mrw-notes-toggle]');click(d,'[data-mrw-open-notes]')
+ assert.equal(d.querySelector('[data-mrw-closed]').checked,false)
+ assert.deepEqual([...d.querySelectorAll('[data-mrw-note-card]')].map(el=>el.dataset.mrwNoteCard),['thread','general'])
+ assert.ok(d.querySelector('[data-mrw-note-card="thread"] p'));click(d,'[data-mrw-note-code="thread"]')
+ assert.ok(d.querySelector('[data-mrw-line-row="2"]').classList.contains('highlight'))
+})
+
+test('confirmed closure removes badges even if the subsequent workspace refresh fails',async t=>{
+ for(const failReloadAfterClose of [false,true]){
+  const {dom,d,writes}=await setup(t,{failReloadAfterClose});click(d,'.nav-enter[data-mr-open="1"]');await flush()
+  click(d,'[data-mrw-resolve="thread"]');input(dom,'[data-mrw-draft="thread"]','核对当前代码后关闭')
+  d.querySelector('[data-mrw-form]').dispatchEvent(new dom.window.Event('submit',{bubbles:true,cancelable:true}));await flush();await flush()
+  assert.equal(writes.length,1);assert.equal(d.querySelectorAll('.mr-tree-discussion').length,0);assert.equal(d.querySelectorAll('.has-open-notes').length,0)
+  assert.match(d.querySelector('[data-mrw-open-notes]').textContent,/未关闭 0/)
+  if(failReloadAfterClose)assert.match(d.querySelector('[data-mrw-open-notes]').textContent,/待刷新/)
+  click(d,'[data-mrw-open-notes]');assert.equal(d.querySelectorAll('[data-mrw-note-card]').length,0)
+  assert.match(d.querySelector('.mr-review-notes').textContent,/当前没有未关闭的检视意见/)
+ }
+})
+
+test('unconfirmed closure keeps unresolved badges and the draft',async t=>{
+ const {dom,d}=await setup(t,{failWrite:true});click(d,'.nav-enter[data-mr-open="1"]');await flush()
+ click(d,'[data-mrw-resolve="thread"]');input(dom,'[data-mrw-draft="thread"]','已核对')
+ d.querySelector('[data-mrw-form]').dispatchEvent(new dom.window.Event('submit',{bubbles:true,cancelable:true}));await flush();await flush()
+ assert.equal(d.querySelector('[data-mrw-file="0"] .mr-tree-discussion').textContent,'1')
+ assert.match(d.querySelector('[data-mrw-open-notes]').textContent,/未关闭 1/)
+ assert.equal(d.querySelector('[data-mrw-draft="thread"]').value,'已核对')
 })
