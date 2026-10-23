@@ -51,13 +51,13 @@ export function toolsRoutes(app:FastifyInstance,service:ToolsService){
  app.post('/api/tools/binlog/parse',async req=>service.parse(req.body));
  app.post('/api/tools/binlog/export',async(req,reply)=>{
   const result=service.parse(req.body),book=new ExcelJS.Workbook(),sheet=book.addWorksheet('解析结果');
-  sheet.columns=[['原始行号',10],['状态',12],['分组',24],['TAG',10],['字段',50],['含义',24],['值',30],['枚举 / 无效值',24],['单位',12],['说明 / 错误',60]].map(([header,width])=>({header:String(header),width:Number(width)}));
+  sheet.columns=[['原始行号',10],['状态',12],['分组',24],['TAG',10],['字段',50],['含义',24],['值',30],['枚举 / 无效值',24],['单位',12],['说明 / 错误',60],['异常原因',60]].map(([header,width])=>({header:String(header),width:Number(width)}));
   for(const record of result.records){
    if(record.error)sheet.addRow([record.line,record.status,'','','','','','','',record.error]);
-   for(const field of record.result?.fields??[])sheet.addRow([record.line,record.status,field.group,field.tag,field.path,field.label,field.value,field.meaning,field.unit,field.description]);
+   for(const field of record.result?.fields??[])sheet.addRow([record.line,record.status,field.group,field.tag,field.path,field.label,field.value,field.meaning,field.unit,field.description,field.issues.map(i=>i.message).join('；')]);
    for(const warning of record.result?.warnings??[])sheet.addRow([record.line,'warning','','','','','','','',warning]);
   }
-  sheet.views=[{state:'frozen',ySplit:1}];sheet.getRow(1).font={bold:true};sheet.autoFilter='A1:J1';
+  sheet.views=[{state:'frozen',ySplit:1}];sheet.getRow(1).font={bold:true};sheet.autoFilter='A1:K1';
   return reply.header('content-disposition',`attachment; filename="binlog-${result.code}.xlsx"`).type('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet').send(Buffer.from(await book.xlsx.writeBuffer()));
  });
 }

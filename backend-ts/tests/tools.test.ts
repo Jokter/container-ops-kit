@@ -66,8 +66,22 @@ test('batch preserves physical lines and distinguishes errors from filtering; Ex
   const parsed=s.parse(input);assert.deepEqual(parsed.records.map(r=>r.line),[3,4,5]);assert.deepEqual(parsed.summary,{total:3,success:2,errors:1,filtered:0});assert.equal(parsed.records[2]?.result?.fields.at(-1)?.invalid,true);
   assert.throws(()=>s.parse({...input,text:'abcd00000005\n'.repeat(501)}));
   const response=await app.inject({method:'POST',url:'/api/tools/binlog/export',payload:input});assert.equal(response.statusCode,200);assert.match(response.headers['content-type']??'',/spreadsheetml/);
-  const book=new ExcelJS.Workbook();await book.xlsx.read(Readable.from([response.rawPayload]));assert.equal(book.worksheets[0]?.getCell('G4').value,5);
+  const book=new ExcelJS.Workbook();await book.xlsx.read(Readable.from([response.rawPayload]));assert.equal(book.worksheets[0]?.getCell('G4').value,5);assert.equal(book.worksheets[0]?.getCell('K1').value,'异常原因');assert.match(String(book.worksheets[0]?.getCell('K8').value),/无效值/);
   assert.equal((await app.inject({method:'POST',url:'/api/tools/binlog/export',payload:{...input,revision:'stale'}})).statusCode,409);
   assert.equal((await app.inject({method:'POST',url:'/api/tools/binlog/commands/validate',payload:{...custom,fields:[{type:'exec'}]}})).statusCode,400);
  }finally{await app.close();store.close();}
+});
+
+test('field issues identify invalid values, unknown enum values and configured ranges without losing raw data',()=>{
+ const fields=validateFields([...base,{name:'value',type:'int',offset:4,min:1,max:10,enum:{'1':'一','10':'十'},invalidValue:65535}],'abcd');
+ const parse=(hex:string)=>parseFrame('abcd',fields,'abcd0000'+hex).fields.at(-1)!;
+ assert.deepEqual(parse('0001').issues,[]);assert.deepEqual(parse('000a').issues,[]);
+ assert.deepEqual(parse('0005').issues.map(i=>i.kind),['enum']);
+ assert.deepEqual(parse('000b').issues.map(i=>i.kind),['enum','range']);
+ assert.deepEqual(parse('ffff').issues.map(i=>i.kind),['invalid']);assert.equal(parse('ffff').value,65535);
+ const large=validateFields([...base,{name:'large',type:'long',offset:16,max:Number.MAX_SAFE_INTEGER}],'abcd');
+ assert.equal(parseFrame('abcd',large,'abcd0000ffffffffffffffff').fields.at(-1)?.issues[0]?.kind,'range');
+ const plain=validateFields([...base,{name:'value',type:'int',offset:4}],'abcd');
+ assert.deepEqual(parseFrame('abcd',plain,'abcd0000ffff').fields.at(-1)?.issues,[]);
+ for(const rule of [{min:10,max:1},{min:1.5},{max:Number.MAX_SAFE_INTEGER+1},{type:'hex',min:0}])assert.throws(()=>validateFields([...base,{name:'x',type:'int',offset:4,...rule}],'abcd'));
 });

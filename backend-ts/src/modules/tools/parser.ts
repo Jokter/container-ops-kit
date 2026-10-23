@@ -5,7 +5,7 @@ const name=z.string().min(1).max(100).regex(/^@?[A-Za-z_][A-Za-z0-9_]*$/).refine
 export interface Field {
  name:string;type:'int'|'long'|'hex'|'ascii'|'nest'|'array';offset?:number|undefined;
  tag?:string|undefined;childrenLengthOffset?:number|undefined;children?:Field[]|undefined;lengthKey?:string|undefined;skip?:boolean|undefined;supportArray?:boolean|undefined;
- label?:string|undefined;desc?:string|undefined;unit?:string|undefined;enum?:Record<string,string>|undefined;invalidValue?:number|string|undefined;
+ label?:string|undefined;desc?:string|undefined;unit?:string|undefined;enum?:Record<string,string>|undefined;invalidValue?:number|string|undefined;min?:number|undefined;max?:number|undefined;
 }
 const fieldSchema:z.ZodType<Field>=z.lazy(()=>z.object({
  name,type:z.enum(['int','long','hex','ascii','nest','array']),offset:z.number().int().min(0).max(131072).optional(),
@@ -13,6 +13,7 @@ const fieldSchema:z.ZodType<Field>=z.lazy(()=>z.object({
  children:z.array(fieldSchema).max(1024).optional(),lengthKey:z.string().max(512).optional(),skip:z.boolean().optional(),supportArray:z.boolean().optional(),
  label:z.string().max(200).optional(),desc:z.string().max(2000).optional(),unit:z.string().max(100).optional(),
  enum:z.record(z.string().max(100),z.string().max(500)).optional(),invalidValue:z.union([z.number().finite(),z.string().max(100)]).optional(),
+ min:z.number().int().safe().optional(),max:z.number().int().safe().optional(),
 }).strict());
 export function validateFields(input:unknown,code:string):Field[]{
  // Bound recursion before applying the recursive schema, including malicious JSON.
@@ -30,6 +31,7 @@ export function validateFields(input:unknown,code:string):Field[]{
    if(++count>2048)bad('配置字段不能超过 2048 个');
    if(names.has(f.name))bad('字段名称重复：'+f.name);names.add(f.name);
    const path=prefix?prefix+'.'+f.name:f.name;
+   if(f.min!==undefined||f.max!==undefined){if(!['int','long'].includes(f.type))bad('min/max 仅支持整数字段：'+path);if(f.min!==undefined&&f.max!==undefined&&f.min>f.max)bad('min 不能大于 max：'+path);}
    if(f.type==='array'){
     const key=f.lengthKey?.includes('.')?f.lengthKey:prefix+'.'+f.lengthKey;
     const resolved=prefix?key:f.lengthKey;
@@ -55,7 +57,7 @@ export function validateFields(input:unknown,code:string):Field[]{
  }
  return fields;
 }
-export interface ParsedField {path:string;group:string;tag:string;value:number|string;label:string;unit:string;description:string;meaning:string;invalid:boolean;}
+export interface ParsedField {path:string;group:string;tag:string;value:number|string;label:string;unit:string;description:string;meaning:string;invalid:boolean;issues:Array<{kind:"invalid"|"enum"|"range";message:string}>;}
 export interface ParseResult {code:string;matched:boolean;feature:number|string|null;expected:number|null;bytes:number;fields:ParsedField[];warnings:string[];}
 class Reader {
  pos=0;
@@ -93,7 +95,16 @@ export function parseFrame(code:string,fields:Field[],input:string,expected:numb
   const schemaPath=path.replace(/\[\d+\]/g,'');if(f.name.startsWith('@'))context.set(schemaPath,value);
   if(!prefix)header.set(f.name,value);if(schemaPath==='featureCause.feature')out.feature=value;
   const invalid=f.invalidValue!==undefined&&String(f.invalidValue)===String(value);
-  out.fields.push({path,group,tag,value,label:f.label??f.name,unit:f.unit??'',description:f.desc??'',meaning:invalid?'无效值':f.enum?.[String(value)]??'',invalid});
+  const issues:ParsedField['issues']=[];
+  if(invalid)issues.push({kind:'invalid',message:'命中配置中的无效值：'+f.invalidValue});
+  else{
+   if(f.enum&&Object.keys(f.enum).length&&!Object.hasOwn(f.enum,String(value)))issues.push({kind:'enum',message:'未匹配已配置枚举；配置值：'+Object.entries(f.enum).map(([key,label])=>key+' '+label).join('、')});
+   if((f.type==='int'||f.type==='long')&&(f.min!==undefined||f.max!==undefined)){
+    const actual=BigInt(value);
+    if(f.min!==undefined&&actual<BigInt(f.min)||f.max!==undefined&&actual>BigInt(f.max))issues.push({kind:'range',message:'超出配置范围：'+(f.min??'不限')+'–'+(f.max??'不限')+(f.unit?' '+f.unit:'')+'；实际：'+value});
+   }
+  }
+  out.fields.push({path,group,tag,value,issues,label:f.label??f.name,unit:f.unit??'',description:f.desc??'',meaning:invalid?'无效值':f.enum?.[String(value)]??'',invalid});
  }
  const r=new Reader(hex),tags=fields.filter(f=>f.type==='nest');
  for(const f of fields.filter(f=>f.type!=='nest'))read(f,r,'','报文头','');
