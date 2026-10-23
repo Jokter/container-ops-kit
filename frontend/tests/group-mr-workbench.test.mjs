@@ -234,3 +234,16 @@ test('missing text diff offers recovery and displays escaped recovered rows with
  assert.ok(d.querySelectorAll('[data-mrw-line-row]').length>3);assert.equal(d.querySelector('[data-mrw-add-line]'),null);
  assert.doesNotMatch(d.querySelector('.mr-diff-pane').textContent,/未返回该文件的差异/);
 });
+
+test('notes list retains its own scroll when replying, closing, refreshing and submitting',async t=>{
+ const {dom,d,writes}=await setup(t);click(d,'.nav-enter[data-mr-open="1"]');await flush();click(d,'[data-mr-view="notes"]')
+ const list=()=>d.querySelector('.mr-review-notes');list().scrollTop=640
+ click(d,'[data-mrw-thread="thread"]');assert.equal(list().scrollTop,640);assert.ok(d.querySelector('[data-mrw-form="reply"]'))
+ input(dom,'[data-mrw-draft="thread"]','核对修复');await dom.window.eval('loadGroupMr()');assert.equal(list().scrollTop,640)
+ click(d,'[data-mrw-cancel]');assert.equal(list().scrollTop,640)
+ click(d,'[data-mrw-resolve="thread"]');assert.equal(list().scrollTop,640);assert.ok(d.querySelector('[data-mrw-form="resolve"]'))
+ assert.equal(d.querySelector('[data-mrw-draft="thread"]').value,'核对修复')
+ d.querySelector('[data-mrw-form="resolve"] button[type="submit"]').click();await flush();await flush()
+ assert.equal(writes.length,1);assert.equal(writes[0].action,'resolve');assert.equal(writes[0].reason,'核对修复');assert.equal(list().scrollTop,640)
+ assert.equal(d.querySelector('[data-mrw-resolve="thread"]').disabled,true)
+})
