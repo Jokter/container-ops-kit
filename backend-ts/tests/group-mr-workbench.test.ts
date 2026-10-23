@@ -18,7 +18,7 @@ function fixture(mode='ok'){
    if(mode==='capture'&&!args.includes('--jq'))return {exitCode:0,output:'partial',outputTruncated:true};
    value={changes:[{new_path:'src/a.ts',old_path:mode==='renamed'?'old/a.ts':'src/a.ts',diff:['capture','large','renamed','missing-base','binary','added','deleted'].includes(mode)?undefined:diff,too_large:mode==='large',binary:mode==='binary',new_file:mode==='added',deleted_file:mode==='deleted'}]};
   }
-  else if(args[1]==='repo'&&args[2]==='file'&&args[3]==='get'){reads.push([...args]);assert.equal(args[args.indexOf('--columns')+1],'content,file_path,encoding,size,truncated');if(mode==='file-fail')return {exitCode:1,output:'unknown option: secret-token'};value={file_path:args.find(a=>a.startsWith('--file-path='))!.slice('--file-path='.length),encoding:'base64',content:Buffer.from(args[args.indexOf('--ref')+1]===other?'old\ntail\n':'old\nnew\ntail\n').toString('base64')};}
+  else if(args[1]==='repo'&&args[2]==='file'&&args[3]==='get'){reads.push([...args]);assert.equal(args[args.indexOf('--columns')+1],'content,file_path,path,encoding,size,truncated,is_limited');if(mode==='file-fail')return {exitCode:1,output:'unknown option: secret-token'};value={[mode==='path-field'||mode==='large'?'path':'file_path']:args.find(a=>a.startsWith('--file-path='))!.slice('--file-path='.length),encoding:'base64',content:Buffer.from(args[args.indexOf('--ref')+1]===other?'old\ntail\n':'old\nnew\ntail\n').toString('base64')};}
   else if(args[3]==='list')value=notes();
   else if(args[2]==='review'){
    writes.push([...args]);
@@ -135,4 +135,15 @@ test('file read failures expose an actionable safe client error',async()=>{
 });
 test('invalid or oversized source returns an actionable client error',()=>{
  for(const data of [{file_path:'a.ts',content:'',truncated:true},{file_path:'a.ts',content:'?'}])assert.throws(()=>reviewFileText(JSON.stringify(data),'a.ts'),error=>{assert.ok(error instanceof Error);assert.equal(Reflect.get(error,'statusCode'),422);return true;});
+});
+
+test('CodeHub 1.3.7 path metadata is accepted without weakening path or truncation checks',()=>{
+ const content='x'.repeat(36644)+'\n'.repeat(900),file={path:'src/a.ts',encoding:'base64',size:37544,is_limited:false,content:Buffer.from(content).toString('base64')};
+ assert.equal(file.content.length,50060);
+ assert.equal(reviewFileText(JSON.stringify(file),'src/a.ts'),content);
+ assert.equal(reviewFileText(JSON.stringify({...file,file_path:file.path}),'src/a.ts'),content);
+ for(const data of [{...file,path:'other'},{...file,file_path:'other'},{...file,is_limited:true},{...file,path:undefined}])assert.throws(()=>reviewFileText(JSON.stringify(data),'src/a.ts'));
+});
+test('context expansion accepts the CLI path field end to end',async()=>{
+ const f=fixture('path-field');try{const result=await f.service.reviewFileContext(f.e.id,{sha,path:'src/a.ts'});assert.match(result.diff,/\+new/);assert.equal(f.writes.length,0);}finally{await f.shutdown();}
 });

@@ -268,7 +268,7 @@ export class GroupMrService {
  }
  private async readReviewFile(e:Entry,path:string,sha:string){
   let output:string;
-  try{output=await this.code(['repo','file','get','-p',e.repo,'--file-path='+path,'--ref',sha],'content,file_path,encoding,size,truncated');}
+  try{output=await this.code(['repo','file','get','-p',e.repo,'--file-path='+path,'--ref',sha],'content,file_path,path,encoding,size,truncated,is_limited');}
   catch(error){
    // command() already records diagnostics; never expose raw subprocess output or credentials.
    const message=error instanceof Error?error.message:'';

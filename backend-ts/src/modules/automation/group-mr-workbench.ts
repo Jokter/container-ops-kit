@@ -23,11 +23,12 @@ export const reviewFileRequest=z.object({sha:reviewSha,path}).strict();
 export class ReviewFileError extends Error { readonly statusCode=422; }
 // The CLI file endpoint returns base64; never treat logs or a partial response as source.
 export function reviewFileText(output:string,expectedPath:string):string {
- const schema=z.object({content:z.string(),file_path:z.literal(expectedPath),encoding:z.literal('base64').optional(),size:z.number().int().nonnegative().optional(),truncated:z.boolean().optional()});
+ const schema=z.object({content:z.string(),file_path:z.literal(expectedPath).optional(),path:z.literal(expectedPath).optional(),is_limited:z.boolean().optional(),encoding:z.literal('base64').optional(),size:z.number().int().nonnegative().optional(),truncated:z.boolean().optional()});
  for(const value of jsonValues(output)){
   const result=schema.safeParse(value);if(!result.success)continue;
+  if(result.data.file_path===undefined&&result.data.path===undefined)continue;
   const file=result.data,encoded=file.content.replace(/\s/g,'');
-  if(file.truncated||encoded.length>6*1024*1024)throw new ReviewFileError('文件过大或内容被截断，无法展开完整文件');
+  if(file.truncated||file.is_limited||encoded.length>6*1024*1024)throw new ReviewFileError('文件过大或内容被截断，无法展开完整文件');
   if(encoded.length%4!==0||!/^[A-Za-z0-9+/]*={0,2}$/.test(encoded))throw new ReviewFileError('文件内容编码无效');
   const bytes=Buffer.from(encoded,'base64');
   if(bytes.toString('base64')!==encoded)throw new ReviewFileError('文件内容编码无效');
