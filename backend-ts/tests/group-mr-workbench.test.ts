@@ -98,9 +98,9 @@ test('MR reservation rejects a concurrent close',async()=>{
  const first=f.service.reviewWorkspaceAction(f.e.id,input);await assert.rejects(f.service.reviewWorkspaceAction(f.e.id,input),/执行或排队/);finish();await first;assert.equal(f.writes.length,1);
  }finally{await f.shutdown();}
 });
-test('CodeHub explicit null stays closed, missing resolvability metadata does not hide review issues',()=>{
+test('CodeHub null is not proof of closure, missing resolvability metadata does not hide review issues',()=>{
  const notes=reviewThreads(JSON.stringify([{id:'closed',resolved:null,notes:[{body:'closed'}]},{id:'open',resolved:false,notes:[{body:'open'}]},{id:'general',resolved:false,notes:[{body:'report',resolvable:false}]}]));
- assert.equal(notes[0]!.resolved,true);assert.equal(notes[1]!.resolved,false);assert.equal(notes[1]!.resolvable,true);assert.equal(notes[2]!.resolvable,false);
+ assert.equal(notes[0]!.resolved,false);assert.equal(notes[1]!.resolved,false);assert.equal(notes[1]!.resolvable,true);assert.equal(notes[2]!.resolvable,false);
 });
 test('manual pending operation survives service restart and is never replayed',async()=>{
  const f=fixture('timeout');try{const input={action:'resolve',sha,operationId:randomUUID(),discussionId:'thread',fingerprint:reviewThreads(JSON.stringify(f.notes()))[0]!.fingerprint,confirmed:true,reason:'checked'};

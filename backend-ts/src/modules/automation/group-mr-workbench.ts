@@ -16,7 +16,7 @@ export const reviewAction=z.discriminatedUnion('action',[
  z.object({action:z.literal('reply'),sha:reviewSha,operationId:z.uuid(),discussionId:z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/),fingerprint:z.string().regex(/^[a-f0-9]{64}$/),body:z.string().trim().min(1).max(10000)}).strict(),
  z.object({action:z.literal('create'),sha:reviewSha,operationId:z.uuid(),path,line:z.number().int().positive(),body:z.string().trim().min(1).max(10000)}).strict()
 ]);
-export interface ReviewNote {id:string;body:string;author:string;time:string;system:boolean;}
+export interface ReviewNote {id:string;body:string;author:string;time:string;system:boolean;bot:boolean;}
 export interface ReviewThread {id:string;body:string;author:string;resolved:boolean;resolvable:boolean;path:string;oldPath:string;line:number|null;oldLine:number|null;headSha:string;notes:ReviewNote[];fingerprint:string;}
 export interface ReviewFile {path:string;oldPath:string;diff:string;status:string;unavailable:boolean;binary?:boolean;}
 export const reviewFileRequest=z.object({sha:reviewSha,path}).strict();
@@ -100,9 +100,9 @@ export function reviewThreads(output:string):ReviewThread[]{
  return rows(output,['discussions','items','data','result']).map(value=>{
   const o=obj(value),id=str(o?.discussion_id??o?.discussionId??o?.id);
   if(!id||!Array.isArray(o?.notes)||!o.notes.length)throw Error('检视意见缺少 ID 或讨论内容');
-  const notes=o.notes.map(value=>{const n=obj(value);if(!n||typeof n.body!=='string')throw Error('讨论内容格式不完整');return {id:str(n.id),body:n.body,author:str(obj(n.author)?.username??obj(n.author)?.name??n.author),time:str(n.created_at??n.updated_at),system:n.system===true};});
+  const notes=o.notes.map(value=>{const n=obj(value);if(!n||typeof n.body!=='string')throw Error('讨论内容格式不完整');return {id:str(n.id),body:n.body,author:str(obj(n.author)?.username??obj(n.author)?.name??n.author),time:str(n.created_at??n.updated_at),system:n.system===true||n.type==='system',bot:obj(n.author)?.bot===true||obj(n.author)?.is_bot===true||obj(n.author)?.state==='bot'};});
   const first=obj(o.notes[0])!,position=obj(first.position??o.position),resolvable=o.resolvable!==false&&!o.notes.every(n=>obj(n)?.resolvable===false);
-  const item={id,body:notes[0]!.body,author:notes[0]!.author,resolved:o.resolved===true||o.resolved===null||(o.resolved===undefined&&first.resolved===true),resolvable,path:str(position?.new_path??first.path??o.path),oldPath:str(position?.old_path),line:line(position?.new_line??first.line),oldLine:line(position?.old_line),headSha:str(position?.head_sha),notes};
+  const item={id,body:notes[0]!.body,author:notes[0]!.author,resolved:o.resolved===true||(o.resolved===undefined&&first.resolved===true),resolvable,path:str(position?.new_path??first.path??o.path),oldPath:str(position?.old_path),line:line(position?.new_line??first.line),oldLine:line(position?.old_line),headSha:str(position?.head_sha),notes};
   return {...item,fingerprint:createHash('sha256').update(JSON.stringify(item)).digest('hex')};
  });
 }
@@ -117,7 +117,8 @@ export function addedLines(diff:string):Set<number>{
  for(const text of diff.split('\n')){const h=text.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/);if(h){next=Number(h[1]);inHunk=true;continue;}if(!inHunk)continue;if(text.startsWith('+'))result.add(next++);else if(text.startsWith(' '))next++;else if(!text.startsWith('-')&&!text.startsWith('\\'))inHunk=false;}
  return result;
 }
-export interface ReviewWorkspace {title?:string;sha:string;state:string|undefined;files:ReviewFile[];threads:ReviewThread[];capabilities:ReviewCapabilities;writePending:string;stale:boolean;readAt:string;confirmedOperationId:string;}
+export interface ReviewReadiness {sha:string;checkedAt:string;ready:boolean;reason:string;}
+export interface ReviewWorkspace {pipelinePassed?:boolean;readiness?:ReviewReadiness;title?:string;sha:string;state:string|undefined;files:ReviewFile[];threads:ReviewThread[];capabilities:ReviewCapabilities;writePending:string;stale:boolean;readAt:string;confirmedOperationId:string;}
 export interface ReviewCapabilities {reply:boolean;create:boolean;reason:string;}
 // Only allow a known adapter when local help confirms BOTH positional arguments and flags.
 // Unknown CLI versions fail closed; help text never supplies executable tokens.

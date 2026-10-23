@@ -541,7 +541,7 @@ test('concurrent MR reads share one in-flight login instead of failing the other
  finally{release();await Promise.allSettled(calls);await service.close();store.close();rmSync(root,{recursive:true,force:true});}
 });
 
-for(const resolved of [true,null,false,undefined,'true'] as const)test(`MR comments treat explicit null as closed, without accepting missing or invalid states: ${String(resolved)}`,async()=>{
+for(const resolved of [true,null,false,undefined,'true'] as const)test(`MR comments require explicit true for closure, null and invalid states stay open: ${String(resolved)}`,async()=>{
  const store=new TaskStore(':memory:'),sha='a'.repeat(40);let pipelineReads=0;
  const service=new GroupMrService(store,async args=>{
   let value:unknown={};
@@ -555,7 +555,7 @@ for(const resolved of [true,null,false,undefined,'true'] as const)test(`MR comme
  service['runPi']=async()=>{};
  try{
   await service['accept']({id:'1',sender:'developer',quoteId:'',content:'https://codehub-y.huawei.com/MAE-M/Access/SWMFrontendService/merge_requests/1856'},{enabled:true,groupId:'123456789',authorizedSender:'owner',repositoryPrefix:'MAE-M/Access/',intervalSeconds:5});
-  const row=service.list()[0]!,closed=resolved===true||resolved===null;
+  const row=service.list()[0]!,closed=resolved===true;
   assert.equal(row.reviewComments?.[0]?.resolved,closed);assert.equal(row.phase,closed?'PIPELINE':'ISSUES');assert.equal(pipelineReads,closed?1:0);
   if(!closed)assert.match(row.status,/仍有 1 条未闭环/);
  }finally{await service.close();store.close();}
@@ -607,14 +607,14 @@ test('MR lists group legacy retries and only merged or closed MRs enter history'
 
 for(const remoteState of ['merged','closed','opened','error'])test(`read-only status refresh archives ${remoteState} without replaying blocked writes`,async()=>{
  const store=new TaskStore(':memory:'),commands:string[][]=[],sha='a'.repeat(40);
- const service=new GroupMrService(store,async args=>{commands.push([...args]);assert.equal(args[2],'view');if(remoteState==='error')throw Error('unavailable');return {exitCode:0,output:JSON.stringify({iid:1,state:remoteState,sha})};});
+ const service=new GroupMrService(store,async args=>{commands.push([...args]);assert.ok(args.includes('--no-cache'));if(remoteState==='error')throw Error('unavailable');if(args[2]==='review'){assert.equal(args[3],'list');return {exitCode:0,output:'[]'};}if(args[2]==='gate')return {exitCode:0,output:'{"ci_state_passed":true}'};if(args[2]==='pipeline')return {exitCode:0,output:JSON.stringify([{id:1,sha,status:'success'}])};assert.equal(args[2],'view');return {exitCode:0,output:JSON.stringify({iid:1,state:remoteState,sha})};});
  const base={repo:'MAE-M/Access/Demo',iid:'1',url:'https://codehub-y.huawei.com/MAE-M/Access/Demo/merge_requests/1',sha,previousSha:'',sender:'developer',shortcut:false,phase:'INTERRUPTED',status:'merge result unconfirmed',detail:'',createdAt:'2026-09-26T01:00:00Z',updatedAt:'2026-09-26T01:00:00Z',writePending:'合并',events:[]};
  try{
   store.putRecord('group-mr-entry','old',{...base,id:'old',messageId:'1'});
   await service['accept']({id:'2',sender:'developer',quoteId:'',content:base.url},{enabled:true,groupId:'123456789',authorizedSender:'owner',repositoryPrefix:'MAE-M/Access/',intervalSeconds:5});
   assert.equal(service.summary().pending.length,1);assert.equal(service.summary().pending[0]?.sha,sha);assert.equal(service.summary().pending[0]?.attempts.length,2);
   service.refreshRemoteStates();await settle(service);service.refreshRemoteStates();await settle(service);
-  assert.equal(commands.length,1);
+  assert.equal(commands.length,remoteState==='opened'?5:1);
   if(remoteState==='merged'||remoteState==='closed'){assert.equal(service.summary().pending.length,0);const row=service.summary().history[0]!;assert.equal(row.phase,remoteState==='merged'?'DONE':'CLOSED');assert.equal(row.attempts.length,2);if(remoteState==='merged')assert.ok(service.list().every(e=>!e.writePending));}
   else{assert.equal(service.summary().history.length,0);assert.equal(service.summary().pending[0]?.writePending,'合并');}
  }finally{await service.close();store.close();}

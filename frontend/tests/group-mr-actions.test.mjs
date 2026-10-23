@@ -4,7 +4,7 @@ import {readFile} from 'node:fs/promises'
 import {JSDOM} from 'jsdom'
 const html=await readFile(new URL('../../index.html',import.meta.url),'utf8')
 const sha='a'.repeat(40),flush=()=>new Promise(r=>setTimeout(r,40))
-const row=(id,phase='HUMAN')=>({id,repo:'MAE-M/FMEMate/FMEMateService',iid:id,url:'https://codehub-y.huawei.com/MAE-M/FMEMate/FMEMateService/merge_requests/'+id,sha,phase,status:'待处理',sender:'developer',createdAt:'2026-09-28T11:00:00Z',updatedAt:'2026-09-28T11:00:00Z',writePending:'',pipelinePassed:true,humanReviewRequired:true,humanReview:phase==='HUMAN'?undefined:{sha,decision:'pass'},piReview:{sha,source:'codehub',ok:true,findings:[]},events:[]})
+const row=(id,phase='HUMAN')=>({id,repo:'MAE-M/FMEMate/FMEMateService',iid:id,url:'https://codehub-y.huawei.com/MAE-M/FMEMate/FMEMateService/merge_requests/'+id,sha,phase,status:'待处理',sender:'developer',createdAt:'2026-09-28T11:00:00Z',updatedAt:'2026-09-28T11:00:00Z',writePending:'',reviewComments:[],readiness:{sha,checkedAt:new Date().toISOString(),ready:true,reason:''},pipelinePassed:true,humanReviewRequired:true,humanReview:phase==='HUMAN'?undefined:{sha,decision:'pass'},piReview:{sha,source:'codehub',ok:true,findings:[]},events:[]})
 async function setup(t,{records=[row('1'),row('2'),row('3','NO_PERMISSION'),row('4','INTERRUPTED')],write}={}){
  const calls=[],history=[],response=(data,ok=true)=>({ok,status:ok?200:409,json:async()=>data})
  const dom=new JSDOM(html,{runScripts:'dangerously',url:'http://localhost/#/automation/group-mr',beforeParse(w){w.scrollTo=()=>{};const timeout=w.setTimeout.bind(w);w.setTimeout=(fn,delay,...args)=>delay>500?0:timeout(fn,delay,...args);w.fetch=async(url,options)=>{
@@ -15,6 +15,7 @@ async function setup(t,{records=[row('1'),row('2'),row('3','NO_PERMISSION'),row(
    if(id==='4')return response({...r,status:'无法合入：当前账号无合并权限'})
    r.phase='DONE';records.splice(records.indexOf(r),1);history.push(r);return response(r)
   }
+  if(url.endsWith('/workspace')){const r=records.find(r=>url.includes('/'+r.id+'/'));return response({sha:r.sha,state:'opened',files:[],threads:r.reviewComments||[],readiness:r.readiness,capabilities:{}})}
   if(url==='/api/automation/group-mr')return response({config:{enabled:true,groupId:'123456789',authorizedSender:'owner'},pending:records,history,metrics:{pending:records.length,issues:0,mergedToday:history.length},monitor:{}})
   if(url==='/api/automation/knowledge')return response({items:[],reviews:[]})
   if(url.startsWith('/api/automation/effectiveness'))return response({total:0,stages:{},reviews:0,merged:0,anomalies:0,rejected:0})
@@ -101,6 +102,36 @@ test('前一条合入返回待核对状态时停止整批后续请求',async t=>
 
 test('stopped Agent uncertainty permits explicit review while other pending writes stay blocked',async t=>{
  const r={...row('1','ISSUES'),humanReview:undefined,piReview:undefined,writePending:'Pi 提交检视意见',pipelinePassed:false};
- const {dom}=await setup(t,{records:[r]});assert.equal(dom.window.eval("groupMrActionReason(groupMrUi.pending[0],'review')"),'');
+ const {dom}=await setup(t,{records:[r]});assert.match(dom.window.eval("groupMrActionReason(groupMrUi.pending[0],'review')"),/流水线/);r.pipelinePassed=true;await dom.window.eval('loadGroupMr()');assert.equal(dom.window.eval("groupMrActionReason(groupMrUi.pending[0],'review')"),'');
  r.writePending='合并';await dom.window.eval('loadGroupMr()');assert.match(dom.window.eval("groupMrActionReason(groupMrUi.pending[0],'review')"),/核对/);
+});
+
+for(const mode of ['open-note','pipeline','unknown','expired','stale'])test('list and detail share fail-closed one-click review and merge conditions: '+mode,async t=>{
+ const r=row('1');
+ if(mode==='open-note')r.reviewComments=[{id:'n',body:'must fix',resolved:false}];
+ if(mode==='pipeline')r.readiness={...r.readiness,ready:false,reason:'当前提交流水线尚未通过'};
+ if(mode==='unknown')delete r.readiness;
+ if(mode==='expired')r.readiness.checkedAt=new Date(Date.now()-120000).toISOString();
+ if(mode==='stale')r.readiness.sha='b'.repeat(40);
+ const {dom,d,calls}=await setup(t,{records:[r]});
+ for(const action of ['review','merge'])assert.ok(dom.window.eval(`groupMrActionReason(groupMrUi.pending[0],'${action}')`));
+ d.querySelector('[data-mr-open="1"]').click();await flush();
+ assert.equal(d.querySelector('.nav-review-top [data-group-mr-action="review"]').disabled,true);
+ d.querySelector('.nav-review-top [data-group-mr-action="review"]').click();assert.equal(calls.length,0);
+});
+
+test('new remote comments refresh the open detail and block both action entry points',async t=>{
+ const {dom,d,records,calls}=await setup(t,{records:[row('1')]});
+ d.querySelector('[data-mr-open="1"]').click();await flush();assert.equal(d.querySelector('.nav-review-top [data-group-mr-action="review"]').disabled,false);
+ records[0].reviewComments=[{id:'latest',body:'远端新增意见',resolved:false,resolvable:true,notes:[]}];
+ records[0].readiness={sha,checkedAt:new Date(Date.now()+1000).toISOString(),ready:false,reason:'仍有未关闭的检视意见'};
+ await dom.window.eval('loadGroupMr()');await flush();d.querySelector('[data-mr-view="notes"]').click();
+ assert.match(d.querySelector('.mr-review-notes').textContent,/远端新增意见/);assert.equal(d.querySelector('.nav-review-top [data-group-mr-action="review"]').disabled,true);
+ d.querySelector('[data-mrw-focus]').click();await flush();assert.equal(d.querySelector('[data-group-mr-action="review"][data-record-id="1"]').disabled,true);assert.equal(calls.length,0);
+});
+
+test('stopped MR with cleared remote gates exposes the same review action in list and detail',async t=>{
+ const r=row('1','ISSUES');delete r.humanReview;
+ const {d}=await setup(t,{records:[r]});assert.equal(d.querySelector('[data-group-mr-action="review"][data-record-id="1"]').disabled,false);
+ d.querySelector('[data-mr-open="1"]').click();await flush();assert.equal(d.querySelector('.nav-review-top [data-group-mr-action="review"]').disabled,false);
 });
