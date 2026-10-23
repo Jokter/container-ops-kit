@@ -18,7 +18,7 @@ function fixture(mode='ok'){
    if(mode==='capture'&&!args.includes('--jq'))return {exitCode:0,output:'partial',outputTruncated:true};
    value={changes:[{new_path:'src/a.ts',old_path:mode==='renamed'?'old/a.ts':'src/a.ts',diff:['capture','large','renamed','missing-base','binary','added','deleted'].includes(mode)?undefined:diff,too_large:mode==='large',binary:mode==='binary',new_file:mode==='added',deleted_file:mode==='deleted'}]};
   }
-  else if(args[1]==='repo'&&args[2]==='file'&&args[3]==='get'){reads.push([...args]);value={file_path:args.find(a=>a.startsWith('--file-path='))!.slice('--file-path='.length),encoding:'base64',content:Buffer.from(args[args.indexOf('--ref')+1]===other?'old\ntail\n':'old\nnew\ntail\n').toString('base64')};}
+  else if(args[1]==='repo'&&args[2]==='file'&&args[3]==='get'){reads.push([...args]);assert.equal(args[args.indexOf('--columns')+1],'content,file_path,encoding,size,truncated');if(mode==='file-fail')return {exitCode:1,output:'unknown option: secret-token'};value={file_path:args.find(a=>a.startsWith('--file-path='))!.slice('--file-path='.length),encoding:'base64',content:Buffer.from(args[args.indexOf('--ref')+1]===other?'old\ntail\n':'old\nnew\ntail\n').toString('base64')};}
   else if(args[3]==='list')value=notes();
   else if(args[2]==='review'){
    writes.push([...args]);
@@ -128,4 +128,11 @@ test('recovery preserves middle edits in large text, empty and newline-only chan
  assert.equal(reviewFileText(JSON.stringify({file_path:'x',content:Buffer.from(after).toString('base64')}),'x'),after);
  assert.match(await recoveredReviewDiff('a','a\n'),/-a\n\+a/);
  assert.equal(await recoveredReviewDiff('',''),'@@ -0,0 +0,0 @@\n');
+});
+
+test('file read failures expose an actionable safe client error',async()=>{
+ const f=fixture('file-fail');try{await assert.rejects(f.service.reviewFileContext(f.e.id,{sha,path:'src/a.ts'}),error=>{assert.ok(error instanceof Error);assert.equal(Reflect.get(error,'statusCode'),422);assert.match(error.message,/CLI 不支持/);assert.doesNotMatch(error.message,/secret-token/);return true;});}finally{await f.shutdown();}
+});
+test('invalid or oversized source returns an actionable client error',()=>{
+ for(const data of [{file_path:'a.ts',content:'',truncated:true},{file_path:'a.ts',content:'?'}])assert.throws(()=>reviewFileText(JSON.stringify(data),'a.ts'),error=>{assert.ok(error instanceof Error);assert.equal(Reflect.get(error,'statusCode'),422);return true;});
 });

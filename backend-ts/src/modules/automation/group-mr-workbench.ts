@@ -20,32 +20,33 @@ export interface ReviewNote {id:string;body:string;author:string;time:string;sys
 export interface ReviewThread {id:string;body:string;author:string;resolved:boolean;resolvable:boolean;path:string;oldPath:string;line:number|null;oldLine:number|null;headSha:string;notes:ReviewNote[];fingerprint:string;}
 export interface ReviewFile {path:string;oldPath:string;diff:string;status:string;unavailable:boolean;binary?:boolean;}
 export const reviewFileRequest=z.object({sha:reviewSha,path}).strict();
+export class ReviewFileError extends Error { readonly statusCode=422; }
 // The CLI file endpoint returns base64; never treat logs or a partial response as source.
 export function reviewFileText(output:string,expectedPath:string):string {
  const schema=z.object({content:z.string(),file_path:z.literal(expectedPath),encoding:z.literal('base64').optional(),size:z.number().int().nonnegative().optional(),truncated:z.boolean().optional()});
  for(const value of jsonValues(output)){
   const result=schema.safeParse(value);if(!result.success)continue;
   const file=result.data,encoded=file.content.replace(/\s/g,'');
-  if(file.truncated||encoded.length>6*1024*1024)throw Error('文件过大或内容被截断，无法展开完整文件');
-  if(encoded.length%4!==0||!/^[A-Za-z0-9+/]*={0,2}$/.test(encoded))throw Error('文件内容编码无效');
+  if(file.truncated||encoded.length>6*1024*1024)throw new ReviewFileError('文件过大或内容被截断，无法展开完整文件');
+  if(encoded.length%4!==0||!/^[A-Za-z0-9+/]*={0,2}$/.test(encoded))throw new ReviewFileError('文件内容编码无效');
   const bytes=Buffer.from(encoded,'base64');
-  if(bytes.toString('base64')!==encoded)throw Error('文件内容编码无效');
-  if(bytes.length>4*1024*1024||(file.size!==undefined&&file.size!==bytes.length))throw Error('文件过大或内容不完整，无法展开完整文件');
-  let text:string;try{text=new TextDecoder('utf-8',{fatal:true,ignoreBOM:true}).decode(bytes);}catch{throw Error('文件不是 UTF-8 文本，无法展开');}
-  if(text.includes('\0'))throw Error('二进制文件无法展开');
-  if(text.split('\n').length>50001)throw Error('文件超过 50000 行，请在 CodeHub 查看');
+  if(bytes.toString('base64')!==encoded)throw new ReviewFileError('文件内容编码无效');
+  if(bytes.length>4*1024*1024||(file.size!==undefined&&file.size!==bytes.length))throw new ReviewFileError('文件过大或内容不完整，无法展开完整文件');
+  let text:string;try{text=new TextDecoder('utf-8',{fatal:true,ignoreBOM:true}).decode(bytes);}catch{throw new ReviewFileError('文件不是 UTF-8 文本，无法展开');}
+  if(text.includes('\0'))throw new ReviewFileError('二进制文件无法展开');
+  if(text.split('\n').length>50001)throw new ReviewFileError('文件超过 50000 行，请在 CodeHub 查看');
   return text;
  }
- throw Error('CodeHub 未返回完整文件内容，请检查 repo file get 的输出');
+ throw new ReviewFileError('CodeHub 未返回完整文件内容，请检查 repo file get 的输出');
 }
 // Fill only unchanged gaps from the pinned head. Deleted lines remain from the MR diff.
 // Validate every hunk against the fetched source before displaying any expanded rows.
 export function fullReviewDiff(file:ReviewFile,content:string):string {
- if(file.unavailable)throw Error('该文件的差异不完整，无法展开');
+ if(file.unavailable)throw new ReviewFileError('该文件的差异不完整，无法展开');
  const source=content?content.replace(/\r\n/g,'\n').split('\n'):[];if(content.endsWith('\n'))source.pop();
  const output:string[]=[];let oldNext=1,newNext=1,index=0;
  const patch=file.diff.replace(/\r\n/g,'\n').split('\n');
- const mismatch=()=>Error('文件内容与当前差异不一致，请刷新代码后重试');
+ const mismatch=()=>new ReviewFileError('文件内容与当前差异不一致，请刷新代码后重试');
  while(index<patch.length){
   const text=patch[index++]!;if(!text&&index===patch.length)break;
   const h=text.match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/);if(!h)throw mismatch();
@@ -64,7 +65,7 @@ export function fullReviewDiff(file:ReviewFile,content:string):string {
   if(oldRead!==oldCount||newRead!==newCount)throw mismatch();
  }
  while(newNext<=source.length){output.push(' '+source[newNext++-1]);oldNext++;}
- if(output.length>50000)throw Error('展开内容超过 50000 行，请在 CodeHub 查看');
+ if(output.length>50000)throw new ReviewFileError('展开内容超过 50000 行，请在 CodeHub 查看');
  return `@@ -${oldNext>1?1:0},${oldNext-1} +${source.length?1:0},${source.length} @@\n${output.join('\n')}`;
 }
 // Compare only pinned file contents in a private temporary directory, never repository paths.
@@ -74,7 +75,7 @@ export async function recoveredReviewDiff(before:string,after:string):Promise<st
   await writeFile(join(dir,'before'),before,{mode:0o600});await writeFile(join(dir,'after'),after,{mode:0o600});
   const patch=await new Promise<string>((resolve,reject)=>{
    execFile('git',['-c','core.autocrlf=false','diff','--no-index','--no-ext-diff','--no-textconv','--text','--unified=3','--','before','after'],{cwd:dir,encoding:'utf8',timeout:30000,maxBuffer:12*1024*1024},(error,stdout)=>{
-    if(error&&error.code!==1){reject(Error('文件差异计算失败或超时，请在 CodeHub 查看'));return;}resolve(stdout);
+    if(error&&error.code!==1){reject(new ReviewFileError('文件差异计算失败或超时，请在 CodeHub 查看'));return;}resolve(stdout);
    });
   });
   const start=patch.indexOf('@@ '),diff=start<0?'':patch.slice(start);

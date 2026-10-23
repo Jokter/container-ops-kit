@@ -1,4 +1,4 @@
-import {reviewAction,reviewSha,reviewThreads,reviewFiles,reviewFileRequest,reviewFileText,fullReviewDiff,recoveredReviewDiff,addedLines,supportsReviewCommand,type ReviewThread,type ReviewCapabilities,type ReviewWorkspace} from './group-mr-workbench.js';
+import {ReviewFileError,reviewAction,reviewSha,reviewThreads,reviewFiles,reviewFileRequest,reviewFileText,fullReviewDiff,recoveredReviewDiff,addedLines,supportsReviewCommand,type ReviewThread,type ReviewCapabilities,type ReviewWorkspace} from './group-mr-workbench.js';
 import {parseReviewAssessment,discussionFingerprint,ownsDiscussion,developerReplied,type ClosureDiscussion,type OwnedDiscussion,type ReviewAssessment} from './review-closure.js';
 import {AsyncLocalStorage} from 'node:async_hooks';
 import {setTimeout as delay} from 'node:timers/promises';
@@ -266,6 +266,17 @@ export class GroupMrService {
    result={sha,state:initial.state,files,threads,capabilities,writePending:e.writePending,stale:sha!==e.sha,readAt:new Date().toISOString(),confirmedOperationId:e.manualReviewLastOperation||''};
   });if(!result)throw Error('检视数据未完成');return result;
  }
+ private async readReviewFile(e:Entry,path:string,sha:string){
+  let output:string;
+  try{output=await this.code(['repo','file','get','-p',e.repo,'--file-path='+path,'--ref',sha],'content,file_path,encoding,size,truncated');}
+  catch(error){
+   // command() already records diagnostics; never expose raw subprocess output or credentials.
+   const message=error instanceof Error?error.message:'';
+   const hint=message.includes('输出超过')?'CLI 返回内容超过读取上限，请在 CodeHub 查看':message.includes('未找到')?'未找到 codehub-cli，请检查服务进程的 PATH':/认证|登录|权限|403/.test(message)?'请检查 CodeHub 登录状态及仓库访问权限':message.includes('不支持')?'当前 CLI 不支持文件读取命令或参数，请更新 CLI':'请检查后端 group-mr-errors.jsonl 中 repo file get 的执行记录';
+   throw new ReviewFileError('读取文件原文失败：'+hint);
+  }
+  return reviewFileText(output,path);
+ }
  async reviewFileContext(id:string,value:unknown){
   const input=reviewFileRequest.parse(value),e=this.workbenchEntry(id);
   let result:{sha:string;path:string;diff:string;originalDiff:string}|undefined;
@@ -273,18 +284,18 @@ export class GroupMrService {
    const initial=await this.workbenchHead(e,input.sha);
    const file=(await this.workbenchFiles(e)).find(f=>f.path===input.path);
    if(!file)throw Object.assign(Error('文件不在当前变更中，无法展开'),{statusCode:409});
-   if(file.binary)throw Error('二进制文件无法展示行级差异');
-   const content=file.status==='deleted'?'':reviewFileText(await this.code(['repo','file','get','-p',e.repo,'--file-path='+file.path,'--ref',input.sha]),file.path);
+   if(file.binary)throw new ReviewFileError('二进制文件无法展示行级差异');
+   const content=file.status==='deleted'?'':await this.readReviewFile(e,file.path,input.sha);
    let diff:string;
    if(file.unavailable){
     const base=file.status==='added'?'':reviewSha.safeParse(initial.diff_refs?.base_sha);
-    if(base!==''&&!base.success)throw Error('CodeHub 未返回 MR 比较基线 SHA，无法重建差异');
+    if(base!==''&&!base.success)throw new ReviewFileError('CodeHub 未返回 MR 比较基线 SHA，无法重建差异');
     const oldPath=file.oldPath||file.path;
-    const before=base===''?'':reviewFileText(await this.code(['repo','file','get','-p',e.repo,'--file-path='+oldPath,'--ref',base.data]),oldPath);
+    const before=base===''?'':await this.readReviewFile(e,oldPath,base.data);
     diff=await recoveredReviewDiff(before,content);
    }else diff=fullReviewDiff(file,content);
    const latest=await this.workbenchHead(e,input.sha);
-   if(file.unavailable&&initial.diff_refs?.base_sha!==latest.diff_refs?.base_sha)throw Error('MR 比较基线已变化，请刷新代码');
+   if(file.unavailable&&initial.diff_refs?.base_sha!==latest.diff_refs?.base_sha)throw Object.assign(Error('MR 比较基线已变化，请刷新代码'),{statusCode:409});
    result={sha:input.sha,path:file.path,diff,originalDiff:file.diff};
   });
   if(!result)throw Error('文件内容未读取完成');return result;
