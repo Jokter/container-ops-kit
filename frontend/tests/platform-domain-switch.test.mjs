@@ -30,13 +30,13 @@ test('左下角展示与项目配置一致的版本号', () => {
   页面实例.window.close()
 })
 
-test('正式页面可以在四个工作空间之间切换', () => {
+test('正式页面可以在五个工作空间之间切换', () => {
   const 页面实例 = 打开页面()
   const 文档 = 页面实例.window.document
 
   assert.deepEqual(
     [...文档.querySelectorAll('[data-platform-domain]')].map(入口 => 入口.dataset.platformDomain),
-    ['automation', 'container', 'virtualization', 'applications']
+    ['automation', 'container', 'virtualization', 'tools', 'applications']
   )
   assert.equal(文档.querySelector('.pr-switch-menu').tagName, 'NAV')
   assert.equal(文档.querySelector('[data-platform-domain="automation"]').getAttribute('aria-current'), 'page')

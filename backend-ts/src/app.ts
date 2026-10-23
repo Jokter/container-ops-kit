@@ -1,3 +1,4 @@
+import {ToolsService,toolsRoutes} from './modules/tools/tools.js';
 import {ApplicationService,applicationRoutes} from './modules/applications/applications.js';
 import {overviewRoutes} from './platform/overview.js';
 import {effectivenessRoutes} from './modules/automation/effectiveness.js';
@@ -38,6 +39,7 @@ export async function createApp(config: Config) {
   const quality=new QualityService(store,logs),reports=new AutoUtReports(store,quality,autoUt,logs,false);
   const schedules=new UnifiedSchedules(store,quality,reports,autoUt,logs);
   const groupMr=new GroupMrService(store,undefined,logs);
+  toolsRoutes(app,new ToolsService(store));
   applicationRoutes(app,new ApplicationService(store));overviewRoutes(app,store,groupMr);
   groupMrRoutes(app,groupMr);knowledgeRoutes(app,groupMr.knowledge);effectivenessRoutes(app,store,groupMr);
   automationRecordRoutes(app,new AutomationRecords(autoUt,reports,quality));scheduleRoutes(app,schedules);qualityRoutes(app,quality);autoUtReportRoutes(app,reports,schedules);
