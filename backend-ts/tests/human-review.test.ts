@@ -21,7 +21,7 @@ for(const scenario of ['pass','reject','changed','comments','pipeline','duplicat
  const service=new GroupMrService(store,execute),e=entry();service.configure(cfg);
  try{store.putRecord('group-mr-entry',e.id,e);await service['process'](e,cfg);assert.equal(e.phase,'HUMAN');assert.equal(e.notification?.status,'unconfirmed');assert.deepEqual(writes,[]);
   if(scenario==='changed')head='b'.repeat(40);blocked=true;
-  if(scenario==='changed'){await assert.rejects(service.submitReview(e.id,{sha,decision:'pass',reason:''}),/提交已变化/);assert.equal(service.knowledge.reviews().length,0);}
+  if(['changed','comments','pipeline'].includes(scenario)){await assert.rejects(service.submitReview(e.id,{sha,decision:'pass',reason:''}));assert.equal(service.knowledge.reviews().length,0);}
   else{const response=await service.submitReview(e.id,{sha,decision:scenario==='reject'?'reject':'pass',reason:scenario==='reject'?'业务语义不兼容':''});assert.equal(response.humanReview?.sha,sha);if(scenario==='duplicate')await assert.rejects(service.submitReview(e.id,{sha,decision:'pass',reason:''}));await Promise.allSettled(service['background']);assert.equal(service.knowledge.reviews().length,1);assert.equal(merged,['pass','duplicate','reply-failed'].includes(scenario));}
   if(scenario==='reply-failed'){assert.equal(service.list()[0]?.phase,'DONE');assert.equal(service.list()[0]?.reply?.status,'unconfirmed');}
   if(!['pass','duplicate','reply-failed'].includes(scenario))assert.deepEqual(writes,[]);

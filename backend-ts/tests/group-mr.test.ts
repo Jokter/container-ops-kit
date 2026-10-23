@@ -820,10 +820,10 @@ for(const phase of ['NO_PERMISSION','INTERRUPTED','FAILED','ISSUES','HUMAN'] as 
   assert.equal(service.configuration().enabled,false);
   t.mock.timers.tick(5000);await settle(service);assert.equal(commands.length,1);assert.equal(service.summary().pending[0]?.phase,phase);
   unavailable=false;
-  t.mock.timers.tick(595000);await settle(service);assert.equal(commands.length,1);
+  t.mock.timers.tick(55000);await settle(service);assert.equal(commands.length,1);
   t.mock.timers.tick(5000);await settle(service);assert.equal(commands.length,2);assert.equal(service.summary().pending.length,1);
   remote=phase==='NO_PERMISSION'||phase==='FAILED'?'merged':'closed';
-  t.mock.timers.tick(600000);await settle(service);
+  t.mock.timers.tick(60000);await settle(service);
   assert.equal(commands.length,3);assert.equal(service.summary().pending.length,0);assert.equal(service.summary().history[0]?.phase,remote==='merged'?'DONE':'CLOSED');
   t.mock.timers.tick(1200000);await settle(service);assert.equal(commands.length,3);
  }finally{await service.close();store.close();}
@@ -881,5 +881,17 @@ test('restart preserves pipeline waits and marks only unfinished work interrupte
  try{for(const id of ['waiting','legacy'])assert.equal(service.list().find(e=>e.id===id)?.phase,'PIPELINE');
  for(const id of ['active','queued','write'])assert.equal(service.list().find(e=>e.id===id)?.phase,'INTERRUPTED');
  assert.equal(service.list().find(e=>e.id==='active')?.writePending,'');assert.equal(service.list().find(e=>e.id==='write')?.writePending,'合并');assert.equal(calls,0);
+ }finally{await service.close();store.close();}
+});
+
+test('pending MR polling repeats after one minute and archives closure before discussion reconciliation',async()=>{
+ const store=new TaskStore(':memory:');let state='opened',views=0;const sha='a'.repeat(40);
+ const service=new GroupMrService(store,async args=>{assert.equal(args[2],'view');views++;return {exitCode:0,output:JSON.stringify({iid:1,state,sha,title:'远端 MR 标题'})};});
+ const e={id:'poll-title',repo:'MAE-M/Access/Demo',iid:'1',url:'',sha,previousSha:'',messageId:'1',sender:'developer',shortcut:false,phase:'ISSUES',status:'',detail:'',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),writePending:'',events:[]};
+ try{
+  store.putRecord('group-mr-entry',e.id,e);service.refreshRemoteStates();await settle(service);assert.equal(views,1);assert.equal(service.summary().pending[0]?.title,'远端 MR 标题');
+  service.refreshRemoteStates();await settle(service);assert.equal(views,1);
+  state='merged';store.putRecord('group-mr-entry',e.id,{...e,writePending:'闭环检视意见 missing'});service['stateChecks'].set(e.repo+':'+e.iid,Date.now()-61_000);service.refreshRemoteStates();await settle(service);
+  assert.equal(views,2);assert.equal(service.summary().pending.length,0);assert.equal(service.summary().history[0]?.phase,'DONE');
  }finally{await service.close();store.close();}
 });

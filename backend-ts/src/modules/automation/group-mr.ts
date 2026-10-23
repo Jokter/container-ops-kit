@@ -21,7 +21,7 @@ type Configuration=Omit<z.infer<typeof configSchema>,'humanReviewEnabled'> & {hu
 const defaults:Configuration={humanReviewEnabled:true,enabled:false,groupId:'',authorizedSender:'',repositoryPrefix:'MAE-M/Access/',intervalSeconds:10};
 const phase=z.enum(['QUEUED','HUMAN','PIPELINE','PI','COMMENTS','REVIEW','APPROVE','MERGE','DONE','CLOSED','ISSUES','FAILED','NO_PERMISSION','INTERRUPTED']);
 type Phase=z.infer<typeof phase>;
-export interface Entry{pipelineWaiting?:boolean;manualReviewLastOperation?:string;manualReviewPending?:{operationId:string;operationHash:string;action:'resolve'|'reply'|'create';sha:string;discussionId:string;marker:string;reason:string};reviewAssessment?:ReviewAssessment;rolesPrepared?:boolean;humanReviewRequired?:boolean;humanReviewSkipped?:boolean;queued?:boolean;humanStartedAt?:string;humanReview?:HumanReview;notification?:{sha:string;receiver:string;status:string};knowledgeIds?:string[];piOutput?:string;reviewSkipped?:boolean;supersededBy?:string;pipelinePassed?:boolean;piReview?:{source?:'codehub';ok?:boolean;findings?:Array<{path:string;line:number;body:string}>;sha:string;discussionKey:string;summary:string;resolvedDiscussionIds:string[]};id:string;repo:string;iid:string;url:string;sha:string;previousSha:string;messageId:string;sender:string;shortcut:boolean;phase:Phase;stage?:Phase;status:string;detail:string;createdAt:string;updatedAt:string;writePending:string;events:Array<{time:string;phase:Phase;message:string}>;reviewComments?:Array<{id:string;body:string;resolved:boolean}>;reply?:{text:string;mode:'quote'|'reference';status:'sending'|'sent'|'unconfirmed'|'checked'}}
+export interface Entry{title?:string;pipelineWaiting?:boolean;manualReviewLastOperation?:string;manualReviewPending?:{operationId:string;operationHash:string;action:'resolve'|'reply'|'create';sha:string;discussionId:string;marker:string;reason:string};reviewAssessment?:ReviewAssessment;rolesPrepared?:boolean;humanReviewRequired?:boolean;humanReviewSkipped?:boolean;queued?:boolean;humanStartedAt?:string;humanReview?:HumanReview;notification?:{sha:string;receiver:string;status:string};knowledgeIds?:string[];piOutput?:string;reviewSkipped?:boolean;supersededBy?:string;pipelinePassed?:boolean;piReview?:{source?:'codehub';ok?:boolean;findings?:Array<{path:string;line:number;body:string}>;sha:string;discussionKey:string;summary:string;resolvedDiscussionIds:string[]};id:string;repo:string;iid:string;url:string;sha:string;previousSha:string;messageId:string;sender:string;shortcut:boolean;phase:Phase;stage?:Phase;status:string;detail:string;createdAt:string;updatedAt:string;writePending:string;events:Array<{time:string;phase:Phase;message:string}>;reviewComments?:Array<{id:string;body:string;resolved:boolean}>;reply?:{text:string;mode:'quote'|'reference';status:'sending'|'sent'|'unconfirmed'|'checked'}}
 interface ReviewCheckpoint {sha:string;review:NonNullable<Entry['piReview']>;completedAt:string}
 interface GroupMessage{id:string;content:string;sender:string;quoteId:string;quotedContent?:string}
 type Discussion=ClosureDiscussion;
@@ -187,11 +187,11 @@ export class GroupMrService {
  // Reconcile by reading CodeHub; only the first confirmed merge result may notify the group.
  refreshRemoteStates(){
   if(this.closing)return;
-  const candidates=this.summary().pending.filter(e=>!this.reserved.has(e.repo+':'+e.iid)&&Date.now()-(this.stateChecks.get(e.repo+':'+e.iid)??0)>=10*60_000)
+  const candidates=this.summary().pending.filter(e=>!this.reserved.has(e.repo+':'+e.iid)&&Date.now()-(this.stateChecks.get(e.repo+':'+e.iid)??0)>=60_000)
    .sort((a,b)=>(this.stateChecks.get(a.repo+':'+a.iid)??0)-(this.stateChecks.get(b.repo+':'+b.iid)??0)).slice(0,Math.max(0,this.concurrency-this.active.size));
   for(const row of candidates){
    const e=this.store.getRecord<Entry>('group-mr-entry',row.id)!;this.stateChecks.set(e.repo+':'+e.iid,Date.now());
-   const key=e.repo+':'+e.iid;const job=this.enqueue(e,async()=>{try{const remote=await this.view(e);await this.reconcileClosure(e);if(this.archiveRemote(e,remote)&&remote.state==='merged'){try{await this.replyMerged(e,this.configuration(),'已核对 CodeHub，MR 已合入。');}catch{e.detail='MR 已合入，但群消息回复结果未确认，请核对 WeLink';this.save(e);}}}catch{this.recordLog('error','MR 远端状态查询失败，保留当前状态');}}).catch(()=>{});
+   const key=e.repo+':'+e.iid;const job=this.enqueue(e,async()=>{try{const remote=await this.view(e);const archived=this.archiveRemote(e,remote);if(!archived)await this.reconcileClosure(e);if(archived&&remote.state==='merged'){try{await this.replyMerged(e,this.configuration(),'已核对 CodeHub，MR 已合入。');}catch{e.detail='MR 已合入，但群消息回复结果未确认，请核对 WeLink';this.save(e);}}}catch{this.recordLog('error','MR 远端状态查询失败，保留当前状态');}}).catch(()=>{});
    this.stateJobs.set(key,job);void job.then(()=>this.stateJobs.delete(key));
   }
  }
@@ -228,7 +228,8 @@ export class GroupMrService {
  }
  private async workbenchHead(e:Entry,sha:string,write=false){
   const v=await this.view(e);
-  if(this.head(v)!==sha||(write&&v.state!=='opened'))throw Object.assign(Error('MR 提交或状态已变化，请刷新代码后重新检视'),{statusCode:409});
+  if(write&&v.state!=='opened')throw Object.assign(Error(v.state==='merged'?'MR 已合入，不能重复审核或合入':v.state==='closed'?'MR 已关闭，不能审核或合入':'MR 当前状态不可写入'),{statusCode:409});
+  if(this.head(v)!==sha)throw Object.assign(Error('MR 提交已变化，请刷新代码与意见后核对最新提交'),{statusCode:409});
   return v;
  }
  private async workbenchNotes(e:Entry){return reviewThreads(await this.code(['mr','review','list',e.iid,'-p',e.repo]));}
@@ -263,7 +264,7 @@ export class GroupMrService {
    this.reconcileManualReview(e,threads);
    const capabilities=await this.reviewCapabilities();
    e.reviewComments=threads.filter(n=>n.resolvable).map(({id,body,resolved})=>({id,body,resolved}));this.save(e);
-   result={sha,state:initial.state,files,threads,capabilities,writePending:e.writePending,stale:sha!==e.sha,readAt:new Date().toISOString(),confirmedOperationId:e.manualReviewLastOperation||''};
+   result={sha,title:initial.title??'',state:initial.state,files,threads,capabilities,writePending:e.writePending,stale:sha!==e.sha,readAt:new Date().toISOString(),confirmedOperationId:e.manualReviewLastOperation||''};
   });if(!result)throw Error('检视数据未完成');return result;
  }
  private async readReviewFile(e:Entry,path:string,sha:string){
@@ -342,17 +343,32 @@ export class GroupMrService {
   return this.store.getRecord<Entry>('group-mr-entry',id)!;
  }
 
+ private async verifyManualReview(e:Entry,sha:string){
+  await this.workbenchHead(e,sha,true);
+  const notes=await this.workbenchNotes(e);
+  if(notes.some(n=>n.resolvable&&!n.resolved))throw Object.assign(Error('仍有未关闭的检视意见，请先处理'),{statusCode:409});
+  const gate=await this.gate(e);
+  const pipelines=listObjects(await this.code(['mr','pipeline',e.iid,'-p',e.repo],'id,status,sha,commit_id,commit')).map(p=>pipelineSchema.parse(p));
+  if(pipelines.find(p=>(p.sha||p.commit_id||p.commit?.id)===sha)?.status!=='success'||gate.ci_state_passed!==true||gate.quality_gate?.passed===false||gate.conflict_passed===false)throw Object.assign(Error('当前提交流水线、质量或冲突门禁未通过'),{statusCode:409});
+  await this.workbenchHead(e,sha,true);
+  e.reviewComments=notes.filter(n=>n.resolvable).map(({id,body,resolved})=>({id,body,resolved}));e.pipelinePassed=true;
+  if(e.writePending==='Pi 提交检视意见'){
+   e.writePending='';e.events.push({time:new Date().toISOString(),phase:e.phase,message:'人工操作前已核对当前提交：无未关闭意见且流水线通过，解除 Agent 意见结果待核对拦截；未重跑 Agent'});
+  }
+  this.save(e);
+ }
  async mergeRecord(id:string,value:unknown){
   const input=z.object({sha:z.string().regex(/^[a-f0-9]{40}$/i),confirmed:z.literal(true)}).strict().parse(value),e=this.editable(id);
   if(e.supersededBy||this.store.getRecord('group-mr-hidden',id))throw Object.assign(Error('本记录已被替代或删除，请刷新'),{statusCode:409});
-  if(!['PIPELINE','ISSUES','NO_PERMISSION','INTERRUPTED','REVIEW','APPROVE','MERGE'].includes(e.phase)||e.writePending||e.sha!==input.sha)throw Object.assign(Error('当前记录不可合入、提交已变化或有待核对操作，请刷新并核对'),{statusCode:409});
+  if(!['PIPELINE','ISSUES','NO_PERMISSION','INTERRUPTED','REVIEW','APPROVE','MERGE'].includes(e.phase)||(e.writePending&&e.writePending!=='Pi 提交检视意见')||e.sha!==input.sha)throw Object.assign(Error('当前记录不可合入、提交已变化或有待核对操作，请刷新并核对'),{statusCode:409});
   if(!e.shortcut){
    if(e.humanReviewRequired!==false&&(e.humanReview?.sha!==input.sha||e.humanReview.decision!=='pass'))throw Object.assign(Error('请先完成当前提交的人工审核'),{statusCode:409});
-   if(e.piReview?.source!=='codehub'||e.piReview.sha!==input.sha||e.piReview.ok!==true||e.piReview.findings?.length)throw Object.assign(Error('当前提交尚无通过的 Agent 检视结果，请先完成检视'),{statusCode:409});
+   if((e.piReview?.source!=='codehub'||e.piReview.sha!==input.sha||e.piReview.ok!==true||e.piReview.findings?.length)&&(e.humanReview?.sha!==input.sha||e.humanReview.decision!=='pass'))throw Object.assign(Error('当前提交尚无通过的 Agent 检视结果，请先完成检视'),{statusCode:409});
   }
   const cfg=this.configuration();
   intervention(this.store,id,'manual-merge');
   await this.enqueue(e,async()=>{
+   if(e.writePending==='Pi 提交检视意见')await this.verifyManualReview(e,input.sha);
    this.mark(e,'MERGE','已请求合入，正在重新核对当前提交与门禁');e.detail='';this.save(e);
    // Continue the existing checked workflow; do not create a shortcut or resolve comments implicitly.
    await this.executeEntry(e,cfg,false);
@@ -363,11 +379,12 @@ export class GroupMrService {
  async submitReview(id:string,value:unknown){
   const input=reviewInput.parse(value),e=this.editable(id);
   if(e.supersededBy||this.store.getRecord('group-mr-hidden',id))throw Object.assign(Error('本记录已被新记录替代或删除，请刷新'),{statusCode:409});
-  if(e.phase!=='HUMAN'||e.writePending||input.sha!==e.sha)throw Object.assign(Error('不是当前待审核提交，请刷新'),{statusCode:409});
+  if(!['HUMAN','ISSUES','FAILED','NO_PERMISSION','INTERRUPTED','PIPELINE'].includes(e.phase)||(e.writePending&&e.writePending!=='Pi 提交检视意见')||input.sha!==e.sha)throw Object.assign(Error('不是当前待审核提交，请刷新'),{statusCode:409});
   if(e.humanReview?.decision===input.decision&&e.humanReview.reason===input.reason&&e.humanReview.category===input.category)throw Object.assign(Error('相同审核已提交，请刷新'),{statusCode:409});
   return new Promise<Entry>((resolve,reject)=>{
    void this.enqueue(e,async()=>{
-    try{const remote=await this.view(e);if(remote.state!=='opened'||this.head(remote)!==input.sha)throw Object.assign(Error('提交已变化或 MR 已关闭，请重新发送链接'),{statusCode:409});}catch(error){await this.replyFailure(e,this.configuration(),error instanceof Error?error.message:'无法核对当前提交').catch(()=>{});throw error;}
+    if(input.decision==='pass')await this.verifyManualReview(e,input.sha);
+    try{await this.workbenchHead(e,input.sha,true);}catch(error){await this.replyFailure(e,this.configuration(),error instanceof Error?error.message:'无法核对当前提交').catch(()=>{});throw error;}
     const record:HumanReview={...input,id:randomUUID(),entryId:e.id,repo:e.repo,iid:e.iid,url:e.url,time:new Date().toISOString(),waitMs:Math.max(0,Date.now()-Date.parse(e.humanReview?.time||e.humanStartedAt||e.updatedAt)),actor:'平台人工审核',knowledgeStatus:input.reason?'pending':'skipped'};
     this.knowledge.saveReview(record);e.humanReview=record;this.save(e);this.startKnowledge(record);
     if(input.decision==='reject'){this.mark(e,'HUMAN','人工审核不通过：'+input.reason);resolve(e);return;}
@@ -490,7 +507,7 @@ export class GroupMrService {
   }catch(error){const reason=error instanceof Error?error.message:'处理失败';if(entry.phase==='DONE')await this.replyMerged(entry,cfg).catch(()=>{});if(['DONE','CLOSED','FAILED','NO_PERMISSION'].includes(entry.phase)){entry.detail=reason;this.save(entry);}else{this.mark(entry,this.stoppedPhase(entry),reason);if(!this.closing){if(['APPROVE','MERGE'].includes(entry.stage??''))await this.replyFailure(entry,cfg,reason).catch(()=>{});else if(!entry.writePending)await this.reply(entry,cfg,reason).catch(()=>{});}}}
  }
 
- private async view(e:Entry){return parseMr(await this.code(['mr','view',e.iid,'-p',e.repo],'iid,id,mr_url,state,sha,diff_refs,approval_merge_request_reviewers,approval_merge_request_approvers,merge_request_assignee_list'));}
+ private async view(e:Entry){const remote=parseMr(await this.code(['mr','view',e.iid,'-p',e.repo],'iid,id,mr_url,title,state,sha,diff_refs,approval_merge_request_reviewers,approval_merge_request_approvers,merge_request_assignee_list'));if(remote.title!==undefined&&remote.title!==e.title){e.title=remote.title;this.save(e);}return remote;}
  private head(v:MrView){return v.diff_refs?.head_sha||v.sha||'';}
  private async gate(e:Entry){return parseObject(gateSchema,await this.code(['mr','gate',e.iid,'-p',e.repo],'ci_state_passed,quality_gate,conflict_passed,approval_reviewers_required_passed,approval_approvers_required_passed,merge_gate_passed,pipeline'),g=>g.ci_state_passed!==undefined);}
  private async current(e:Entry,sha:string,allowUnresolved=false){const view=await this.view(e);if(this.archiveRemote(e,view))throw Error('MR 已合入或关闭，本次处理结束');if(view.state!=='opened'||this.head(view)!==sha)throw Error('MR 已关闭或提交已变化，本次处理已停止；请重新发送链接');const gate=await this.gate(e);if(gate.ci_state_passed!==true||gate.quality_gate?.passed===false||gate.conflict_passed===false)throw Error('当前提交质量门禁或冲突检查未通过');const notes=parseDiscussions(await this.code(['mr','review','list',e.iid,'-p',e.repo]));if(!allowUnresolved&&notes.some(n=>!n.resolved))throw Error('仍有未闭环检视意见，禁止审核与合入');return {view,gate};}

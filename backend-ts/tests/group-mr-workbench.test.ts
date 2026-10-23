@@ -58,9 +58,9 @@ test('file context is a read pinned to the head and restricted to the current MR
   assert.equal(result.sha,sha);assert.equal(result.originalDiff,diff);assert.match(result.diff,/\+new/);assert.equal(f.reads.length,1);
   assert.ok(f.reads[0]!.includes('--file-path=src/a.ts'));assert.equal(f.reads[0]![f.reads[0]!.indexOf('--ref')+1],sha);assert.equal(f.writes.length,0);
   await assert.rejects(f.service.reviewFileContext(f.e.id,{sha,path:'../other'}),/不在当前变更/);assert.equal(f.reads.length,1);
-  f.setHead();await assert.rejects(f.service.reviewFileContext(f.e.id,{sha,path:'src/a.ts'}),/提交或状态已变化/);assert.equal(f.reads.length,1);
+  f.setHead();await assert.rejects(f.service.reviewFileContext(f.e.id,{sha,path:'src/a.ts'}),/提交已变化/);assert.equal(f.reads.length,1);
  }finally{await f.shutdown();}
- const changed=fixture('changed-read');try{await assert.rejects(changed.service.reviewFileContext(changed.e.id,{sha,path:'src/a.ts'}),/提交或状态已变化/);assert.equal(changed.writes.length,0);}finally{await changed.shutdown();}
+ const changed=fixture('changed-read');try{await assert.rejects(changed.service.reviewFileContext(changed.e.id,{sha,path:'src/a.ts'}),/提交已变化/);assert.equal(changed.writes.length,0);}finally{await changed.shutdown();}
 });
 test('workbench parsers preserve threads/positions, reject incomplete data, and map only added lines',()=>{
  const f=fixture();try{const threads=reviewThreads(JSON.stringify(f.notes()));assert.equal(threads[0]!.line,2);assert.equal(threads[0]!.notes[0]!.author,'reviewer');assert.equal(threads[0]!.resolvable,true);assert.equal(threads[0]!.fingerprint.length,64);
@@ -71,7 +71,7 @@ test('workbench parsers preserve threads/positions, reject incomplete data, and 
 });
 test('workspace reads actual diff and complete discussions, checks head twice, and never writes',async()=>{
  const f=fixture();try{const result=await f.service.reviewWorkspace(f.e.id);assert.equal(result?.sha,sha);assert.equal(result?.files[0]!.path,'src/a.ts');assert.equal(result?.threads.length,1);assert.equal(result?.capabilities.reply,true);assert.equal(f.writes.length,0);}finally{await f.shutdown();}
- const changed=fixture('changed-read');try{await assert.rejects(changed.service.reviewWorkspace(changed.e.id),/提交或状态已变化/);}finally{await changed.shutdown();}
+ const changed=fixture('changed-read');try{await assert.rejects(changed.service.reviewWorkspace(changed.e.id),/提交已变化/);}finally{await changed.shutdown();}
 });
 for(const action of ['resolve','reply','create'] as const)test('manual '+action+' uses one write and confirms remotely without merging',async()=>{
  const f=fixture();try{const fingerprint=reviewThreads(JSON.stringify(f.notes()))[0]!.fingerprint;

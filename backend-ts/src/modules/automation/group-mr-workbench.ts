@@ -117,7 +117,7 @@ export function addedLines(diff:string):Set<number>{
  for(const text of diff.split('\n')){const h=text.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/);if(h){next=Number(h[1]);inHunk=true;continue;}if(!inHunk)continue;if(text.startsWith('+'))result.add(next++);else if(text.startsWith(' '))next++;else if(!text.startsWith('-')&&!text.startsWith('\\'))inHunk=false;}
  return result;
 }
-export interface ReviewWorkspace {sha:string;state:string|undefined;files:ReviewFile[];threads:ReviewThread[];capabilities:ReviewCapabilities;writePending:string;stale:boolean;readAt:string;confirmedOperationId:string;}
+export interface ReviewWorkspace {title?:string;sha:string;state:string|undefined;files:ReviewFile[];threads:ReviewThread[];capabilities:ReviewCapabilities;writePending:string;stale:boolean;readAt:string;confirmedOperationId:string;}
 export interface ReviewCapabilities {reply:boolean;create:boolean;reason:string;}
 // Only allow a known adapter when local help confirms BOTH positional arguments and flags.
 // Unknown CLI versions fail closed; help text never supplies executable tokens.

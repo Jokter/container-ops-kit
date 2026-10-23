@@ -4,13 +4,14 @@ import {readFile} from 'node:fs/promises'
 import {JSDOM} from 'jsdom'
 const html=await readFile(new URL('../../index.html',import.meta.url),'utf8'),sha='a'.repeat(40),flush=()=>new Promise(r=>setTimeout(r,40))
 const row=id=>({id:String(id),repo:'MAE-M/Access/Repo'+id,iid:String(id),sha,phase:'ISSUES',status:'待修改',sender:'developer',events:[],reviewComments:[],writePending:'',updatedAt:'2026-10-22T10:00:00Z'})
-async function setup(t,{unsupported=false,failWrite=false,failReloadAfterClose=false,fileCount=0,extraThreads=[],contextFixture=false,failContext=false}={}){
- const records=Array.from({length:36},(_,i)=>row(i+1)),writes=[],fileReads=[];let closed=false,replies=[]
- const snapshot=()=>({sha,state:'opened',files:[{path:'src/a.ts',oldPath:'src/a.ts',status:'modified',diff:'@@ -1,3 +1,3 @@\n old\n-deleted\n+<script>alert(1)</script>\n tail',unavailable:false},{path:'src/large.bin',status:'added',diff:'',unavailable:true,binary:true},...Array.from({length:fileCount},(_,i)=>({path:'src/group'+Math.floor(i/16)+'/file'+i+'.ts',oldPath:'src/group'+Math.floor(i/16)+'/file'+i+'.ts',diff:'@@ -1 +1 @@\n-old\n+new',status:'modified'}))],threads:[{id:'thread',body:'修复边界问题',author:'reviewer',resolved:closed,resolvable:true,path:'src/a.ts',line:2,headSha:sha,fingerprint:'f'.repeat(64),notes:[{id:'1',body:'修复边界问题',author:'reviewer'},...replies]},...extraThreads],capabilities:{reply:!unsupported,create:!unsupported,reason:unsupported?'CLI 不支持':''},writePending:'',readAt:'2026-10-22T10:00:00Z'})
- const workspace=()=>{const value=snapshot();if(contextFixture){value.sha=records[0].sha;value.files[0].diff='@@ -31,3 +31,3 @@\n line31\n-old32\n+new32\n line33\n@@ -71 +71 @@\n-old71\n+new71';value.threads[0].line=32;}return value;};
+async function setup(t,{unsupported=false,failWrite=false,failReloadAfterClose=false,fileCount=0,extraThreads=[],contextFixture=false,failContext=false,staleReview=false}={}){
+ const records=Array.from({length:36},(_,i)=>row(i+1)),writes=[],fileReads=[];let closed=false,replies=[],reviewAttempted=false
+ const snapshot=()=>({sha,title:'修复边界 <script>标题</script>',state:'opened',files:[{path:'src/a.ts',oldPath:'src/a.ts',status:'modified',diff:'@@ -1,3 +1,3 @@\n old\n-deleted\n+<script>alert(1)</script>\n tail',unavailable:false},{path:'src/large.bin',status:'added',diff:'',unavailable:true,binary:true},...Array.from({length:fileCount},(_,i)=>({path:'src/group'+Math.floor(i/16)+'/file'+i+'.ts',oldPath:'src/group'+Math.floor(i/16)+'/file'+i+'.ts',diff:'@@ -1 +1 @@\n-old\n+new',status:'modified'}))],threads:[{id:'thread',body:'修复边界问题',author:'reviewer',resolved:closed,resolvable:true,path:'src/a.ts',line:2,headSha:sha,fingerprint:'f'.repeat(64),notes:[{id:'1',body:'修复边界问题',author:'reviewer'},...replies]},...extraThreads],capabilities:{reply:!unsupported,create:!unsupported,reason:unsupported?'CLI 不支持':''},writePending:'',readAt:'2026-10-22T10:00:00Z'})
+ const workspace=()=>{const value=snapshot();if(staleReview&&reviewAttempted){value.sha='b'.repeat(40);value.stale=true;value.threads.push({id:'latest',body:'远端新增检视意见',resolved:false,resolvable:true,notes:[]});}if(contextFixture){value.sha=records[0].sha;value.files[0].diff='@@ -31,3 +31,3 @@\n line31\n-old32\n+new32\n line33\n@@ -71 +71 @@\n-old71\n+new71';value.threads[0].line=32;}return value;};
  const expanded='@@ -1,80 +1,80 @@\n'+Array.from({length:80},(_,i)=>i===31?'-old32\n+new32':i===70?'-old71\n+new71':' line'+(i+1)).join('\n');
  const response=(data,ok=true)=>({ok,status:ok?200:409,json:async()=>data})
  const dom=new JSDOM(html,{runScripts:'dangerously',url:'http://localhost/#/automation/group-mr',beforeParse(w){w.scrollTo=()=>{};const timeout=w.setTimeout.bind(w);w.setTimeout=(fn,delay,...args)=>delay>500?0:timeout(fn,delay,...args);w.fetch=async(url,options)=>{
+  if(url.endsWith('/human-review')&&staleReview){reviewAttempted=true;writes.push(JSON.parse(options.body));return response({message:'MR 提交已变化，请刷新代码与意见后核对最新提交'},false);}
   if(url.includes('/file-context?')){fileReads.push(url);const q=new URL(url,'http://localhost').searchParams;return failContext?response({message:'完整文件读取失败'},false):response({sha:q.get('sha'),path:q.get('path'),originalDiff:workspace().files[0].diff,diff:expanded});}
   if(url.endsWith('/workspace')){if(options?.method==='POST'){const data=JSON.parse(options.body);writes.push(data);if(failWrite)return response({message:'写入结果待核对'},false);if(data.action==='resolve')closed=true;else replies.push({id:'2',body:data.body,author:'owner'});return response({ok:true})}if(closed&&failReloadAfterClose)return response({message:'刷新失败'},false);return response(workspace())}
   if(url==='/api/automation/group-mr')return response({config:{enabled:false},pending:records,history:[],monitor:{},metrics:{pending:records.length}})
@@ -38,7 +39,7 @@ test('diff is escaped, files switch, reply draft survives polling and MR switche
  click(d,'[data-mrw-file="1"]');assert.match(d.querySelector('.mr-diff-pane').textContent,/二进制/);click(d,'[data-mrw-file="0"]')
  click(d,'[data-mrw-thread="thread"]');input(dom,'[data-mrw-draft="thread"]','已修复，请确认');await dom.window.eval('loadGroupMr()');assert.equal(d.querySelector('[data-mrw-draft]').value,'已修复，请确认')
  click(d,'[data-mrw-next="1"]');assert.equal(d.querySelector('[data-mrw-stay]'),null);assert.equal(d.querySelector('[data-mr-review-id]').dataset.mrReviewId,'2')
- click(d,'[data-mrw-next="-1"]');assert.equal(d.querySelector('[data-mrw-draft]').value,'已修复，请确认');d.querySelector('[data-mrw-form]').dispatchEvent(new dom.window.Event('submit',{bubbles:true,cancelable:true}));await flush();await flush();assert.equal(writes.length,1);assert.equal(writes[0].action,'reply');assert.equal(writes[0].sha,sha)
+ click(d,'[data-mrw-next="-1"]');await flush();assert.equal(d.querySelector('[data-mrw-draft]').value,'已修复，请确认');d.querySelector('[data-mrw-form]').dispatchEvent(new dom.window.Event('submit',{bubbles:true,cancelable:true}));await flush();await flush();assert.equal(writes.length,1);assert.equal(writes[0].action,'reply');assert.equal(writes[0].sha,sha)
  click(d,'[data-mrw-resolve="thread"]');input(dom,'[data-mrw-draft="thread"]','核对当前差异后确认修复');d.querySelector('[data-mrw-form]').dispatchEvent(new dom.window.Event('submit',{bubbles:true,cancelable:true}));await flush();await flush();assert.equal(writes[1].action,'resolve');assert.equal(writes[1].fingerprint,'f'.repeat(64));assert.equal(writes[1].confirmed,true);assert.ok(d.querySelector('.mr-inline-note.resolved'))
 })
 test('unsupported CLI disables new comments and reply, failed writes keep drafts across automatic switches',async t=>{
@@ -247,3 +248,13 @@ test('notes list retains its own scroll when replying, closing, refreshing and s
  assert.equal(writes.length,1);assert.equal(writes[0].action,'resolve');assert.equal(writes[0].reason,'核对修复');assert.equal(list().scrollTop,640)
  assert.equal(d.querySelector('[data-mrw-resolve="thread"]').disabled,true)
 })
+
+test('failed quick review refreshes latest remote discussions without replaying the write',async t=>{
+ const {dom,d,writes,records}=await setup(t,{staleReview:true});records[0].phase='HUMAN';await dom.window.eval('loadGroupMr()');click(d,'.nav-enter[data-mr-open="1"]');await flush();click(d,'[data-mr-view="notes"]');
+ click(d,'.nav-review-top [data-group-mr-action="review"]');for(let i=0;i<10&&!d.querySelector('[data-mrw-note-card="latest"]');i++)await flush();
+ assert.ok(d.querySelector('[data-mrw-note-card="latest"]'));assert.equal(writes.length,1);assert.match(d.querySelector('[data-mr-review-feedback]').textContent,/提交已变化/);assert.equal(d.querySelector('.nav-review-top [data-group-mr-action="review"]').disabled,true);
+});
+
+test('MR detail shows the remote title as escaped text',async t=>{
+ const {d}=await setup(t);click(d,'.nav-enter[data-mr-open="1"]');await flush();assert.equal(d.querySelector('.mr-detail-title').textContent,'修复边界 <script>标题</script>');assert.equal(d.querySelector('.mr-detail-title script'),null);
+});

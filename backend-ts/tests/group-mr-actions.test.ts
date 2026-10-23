@@ -35,7 +35,7 @@ for(const mode of ['success','changed','closed','already-merged','pipeline','qua
   if(mode==='uncertain')assert.equal(result.writePending,'合并');
  }finally{await service.close();store.close();}
 });
-for(const mode of ['human','rejected','stale-human','no-agent','stale-agent','pending-write','superseded','hidden','wrong-sha','unconfirmed'])test('manual merge rejects unsafe or stale selections before execution: '+mode,async()=>{
+for(const mode of ['human','rejected','stale-human','pending-write','superseded','hidden','wrong-sha','unconfirmed'])test('manual merge rejects unsafe or stale selections before execution: '+mode,async()=>{
  const {store,service,e,writes}=fixture('success');
  if(mode==='human')delete e.humanReview;
  if(mode==='rejected')e.humanReview!.decision='reject';
@@ -57,4 +57,20 @@ test('merge endpoint requires explicit confirmation and blocks duplicate in-flig
   const invalid=await app.inject({method:'POST',url:'/api/automation/group-mr/records/'+e.id+'/merge',payload:{sha}});assert.ok(invalid.statusCode>=400);assert.equal(executions,0);
   const first=service.mergeRecord(e.id,{sha,confirmed:true});await assert.rejects(service.mergeRecord(e.id,{sha,confirmed:true}),/排队或执行|执行或排队/);assert.equal(executions,1);release();await first;
  }finally{release();await service.close();store.close();await app.close();}
+});
+
+for(const mode of ['success','comments','pipeline','changed','closed','quality','conflict'])test('explicit review reconciles pending Agent results only after live checks: '+mode,async()=>{
+ const {store,service,e,writes}=fixture(mode);delete e.piReview;delete e.humanReview;e.phase='ISSUES';e.writePending='Pi 提交检视意见';store.putRecord('group-mr-entry',e.id,e);
+ try{
+  if(mode==='success'){
+   await service.submitReview(e.id,{sha,decision:'pass',reason:''});await Promise.allSettled(service['background']);
+   const saved=store.getRecord<Entry>('group-mr-entry',e.id)!;assert.equal(saved.phase,'DONE');assert.equal(saved.writePending,'');assert.equal(saved.piReview,undefined);assert.equal(writes.length,1);
+  }else{
+   await assert.rejects(service.submitReview(e.id,{sha,decision:'pass',reason:''}));assert.equal(writes.length,0);assert.equal(store.getRecord<Entry>('group-mr-entry',e.id)!.writePending,'Pi 提交检视意见');assert.equal(service.knowledge.reviews().length,0);
+  }
+ }finally{await service.close();store.close();}
+});
+for(const mode of ['no-agent','stale-agent'])test('human-approved merge does not require an Agent checkpoint: '+mode,async()=>{
+ const {store,service,e,writes}=fixture('success');if(mode==='no-agent')delete e.piReview;else e.piReview!.sha='b'.repeat(40);store.putRecord('group-mr-entry',e.id,e);
+ try{assert.equal((await service.mergeRecord(e.id,{sha,confirmed:true})).phase,'DONE');assert.equal(writes.length,1);}finally{await service.close();store.close();}
 });

@@ -98,3 +98,9 @@ test('前一条合入返回待核对状态时停止整批后续请求',async t=>
  select(d,'1','2');d.querySelector('[data-group-mr-action="merge"]:not([data-record-id])').click();d.querySelector('[data-mr-panel-submit]').click();await flush();
  assert.equal(calls.length,1);assert.match(d.querySelector('.mr-targets').textContent,/合并结果待核对/);assert.match(d.querySelector('.mr-targets').textContent,/尚未执行/);
 });
+
+test('stopped Agent uncertainty permits explicit review while other pending writes stay blocked',async t=>{
+ const r={...row('1','ISSUES'),humanReview:undefined,piReview:undefined,writePending:'Pi 提交检视意见',pipelinePassed:false};
+ const {dom}=await setup(t,{records:[r]});assert.equal(dom.window.eval("groupMrActionReason(groupMrUi.pending[0],'review')"),'');
+ r.writePending='合并';await dom.window.eval('loadGroupMr()');assert.match(dom.window.eval("groupMrActionReason(groupMrUi.pending[0],'review')"),/核对/);
+});

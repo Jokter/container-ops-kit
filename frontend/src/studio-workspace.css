@@ -362,3 +362,5 @@
 .group-mr-workspace .mr-context-gap button{white-space:nowrap}
 .group-mr-workspace .mr-tree-diff-heading>div{flex:1;min-width:0}
 .group-mr-workspace .nav-prev-next{flex-wrap:wrap}
+
+.nav-review .mr-detail-title{margin:0;padding:10px 16px;font-size:16px;line-height:1.5;overflow-wrap:anywhere;flex:none}
