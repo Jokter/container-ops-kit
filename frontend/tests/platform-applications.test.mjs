@@ -18,8 +18,8 @@ function page(hash='',initial=[],handler){
   };
  }});return {dom,d:dom.window.document,calls,opened};
 }
-test('default tool center exposes four real spaces, original deep links and shared applications',async()=>{
- const {dom,d,calls}=page();try{await pause();assert.equal(dom.window.location.hash,'#/home/tools');assert.equal(d.querySelectorAll('.pr-space-card').length,4);assert.equal(d.querySelector('.pr-home h1').textContent,'工具中心');assert.deepEqual(calls.map(x=>x.url),['/api/platform/applications']);
+test('default tool center exposes five real spaces, original deep links and shared applications',async()=>{
+ const {dom,d,calls}=page();try{await pause();assert.equal(dom.window.location.hash,'#/home/tools');assert.equal(d.querySelectorAll('.pr-space-card').length,5);assert.equal(d.querySelector('.pr-home h1').textContent,'工具中心');assert.deepEqual(calls.map(x=>x.url),['/api/platform/applications']);
  d.querySelector('[data-portal-space="virtualization"]').click();assert.ok(d.querySelector('.platform-placeholder'));d.querySelector('[data-platform-domain="applications"]').click();assert.equal(dom.window.location.hash,'#/applications');assert.match(d.body.textContent,/全平台共享/);
  d.querySelector('[data-platform-domain="container"]').click();d.querySelector('[data-page="build"]').click();d.querySelector('[data-platform-domain="applications"]').click();d.querySelector('[data-platform-domain="container"]').click();assert.equal(dom.window.location.hash,'#/container/build');await pause();
  }finally{dom.window.close();}
