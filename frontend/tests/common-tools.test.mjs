@@ -15,16 +15,34 @@ test('workspace and tool whole cards navigate; favorites and keyboard work witho
  }finally{dom.window.close();}
 });
 test('JSON format/compact/validate/escape/unescape execute locally and invalid input never remains a successful result',async()=>{
- const {dom,d,calls}=page('#/tools/json');try{await wait();const run=async(action,input)=>{if(input!==undefined)d.querySelector('#ct-json-input').value=input;d.querySelector('[data-json-action='+action+']').click();await wait();return d.querySelector('#ct-json-output').value;};
+ const {dom,d,calls}=page('#/tools/json');try{await wait();const run=async(action,input)=>{if(input!==undefined)d.querySelector('#ct-json-input').value=input;d.querySelector('[data-json-action='+action+']').click();await wait();return d.querySelector('#ct-json-input').value;};
  assert.equal(await run('format','{"a":1}'),'{\n  "a": 1\n}');assert.equal(await run('compact','{ "a": 1 }'),'{"a":1}');
  assert.equal(await run('compact','{ "id": 18446744073709551615, "n": 1.000e+5 }'),'{"id":18446744073709551615,"n":1.000e+5}');
  const text='{"a":"中文\\path"}\nnext';const escaped=await run('escape',text);assert.equal(escaped,JSON.stringify(text).slice(1,-1));assert.equal(await run('unescape',escaped),text);assert.equal(await run('unescape',JSON.stringify(text)),text);
- await run('validate','{"a":true}');assert.match(d.querySelector('#ct-json-message').textContent,/通过/);assert.equal(await run('format','bad'),'');assert.ok(d.querySelector('#ct-json-message').classList.contains('ct-error'));assert.ok(calls.every(x=>x.url==='/api/platform/applications'));
+ await run('validate','{"a":true}');assert.match(d.querySelector('#ct-json-message').textContent,/通过/);assert.equal(await run('format','bad'),'bad');assert.ok(d.querySelector('#ct-json-message').classList.contains('ct-error'));assert.ok(calls.every(x=>x.url==='/api/platform/applications'));
  }finally{dom.window.close();}
 });
 test('Binlog deep link loads real commands and submits actual sample; result is escaped; config validation precedes persistence',async()=>{
  const {dom,d,calls}=page('#/tools/binlog');try{await wait();assert.equal(d.querySelector('.ct-command img'),null);d.querySelector('[data-bin-sample]').click();assert.equal(d.querySelector('#ct-bin-input').value,'abcd0000');d.querySelector('[data-bin-parse]').click();await wait();assert.equal(JSON.parse(calls.find(x=>x.url.endsWith('/parse')).body).text,'abcd0000');assert.match(d.querySelector('#ct-bin-results').textContent,/abcd/);assert.equal(d.querySelector('#ct-bin-results script'),null);
  d.querySelector('[data-bin-config]').click();const form=d.querySelector('#ct-config-dialog form');form.elements.code.value='abcd';form.elements.name.value='新增';form.elements.config.value='[]';assert.equal(d.querySelector('[data-save]').disabled,true);d.querySelector('[data-validate]').click();await wait();assert.equal(d.querySelector('[data-save]').disabled,false);
  form.elements.name.value='改动';form.elements.name.dispatchEvent(new dom.window.Event('input'));assert.equal(d.querySelector('[data-save]').disabled,true);d.querySelector('[data-validate]').click();await wait();form.dispatchEvent(new dom.window.Event('submit',{cancelable:true}));await wait();assert.equal(calls.filter(x=>x.url==='/api/tools/binlog/commands'&&x.method==='POST').length,1);assert.equal(d.querySelector('#ct-config-dialog'),null);
+ }finally{dom.window.close();}
+});
+test('JSON uses one editor and search navigates matches after in-place changes',async()=>{
+ const {dom,d}=page('#/tools/json');try{await wait();assert.equal(d.querySelectorAll('.ct-editors textarea').length,1);
+ const input=d.querySelector('#ct-json-input');input.value='{"a":"same","b":"same"}';input.dispatchEvent(new dom.window.Event('input'));
+ const search=d.querySelector('#ct-json-search');search.value='same';search.dispatchEvent(new dom.window.Event('input'));assert.match(d.querySelector('#ct-json-search-count').textContent,/2 处/);
+ d.querySelector('[data-json-find=next]').click();assert.equal(input.value.slice(input.selectionStart,input.selectionEnd),'same');const first=input.selectionStart;
+ search.dispatchEvent(new dom.window.KeyboardEvent('keydown',{key:'Enter',bubbles:true}));assert.ok(input.selectionStart>first);d.querySelector('[data-json-find=next]').click();assert.equal(input.selectionStart,first);
+ d.querySelector('[data-json-action=format]').click();await wait();assert.match(d.querySelector('#ct-json-input').value,/\n/);assert.match(d.querySelector('#ct-json-search-count').textContent,/2 处/);
+ }finally{dom.window.close();}
+});
+test('Binlog result search filters fields, expands records, and restores results',async()=>{
+ const {dom,d,calls}=page('#/tools/binlog');try{await wait();d.querySelector('[data-bin-sample]').click();d.querySelector('[data-bin-parse]').click();await wait();
+ const search=d.querySelector('#ct-bin-search');const find=value=>{search.value=value;search.dispatchEvent(new dom.window.Event('input'));};
+ find('ABCD');assert.equal(d.querySelector('.ct-record').hidden,false);assert.equal(d.querySelector('.ct-record').open,true);
+ find('absent');assert.equal(d.querySelector('.ct-record').hidden,true);assert.equal(d.querySelector('#ct-bin-search-empty').hidden,false);
+ find('<script>');assert.equal(d.querySelector('.ct-record').hidden,false);assert.equal(d.querySelector('#ct-bin-results script'),null);
+ find('');assert.equal(d.querySelector('tbody tr').hidden,false);assert.equal(d.querySelector('#ct-bin-search-empty').hidden,true);assert.equal(calls.filter(x=>x.url.endsWith('/parse')).length,1);
  }finally{dom.window.close();}
 });
