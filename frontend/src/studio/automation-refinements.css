@@ -1,0 +1,106 @@
+/* Automation: compact outcomes and working controls that stay reachable. */
+.studio-shell.ux-shell .ax-workspace .governance-dashboard>.page-head{margin-bottom:20px}
+.studio-shell.ux-shell .ax-workspace .ov-results{padding:18px 20px 14px;margin-bottom:18px}
+.studio-shell.ux-shell .ax-workspace .ov-results>.studio-section-head{margin-bottom:17px}
+.studio-shell.ux-shell .ax-workspace .governance-stats{grid-template-columns:repeat(3,minmax(0,1fr));gap:0}
+.studio-shell.ux-shell .ax-workspace .governance-stats .studio-stat{display:block;min-height:0;margin:0;padding:12px 18px;background:none;border-radius:0;border:0!important;border-left:1px solid #e5ece9!important;text-align:left}
+.studio-shell.ux-shell .ax-workspace .governance-stats .studio-stat:nth-child(3n+1){border-left:0!important}
+.studio-shell.ux-shell .ax-workspace .governance-stats .studio-stat:nth-child(n+4){border-top:1px solid #e5ece9!important;padding-top:14px}
+.studio-shell.ux-shell .ax-workspace .governance-stats .studio-stat>strong{font-size:29px;line-height:1.3;margin:5px 0 6px;letter-spacing:-.6px;color:#294c43}
+.studio-shell.ux-shell .ax-workspace .governance-stats .studio-stat[data-overview-outcome=waiting]>strong{color:#a47733}
+.studio-shell.ux-shell .ax-workspace .governance-stats .studio-stat[data-overview-outcome=comments]>strong{font-size:18px;line-height:2.1;color:#7d8d87}
+.studio-shell.ux-shell .ax-workspace .governance-stats .studio-stat>small{font-size:11px;min-height:0;line-height:1.65;color:#768780}
+.studio-shell.ux-shell .ax-workspace .governance-stats .studio-stat:hover{background:#f6faf8}
+.studio-shell.ux-shell .ax-workspace .governance-caption{font-size:11px;line-height:1.7;margin-top:14px;padding-top:10px}
+.studio-shell.ux-shell .ax-workspace .ov-results .overview-pending{margin-top:12px;padding:9px 12px}
+.studio-shell.ux-shell .ax-workspace .ov-layout{gap:18px;grid-template-columns:minmax(0,1fr) 270px}
+.studio-shell.ux-shell .ax-workspace .ov-task-panel>.studio-section-head,.studio-shell.ux-shell .ax-workspace .ov-recent>.studio-section-head{padding:15px 18px;min-height:0}
+.studio-shell.ux-shell .ax-workspace .ov-task-panel table td,.studio-shell.ux-shell .ax-workspace .ov-recent table td{padding:13px 16px}
+.studio-shell.ux-shell .ax-workspace .governance-dashboard .ov-secondary{min-width:0;padding:18px;border-color:#dce6e1;border-radius:8px}
+.studio-shell.ux-shell .ax-workspace .governance-dashboard .ov-secondary>.studio-section-head{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin:0 0 5px}
+.studio-shell.ux-shell .ax-workspace .governance-dashboard .ov-secondary>.studio-section-head h2{width:100%;margin:0;font-size:15px;line-height:1.5;font-weight:600;color:#294d40}
+.studio-shell.ux-shell .ax-workspace .governance-dashboard .ov-secondary>.studio-section-head>.head-actions{display:flex;width:100%;min-width:0;gap:10px;align-items:center;justify-content:space-between}
+.studio-shell.ux-shell .ax-workspace .governance-dashboard .ov-secondary #review-period{width:110px;min-width:0;max-width:100%;min-height:34px;padding:7px 31px 7px 10px!important;font-size:12px!important;line-height:1.5;border-color:#dce6e1;border-radius:5px;color:#486357}
+.studio-shell.ux-shell .ax-workspace .governance-dashboard .ov-secondary [data-review-refresh]{display:inline-flex;align-items:center;justify-content:center;min-height:34px;padding:6px 10px;font-size:12px;font-weight:500;color:#16735f;border-radius:5px;white-space:nowrap}
+.studio-shell.ux-shell .ax-workspace .governance-dashboard .ov-secondary [data-review-refresh]:hover{background:#edf6f1}
+.studio-shell.ux-shell .ax-workspace .governance-dashboard .ov-secondary .review-metrics{display:grid;grid-template-columns:minmax(0,1fr);gap:0;margin:0}
+.studio-shell.ux-shell .ax-workspace .governance-dashboard .ov-secondary .review-metric{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:auto auto auto;align-items:start;justify-items:start;gap:6px;min-width:0;padding:17px 0;border:0;border-bottom:1px solid #e6ede9;border-radius:0;background:none;box-shadow:none}
+.studio-shell.ux-shell .ax-workspace .governance-dashboard .ov-secondary .review-metric:last-child{border-bottom:0}
+.studio-shell.ux-shell .ax-workspace .governance-dashboard .ov-secondary .review-metric>span{grid-column:1;grid-row:1;min-width:0;max-width:100%;font-size:12px;line-height:1.6;color:#597266;overflow-wrap:anywhere}
+.studio-shell.ux-shell .ax-workspace .governance-dashboard .ov-secondary .review-metric>strong{display:flex;align-items:baseline;flex-wrap:wrap;gap:3px;grid-column:1;grid-row:2;min-width:0;max-width:100%;margin:0;font-family:inherit;font-size:28px;font-weight:600;line-height:1.25;letter-spacing:-.5px;color:#254b3e;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.studio-shell.ux-shell .ax-workspace .governance-dashboard .ov-secondary .review-metric>strong.ax-metric-empty{font-size:14px;font-weight:500;line-height:1.8;letter-spacing:0;color:#60756a}
+.studio-shell.ux-shell .ax-workspace .governance-dashboard .ov-secondary .ax-metric-number{min-width:0;max-width:100%;overflow-wrap:anywhere}
+.studio-shell.ux-shell .ax-workspace .governance-dashboard .ov-secondary .ax-metric-unit{font-size:13px;font-weight:500;line-height:1.5;letter-spacing:0;color:#60756a}
+.studio-shell.ux-shell .ax-workspace .governance-dashboard .ov-secondary .review-metric>small{grid-column:1;grid-row:3;min-width:0;max-width:100%;font-size:11px;line-height:1.7;color:#60756a;overflow-wrap:anywhere}
+.studio-shell.ux-shell .ax-workspace .governance-dashboard .ov-secondary .review-stat-detail{min-width:0;margin:0;padding:14px 0 0;border:0;border-top:1px solid #e6ede9;border-radius:0;background:none;color:#60756a}
+.studio-shell.ux-shell .ax-workspace .governance-dashboard .ov-secondary .review-stat-detail summary{font-size:12px;font-weight:500;line-height:1.6;color:#597266;overflow-wrap:anywhere}
+.studio-shell.ux-shell .ax-workspace .governance-dashboard .ov-secondary .review-stat-detail p{margin-top:10px;font-size:11px;line-height:1.8;color:#60756a;overflow-wrap:anywhere}
+@media(max-width:1150px){.studio-shell.ux-shell .ax-workspace .governance-dashboard .ov-secondary .review-metrics{grid-template-columns:repeat(2,minmax(0,1fr));gap:0 24px}.studio-shell.ux-shell .ax-workspace .governance-dashboard .ov-secondary .review-metric:nth-last-child(2){border-bottom:0}}
+@media(max-width:600px){.studio-shell.ux-shell .ax-workspace .governance-dashboard .ov-secondary .review-metrics{grid-template-columns:minmax(0,1fr)}.studio-shell.ux-shell .ax-workspace .governance-dashboard .ov-secondary .review-metric:nth-last-child(2){border-bottom:1px solid #e6ede9}}
+@media(min-width:1280px){
+ .studio-shell.ux-shell .ax-workspace .governance-stats{grid-template-columns:repeat(6,minmax(0,1fr))}
+ .studio-shell.ux-shell .ax-workspace .governance-stats .studio-stat{padding:5px 14px}
+ .studio-shell.ux-shell .ax-workspace .governance-stats .studio-stat:nth-child(n+4){border-top:0!important;padding-top:5px}
+ .studio-shell.ux-shell .ax-workspace .governance-stats .studio-stat:nth-child(4){border-left:1px solid #e5ece9!important}
+}
+@media(max-width:1150px){.studio-shell.ux-shell .ax-workspace .ov-layout{grid-template-columns:minmax(0,1fr)}}
+
+/* Original details and action buttons remain in the document and keep their listeners. */
+.studio-shell.ux-shell .ax-workspace .ux-row-more,.studio-shell.ux-shell .ax-workspace .ux-row-more[open]{display:inline-block;vertical-align:middle}
+.studio-shell.ux-shell .ax-workspace .ux-row-more>summary{display:flex;align-items:center;gap:5px;list-style:none;padding:5px 8px;border:1px solid #dce5e0;border-radius:5px;min-height:30px;color:#60766c;background:#fff}
+.studio-shell.ux-shell .ax-workspace .ux-row-more>summary::-webkit-details-marker{display:none}
+.studio-shell.ux-shell .ax-workspace .ux-row-more>summary:after{content:'⌄';font-size:12px}
+.studio-shell.ux-shell .ax-workspace .ux-row-more[open]>summary{background:#edf6f1;color:#187262;border-color:#9fc7b8}
+.studio-shell.ux-shell .ax-workspace .ax-action-menu{position:fixed;z-index:240;inset:auto;display:grid;gap:3px;min-width:0;padding:6px;border:1px solid #dce5df;border-radius:7px;background:#fff;box-shadow:0 10px 30px #1f3c3524;overflow:auto;text-align:left}
+.studio-shell.ux-shell .ax-workspace details:not([open])>.ax-action-menu{display:none}
+.studio-shell.ux-shell .ax-workspace .ax-action-menu>button{display:block;width:100%;margin:0;padding:9px 11px;border:0;border-radius:4px;background:transparent;text-align:left;font-size:12px;line-height:1.5;color:#435f52}
+.studio-shell.ux-shell .ax-workspace .ax-action-menu>button:hover{background:#edf5f0}
+.studio-shell.ux-shell .ax-workspace .ax-action-menu>button:disabled{opacity:.45;cursor:not-allowed}
+.studio-shell.ux-shell .ax-workspace .ax-action-menu>.danger,.studio-shell.ux-shell .ax-workspace .ax-action-menu>[data-schedule-delete],.studio-shell.ux-shell .ax-workspace .ax-action-menu>.studio-delete-record{color:#ad594e!important}
+.studio-shell.ux-shell .ax-workspace .ax-record-actions>.head-actions{gap:8px;align-items:center;flex-wrap:wrap}
+.studio-shell.ux-shell .ax-workspace .ax-record-actions>.qw-link:first-child,.studio-shell.ux-shell .ax-workspace .ax-record-actions>.head-actions>[data-schedule-edit]{font-weight:600}
+.ax-select-all{display:flex;align-items:center;gap:7px;color:#587065;font-size:12px;white-space:nowrap;margin-left:auto;cursor:pointer}
+.ax-select-all input{width:15px!important;height:15px;min-width:0;margin:0;accent-color:#16816c}
+.studio-shell.ux-shell .ax-workspace .studio-record-filters .ax-select-all input[type=checkbox]{width:16px!important;min-width:16px!important;max-width:16px!important;flex:0 0 16px}
+.studio-shell.ux-shell .ax-workspace .ax-record-wrap{min-height:0}
+.ax-table-hint{display:none;margin:0;padding:10px 18px;background:#f3f7f5;border-top:1px solid #e1e9e4;font-size:11px;color:#70877c}
+@media(max-width:900px){.ax-table-hint{display:block}}
+
+/* Settings directory and form grouping. */
+.studio-shell.ux-shell .ax-workspace .ux-settings-layout{grid-template-columns:170px minmax(0,1fr);gap:22px}
+.studio-shell.ux-shell .ax-workspace .studio-setting-section{padding:20px 22px;margin-bottom:16px;border:1px solid #e0e8e3}
+.studio-shell.ux-shell .ax-workspace .studio-setting-section h2{font-size:16px;padding-bottom:14px}
+.studio-shell.ux-shell .ax-workspace .studio-setting-row{padding:16px 0}
+.studio-shell.ux-shell .ax-workspace .ux-section-nav button{background:transparent;border-left:2px solid transparent;border-radius:0;padding:11px 12px}
+.studio-shell.ux-shell .ax-workspace .ux-section-nav button[aria-current=location]{background:#e6f2ec;color:#126d5e;border-color:#298875;font-weight:600}
+@media(max-width:1000px){.studio-shell.ux-shell .ax-workspace .ux-settings-layout{grid-template-columns:1fr;gap:14px}.studio-shell.ux-shell .ax-workspace .ux-section-nav button{border-left:0;border-bottom:2px solid transparent}}
+
+.studio-shell.ux-shell[data-ux-route="automation/tools"] .capability-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}
+@media(max-width:1150px){.studio-shell.ux-shell[data-ux-route="automation/tools"] .capability-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:600px){.studio-shell.ux-shell[data-ux-route="automation/tools"] .capability-grid{grid-template-columns:minmax(0,1fr)}}
+
+@media(max-width:600px){
+ .studio-shell.ux-shell .ax-workspace .ov-results{padding:14px}
+ .studio-shell.ux-shell .ax-workspace .governance-stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .studio-shell.ux-shell .ax-workspace .governance-stats .studio-stat{display:block;grid-column:auto;min-height:0;padding:12px 10px;border-left:0!important;border-top:1px solid #e5ece9!important}
+ .studio-shell.ux-shell .ax-workspace .governance-stats .studio-stat:nth-child(-n+2){border-top:0!important}
+ .studio-shell.ux-shell .ax-workspace .governance-stats .studio-stat:nth-child(even){border-left:1px solid #e5ece9!important}
+ .studio-shell.ux-shell .ax-workspace .governance-stats .studio-stat>strong{font-size:27px;margin:5px 0 6px}
+ .studio-shell.ux-shell .ax-workspace .governance-stats .studio-stat>small{display:block;margin:0}
+ .studio-shell.ux-shell .ax-workspace .ax-record-cards{display:block;min-width:0;width:100%;white-space:normal}
+ .studio-shell.ux-shell .ax-workspace .ax-record-cards thead{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+ .studio-shell.ux-shell .ax-workspace .ax-record-cards tbody{display:grid;gap:0;width:100%}
+ .studio-shell.ux-shell .ax-workspace .ax-record-cards tbody tr{display:grid;grid-template-columns:minmax(0,1fr);position:relative;padding:16px;border-bottom:1px solid #dfe8e2;gap:12px;background:#fff}
+ .studio-shell.ux-shell .ax-workspace .ax-record-cards tbody tr:last-child{border-bottom:0}
+ .studio-shell.ux-shell .ax-workspace .ax-record-cards tbody td{display:block;padding:0!important;min-width:0;max-width:none;width:auto;border:0;overflow-wrap:anywhere;white-space:normal;font-size:12px;line-height:1.65}
+ .studio-shell.ux-shell .ax-workspace .ax-record-cards td:before{content:attr(data-label);display:block;margin-bottom:4px;color:#809389;font-size:11px;font-weight:400}
+ .studio-shell.ux-shell .ax-workspace .ax-record-cards td.ax-record-title{font-size:14px;font-weight:600;color:#294e40;padding-right:28px!important}
+ .studio-shell.ux-shell .ax-workspace .ax-record-cards td.ax-record-title:before,.studio-shell.ux-shell .ax-workspace .ax-record-cards td.studio-record-check:before,.studio-shell.ux-shell .ax-workspace .ax-record-cards td.ax-record-actions:before{display:none}
+ .studio-shell.ux-shell .ax-workspace .ax-record-cards td.studio-record-check{position:absolute;right:17px;top:17px}
+ .studio-shell.ux-shell .ax-workspace .ax-record-cards td.ax-record-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap;border-top:1px solid #edf2ee;padding-top:11px!important}
+ .studio-shell.ux-shell .ax-workspace .ax-record-cards .qw-sub{white-space:normal;max-width:none;overflow-wrap:anywhere}
+ .studio-shell.ux-shell .ax-workspace .ax-record-cards .studio-result{margin-top:5px}
+ .studio-shell.ux-shell .ax-workspace .ax-record-cards .governance-mr{width:100%;order:5}
+ .ax-select-all{margin-left:0;width:100%;padding:5px 0}
+ .studio-shell.ux-shell .ax-workspace .studio-setting-section{padding:17px}
+}

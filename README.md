@@ -113,7 +113,7 @@ UT 治理要求 Agent 仅修改 `src/test` 下的测试文件，禁止修改生�
 
 ## 技术实现与使用说明
 
-前端采用 Vue / Vite，后端采用 TypeScript / Fastify，业务状态存储于 SQLite。资源中心、SSH 连接、远程构建、容器资源、部署、Auto-UT/Agent 和持久化任务均由一个 Node.js 进程提供；平台后端不依赖 Java、Maven 或 Spring Boot，Java UT 治理仍需目标项目要求的 JDK / Maven 环境；JS UT 治理需要目标项目的 JDK / Maven 初始化环境、Node.js / npm 及项目依赖仓库访问权限。
+前端采用原生 HTML / JavaScript 与 Vite，后端采用 TypeScript / Fastify，业务状态存储于 SQLite。资源中心、SSH 连接、远程构建、容器资源、部署、Auto-UT/Agent 和持久化任务均由一个 Node.js 进程提供；平台后端不依赖 Java、Maven 或 Spring Boot，Java UT 治理仍需目标项目要求的 JDK / Maven 环境；JS UT 治理需要目标项目的 JDK / Maven 初始化环境、Node.js / npm 及项目依赖仓库访问权限。
 
 不同能力按需准备 Pi Agent、CodeHub CLI、WeLink CLI / MCP、质量数据源及远程环境访问条件。相关身份认证和操作权限由对应工具与目标系统校验。
 
@@ -162,7 +162,7 @@ npm run dev --prefix frontend -- --host 127.0.0.1
 - `backend-ts/src/modules/applications`：应用中心外部工具入口
 - `backend-ts/src/platform`：SQLite、独立 Worker和通用只读任务
 - `shared`：前后端共享的数据约定
-- `frontend` 与根目录 `index.html`：现有 Vue/Vite 页面
+- `frontend` 与根目录 `index.html`：正式 HTML / JavaScript 页面、Vite 构建、交互样式与前端测试
 
 SQLite 默认写入 `data/platform/tasks.sqlite`。数据库使用进程独占锁，不能同时启动两个后端。服务只允许本机浏览器来源；它没有多用户认证，不能直接暴露到公网。
 

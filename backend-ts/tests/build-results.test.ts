@@ -24,7 +24,7 @@ test('按服务区分四类差异，文本、二进制、空文件与大文件�
 });
 test('保留原始 tgz 字节，目录与压缩包对比忽略包装元数据；批量包包含选中服务',async t=>{
  const{root,a,b}=await setup(t);const chartA=await chart(a,'demo','replicas: 2\n');await chart(a,'second','value: true\n');
- const archive=join(b,'demo-1.0.0.tgz');execFileSync('tar',['-czf',archive,'-C',a,'demo']);
+ const archive=join(b,'demo-1.0.0.tgz');execFileSync('tar',['-czf',archive,'-C',a,'demo'],{env:{...process.env,COPYFILE_DISABLE:'1'}});
  assert.equal(inspect([a,b]).comparison.find(r=>r.service==='demo')!.status,'UNCHANGED');
  assert.deepEqual(run([b],'download',['demo']),await readFile(archive));
  const batch=join(root,'batch.tgz');await writeFile(batch,run([a],'download',['demo','second']));const list=execFileSync('tar',['-tzf',batch]).toString();assert.match(list,/demo\/demo.tgz/);assert.match(list,/second\/second.tgz/);

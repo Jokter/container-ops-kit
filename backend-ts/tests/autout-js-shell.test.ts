@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,mkdir,rm} from 'node:fs/promises';
+import {mkdtemp,mkdir,rm,realpath} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {findGitBash,gitBashInvocation,jsExecutionCommand} from '../src/modules/autout/js-shell.js';
@@ -34,7 +34,7 @@ test('Bash 实际执行验证目录、特殊字符参数与失败退出码', {sk
  const result=await runProcess(command,root,5000);
  assert.equal(result.exitCode,0);
  const row=result.output.split('\n').find(line=>line.startsWith('{'));assert.ok(row);
- assert.deepEqual(JSON.parse(row),{cwd:dir,args});assert.match(result.output,/Ops Studio JS.*cwd=/);
+ assert.deepEqual(JSON.parse(row),{cwd:await realpath(dir),args});assert.match(result.output,/Ops Studio JS.*cwd=/);
  const failed=await runProcess(gitBashInvocation('/bin/bash',[process.execPath,'-e','process.exit(7)'],dir),root,5000);assert.equal(failed.exitCode,7);
  const missing=await runProcess(gitBashInvocation('/bin/bash',[process.execPath,'-e','console.log("SHOULD_NOT_RUN")'],join(root,'missing')),root,5000);assert.notEqual(missing.exitCode,0);assert.doesNotMatch(missing.output,/SHOULD_NOT_RUN/);
 });

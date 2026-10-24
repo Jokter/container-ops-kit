@@ -1,0 +1,65 @@
+import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
+import {JSDOM,VirtualConsole} from '../node_modules/jsdom/lib/api.js';
+const errors=[],vc=new VirtualConsole();vc.on('jsdomError',error=>{if(!error.message.includes('Not implemented'))errors.push(error.message)});
+const dom=new JSDOM(await readFile(new URL('./ops-studio-prototype.html',import.meta.url),'utf8'),{url:'http://localhost/#/container/build',runScripts:'dangerously',virtualConsole:vc,beforeParse(w){
+  w.Response=Response;w.Headers=Headers;w.scrollTo=()=>{};w.matchMedia=()=>({matches:false});
+  w.HTMLElement.prototype.scrollIntoView=function(){};
+  w.HTMLElement.prototype.getBoundingClientRect=function(){return {left:100,right:380,top:100,bottom:136,width:280,height:36}};
+}});
+const w=dom.window,d=w.document,wait=()=>new Promise(resolve=>setTimeout(resolve,140));
+const find=selector=>{const node=d.querySelector(selector);assert.ok(node,selector);return node};
+const click=async selector=>{find(selector).click();await wait()};
+const route=async path=>{w.location.hash='#/'+path;await wait()};
+const key=(node,key)=>node.dispatchEvent(new w.KeyboardEvent('keydown',{key,bubbles:true,cancelable:true}));
+const choose=async(selector,value)=>{await click(selector);const select=find(selector),index=[...select.options].findIndex(option=>option.value===value);assert.ok(index>=0,value);await click('.ux-select-menu [data-index="'+index+'"]')};
+try{
+  await wait();assert.match(find('.build-storage').textContent,/29.8 GB/,'Hash-entry storage read uses the original loading action');
+  assert.equal(d.querySelectorAll('#single-build-form .cx-repository-pair').length,2);
+  const select=find('#single-build-form select[name=module]');let changes=0;select.addEventListener('change',()=>changes++);
+  await click('#single-build-form select[name=module]');assert.ok(find('.ux-select-menu'));
+  key(find('.ux-select-options'),'ArrowDown');key(find('.ux-select-options'),'Enter');await wait();
+  assert.equal(select.value,'gateway-service');assert.equal(changes,1,'Choose emits exactly one original change event');assert.equal(d.activeElement,select);
+  await click('#single-build-form select[name=module]');key(find('.ux-select-options'),'Escape');
+  assert.equal(d.querySelector('.ux-select-menu'),null);assert.equal(changes,1,'Escape does not change selection');
+  await click('#single-build-form select[name=module]');await click('.page-head h1');assert.equal(d.querySelector('.ux-select-menu'),null);
+  await click('[data-build-tab="compare"]');assert.equal(d.querySelectorAll('.cx-repository-pair').length,4);
+  await click('[data-build-tab="single"]');await click('[data-create-build-task="single"]');
+  assert.equal(w.__mockRequests.filter(request=>request.path==='/api/build-tasks'&&request.method==='POST').length,1,'Layout and select enhancement do not replay a build');
+
+  await route('container/deploy');assert.equal(find('.cx-deploy-help').open,false);
+  assert.equal(find('#deployment-namespace').disabled,true);find('#deployment-namespace').click();assert.equal(d.querySelector('.ux-select-menu'),null);
+  const connect=[...d.querySelectorAll('button')].find(button=>button.textContent==='连接环境并读取命名空间');assert.ok(connect);connect.click();await wait();
+  await choose('#deployment-namespace','demo');assert.equal(d.querySelectorAll('.deployment-service-option').length,5,'Native change still loads deployable services');
+
+  await route('container/operations');await click('[data-connect-resource-environment]');
+  await click('#resource-namespace');assert.equal(find('.ux-select-options').getAttribute('aria-label'),'命名空间','Nested label excludes option text');
+  key(find('.ux-select-options'),'Escape');await choose('#resource-namespace','demo');await click('[data-load-resource-workspace]');
+  assert.ok(find('.cx-code-surface #resource-yaml-editor'));
+  await click('[data-resource-service="gateway-service"]');assert.equal(find('.cr-workbench').dataset.cxPane,'resources');
+  await click('[data-resource-item]');assert.equal(find('.cr-workbench').dataset.cxPane,'editor');
+  await click('[data-cx-tree]');assert.equal(find('.cr-workbench').classList.contains('cx-tree-hidden'),true);
+  await click('[data-cx-tree]');assert.equal(find('.cr-workbench').classList.contains('cx-tree-hidden'),false);
+  await click('[data-open-resource-create]');
+  const type=find('.cr-create-context select');assert.ok(type.options.length>6);type.click();await wait();
+  const search=find('.ux-select-search');search.value='ConfigMap';search.dispatchEvent(new w.Event('input',{bubbles:true}));
+  assert.equal(d.querySelectorAll('.ux-select-options [role=option]').length,1);
+  key(search,'Enter');await wait();assert.match(find('.cr-dialog textarea').value,/kind: ConfigMap/,'Search selection retains original resource template behavior');
+  assert.equal(find('.cr-dialog').getAttribute('role'),'dialog');
+  assert.ok(find('.cx-create-body #create-resource-yaml'),'Original YAML editor stays inside scrollable dialog body');
+  assert.equal(find('.studio-topbar').inert,true,'Resource modal isolates the background');
+  key(find('#create-resource-yaml'),'Escape');await wait();
+  assert.equal(d.querySelector('.cr-dialog'),null);assert.ok(!find('.studio-topbar').inert,'Closing releases background');
+  assert.ok(d.activeElement.hasAttribute('data-open-resource-create'),'Closing restores the resource action');
+  await route('applications');await click('[data-app-edit]');
+  const appSelect=find('#ac-form select[name=category]');
+  assert.ok(appSelect.hasAttribute('data-ux-select'),'Body-mounted application dialog receives select enhancement');
+  appSelect.click();await wait();
+  assert.ok(find('#ac-form .ux-select-menu'),'Popup stays within the dialog focus boundary');
+  key(find('.ux-select-options'),'Escape');await wait();
+  assert.ok(find('#ac-overlay'),'Escape dismisses the popup before the application dialog');
+  assert.equal(d.querySelector('.ux-select-menu'),null);
+  await click('[data-app-close]');assert.equal(d.querySelector('#ac-overlay'),null);
+  assert.deepEqual(errors,[]);
+  process.stdout.write('PASS: native select change exactly once; keyboard/outside dismissal; disabled namespace; nested labels; searchable resource types; build and deployment actions; resource pane/editor preservation\n');
+}finally{w.close()}

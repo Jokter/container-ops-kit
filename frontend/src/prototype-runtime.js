@@ -615,7 +615,7 @@ import {canConvertFailedQuickDeploymentToReview, canDeployReviewedTask, deployme
   async function loadBuildStorage(force = false) {
     const environment = environments.find(item => item.id === state.selectedBuildEnvironment) || environments.find(item => item.type === 'build')
     if (!environment?._apiId) return
-    if (!force && buildRuntime.storageEnvironmentId === environment._apiId && buildRuntime.storage) return
+    if (!force && buildRuntime.storageEnvironmentId === environment._apiId && (buildRuntime.storage || buildRuntime.storageLoading)) return
     buildRuntime.storageLoading = true
     buildRuntime.storageEnvironmentId = environment._apiId
     render(false)
@@ -1290,8 +1290,6 @@ import {canConvertFailedQuickDeploymentToReview, canDeployReviewedTask, deployme
   })
 
   document.addEventListener('click', function (event) {
-    const buildPage = event.target.closest?.('[data-page="build"]')
-    if (buildPage) setTimeout(() => loadBuildStorage(), 0)
     const pathButton = event.target.closest?.('[data-copy-build-path]')
     if (pathButton) return copyText(pathButton.dataset.copyBuildPath, '编译目录已复制')
     const cdButton = event.target.closest?.('[data-copy-build-cd]')
@@ -1311,6 +1309,12 @@ import {canConvertFailedQuickDeploymentToReview, canDeployReviewedTask, deployme
     }
     const tab = event.target.closest?.('[data-build-tab="history"]')
     if (tab) return loadBuildHistory()
+  })
+
+  // All navigation paths (sidebar, search, hash and browser history) share the
+  // same read-only page entry. Presentation code never simulates a retry click.
+  document.addEventListener('studio-page-enter', () => {
+    if (state.platformDomain === 'container' && state.page === 'build') void loadBuildStorage()
   })
 
   const style = document.createElement('style')

@@ -72,7 +72,7 @@ test('BIN message tabs isolate tag filters, searches and fold state; errors and 
   d.querySelector('[data-bin-message="0"]').click();assert.equal(d.querySelector('#ct-bin-search').value,'ALPHA');find('');assert.equal(tag1().open,false);
   find('beta');assert.equal(d.querySelector('#ct-bin-search-empty').hidden,false);find('');
   d.querySelector('[data-bin-message="2"]').click();assert.match(d.querySelector('#ct-bin-results').textContent,/报文截断/);assert.equal(d.querySelector('#ct-bin-results script'),null);assert.equal(d.querySelectorAll('[data-bin-tag]').length,0);
-  d.querySelector('[data-bin-message="3"]').click();assert.match(d.querySelector('#ct-bin-results').textContent,/实际 Feature：2/);assert.match(d.querySelector('#ct-bin-results').textContent,/未知 tag/);
+  d.querySelector('[data-bin-message="3"]').click();assert.match(d.querySelector('#ct-bin-results').textContent,/实际特性标识：2/);assert.match(d.querySelector('#ct-bin-results').textContent,/未知 tag/);
   d.querySelector('[data-bin-parse]').click();await wait();assert.equal(d.querySelector('[data-bin-message="0"]').getAttribute('aria-pressed'),'true');assert.equal(tag1().open,true);assert.equal(calls.filter(x=>x.url.endsWith('/parse')).length,2);
  }finally{dom.window.close();}
 });

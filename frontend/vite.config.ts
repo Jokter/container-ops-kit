@@ -7,11 +7,11 @@ const frontendDirectory=resolve(fileURLToPath(import.meta.url),'..')
 export default defineConfig({
  root:resolve(frontendDirectory,'..'),
  plugins:[{
-  name:'resource-center-runtime',
+  name:'studio-runtime',
   transformIndexHtml:{
    order:'pre',
    handler(html){
-    return html.replace('</body>','<script type="module" src="/frontend/src/prototype-runtime.js"></script><script type="module" src="/frontend/src/container-resource-runtime.js"></script></body>')
+    return html.replace('</body>','<script type="module" src="/frontend/src/studio-runtime.js"></script></body>')
    }
   }
  }],

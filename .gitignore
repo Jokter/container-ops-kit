@@ -13,3 +13,6 @@
 /data/auto-ut/
 /data/deployment-preparations/
 /data/logs/
+
+# macOS Finder metadata
+.DS_Store

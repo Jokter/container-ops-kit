@@ -1,0 +1,212 @@
+/* Shared controls and container surfaces, layered over the existing functional UI. */
+.studio-shell.ux-shell{--line:#dce4e6;--ink:#253b43;--muted:#5b7078;--surface-soft:#f6f8f9;--bg:#f4f6f7}
+select[data-ux-select]{appearance:none!important;-webkit-appearance:none!important;background-color:#fff!important;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16' fill='none'%3E%3Cpath d='m4 6 4 4 4-4' stroke='%236a7d86' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")!important;background-repeat:no-repeat!important;background-position:right 10px center!important;border:1px solid #cfdbe0!important;border-radius:6px!important;min-height:36px;padding:8px 34px 8px 11px!important;font:12px/1.5 'Inter','PingFang SC',sans-serif!important;color:#314b58!important;text-overflow:ellipsis;cursor:pointer;box-shadow:0 1px 2px #203c4c04}
+select[data-ux-select]:hover:not(:disabled){border-color:#83ada4!important}
+select[data-ux-select][aria-expanded=true]{border-color:#278c7b!important;box-shadow:0 0 0 3px #14856e12}
+select[data-ux-select]:disabled{background-color:#f2f5f6!important;color:#87959c!important;opacity:1;cursor:not-allowed}
+.ux-select-menu{position:fixed;z-index:20000;display:flex;flex-direction:column;overflow:hidden;padding:6px;border:1px solid #d3dfe4;border-radius:9px;background:#fff;box-shadow:0 12px 36px #233b4a20,0 2px 5px #233b4a0d;color:#314b58;font:13px/1.5 'Inter','PingFang SC','Microsoft YaHei',sans-serif}
+.ux-select-search{box-sizing:border-box;width:100%;min-height:36px;flex:none;padding:8px 10px;margin:0 0 5px;background:#f6f8fa;border:1px solid #e1e8eb;border-radius:5px;color:#314b58;font:inherit;outline-offset:-2px}
+.ux-select-search:focus-visible{outline:2px solid #3b9e8b;outline-offset:-2px}
+.ux-select-options:focus-visible{outline:none}.ux-select-options:focus-visible .ux-option.is-active{outline:1px solid #76aa9d;outline-offset:-1px}
+.ux-select-options{overflow:auto;overscroll-behavior:contain;min-height:0;scrollbar-width:thin;padding:2px}
+.ux-option{display:flex;align-items:center;justify-content:space-between;gap:14px;min-height:37px;padding:9px 11px;border-radius:5px;cursor:pointer;box-sizing:border-box}
+.ux-option-text{overflow-wrap:anywhere;min-width:0}.ux-option-check{flex:none;width:14px;color:#0d816e;font-size:14px}
+.ux-option.is-active{background:#f0f5f6}.ux-option[aria-selected=true]{background:#e8f4ef;color:#096c59;font-weight:550}.ux-option[aria-disabled=true]{color:#9ba7ad;cursor:not-allowed;background:transparent}
+.ux-option-group{padding:12px 11px 5px;font-size:11px;color:#81919b;font-weight:600}.ux-select-empty{margin:12px;color:#758994;font-size:12px}
+.studio-shell.ux-shell :is(input:not([type=checkbox]):not([type=radio]):not([type=file]),textarea):not(.cr-yaml):not(.deployment-values){border-radius:6px;border-color:#d0dce1;color:#314b58}
+.studio-shell.ux-shell .pr-switch summary{border:1px solid #dce5e7;background:#f7f9fa;min-height:36px}
+.studio-shell.ux-shell .pr-switch-menu{border-color:#d3dfe4;border-radius:9px;padding:7px;box-shadow:0 12px 36px #233b4a20}
+.studio-shell.ux-shell .pr-switch-menu button{border-radius:5px;min-height:38px;color:#415a67}
+.studio-shell.ux-shell :is(.qw-field,.field)>label{font-size:12px;line-height:1.5;color:#526a76;font-weight:500}
+.studio-shell.ux-shell :is(.field,.qw-field,.form-grid,.resource-grid,.panel,.panel-body,.qw-table-wrap){min-width:0}
+.studio-shell.ux-shell .button.danger{color:#aa4e49;border-color:#e7cfcc;background:#fff}
+.studio-shell.ux-shell .environment-drawer{width:min(580px,100vw);box-shadow:-12px 0 45px #24434b14}
+.studio-shell.ux-shell :is(.drawer-header,.drawer-footer){padding:20px 24px}.studio-shell.ux-shell .drawer-body{padding:20px 24px}
+.studio-shell.ux-shell :is(.drawer-section,.readonly-value){border-radius:6px}.studio-shell.ux-shell .drawer-grid{gap:15px 18px}
+.studio-shell.ux-shell .cr-dialog{border:1px solid #dce5e7;border-radius:10px;box-shadow:0 18px 60px #213b4a30}
+.studio-shell.ux-shell :is(.environment-toolbar,.studio-record-filters,.qw-toolbar){gap:10px}
+
+/* Container pages: compact context, clear configuration and execution surfaces. */
+.studio-shell.ux-shell .variant-a-main.cx-workspace{padding:20px 28px 28px}
+.cx-workspace .ux-page-context{min-height:16px;margin-bottom:10px}.cx-page-actions{display:flex;gap:10px}
+.studio-shell.ux-shell .cx-workspace>.page-head{margin:0 0 18px;min-height:58px}
+.studio-shell.ux-shell .cx-workspace>.page-head h1{font-size:27px;line-height:1.25;letter-spacing:-.6px}
+.studio-shell.ux-shell .cx-workspace>.page-head p{font-size:12px;margin-top:6px}
+.cx-workspace>.ux-section-nav{display:none}
+.studio-shell.ux-shell .cx-workspace .environment-bar{padding:13px 16px;gap:14px 22px;background:#fff;border:1px solid #dce5e7;border-radius:8px;margin:0 0 16px;box-shadow:0 2px 4px #24434b03}
+.studio-shell.ux-shell .cx-workspace .environment-bar>div:first-child{min-width:240px;max-width:370px;margin-right:auto}
+.cx-workspace .ux-environment-label{font-size:10px;letter-spacing:.3px;margin-bottom:5px;color:#71868d;font-weight:500}
+.studio-shell.ux-shell .cx-workspace .environment-bar small{font-size:10px;line-height:1.4;margin-top:5px;color:#7d8e94}
+.studio-shell.ux-shell .cx-workspace .environment-item span{font-size:10px;color:#7a8b91}.studio-shell.ux-shell .cx-workspace .environment-item b{font-size:12px;margin-top:5px;color:#3d5661;overflow-wrap:anywhere}
+.cx-environment-context{border:1px solid #dce5e7;border-radius:8px;background:white;margin-bottom:16px;overflow:hidden}
+.studio-shell.ux-shell .cx-environment-context .environment-bar{border:0;border-radius:0;margin:0;box-shadow:none}
+.studio-shell.ux-shell .cx-environment-context .build-storage{margin:0;border:0;border-top:1px solid #e7edef;background:#fafcfc;border-radius:0;padding:8px 16px;gap:14px;font-size:11px;min-height:34px;flex-wrap:wrap;box-shadow:none}
+.studio-shell.ux-shell .cx-environment-context .build-storage .button{padding:3px 8px;min-height:25px;background:transparent;border-color:transparent}
+.studio-shell.ux-shell .cx-workspace .build-navigation{margin:0 0 16px;padding:0 0 12px;gap:16px;border-bottom:1px solid #dce5e7;border-radius:0;align-items:center}
+.studio-shell.ux-shell .cx-workspace .build-navigation>div:first-child{display:none}
+.studio-shell.ux-shell .cx-workspace .workspace-tabs{gap:4px;padding:3px;background:#e9eff0;border-radius:6px;display:flex;flex-wrap:wrap;width:fit-content;margin:0 0 16px}
+.studio-shell.ux-shell .cx-workspace .build-navigation .workspace-tabs{margin:0}
+.studio-shell.ux-shell .cx-workspace .workspace-tabs button{min-height:32px;padding:7px 15px;border-radius:4px;color:#59717b;font-size:12px}
+.studio-shell.ux-shell .cx-workspace .workspace-tabs button.active{background:#fff;color:#08796a;box-shadow:0 1px 4px #29495912}
+.cx-workspace .ux-build-workspace{grid-template-columns:minmax(0,1.1fr) minmax(330px,.9fr);gap:18px;align-items:start}
+.cx-workspace .ux-build-workspace.cx-compare,.cx-workspace .ux-build-workspace.cx-completed{grid-template-columns:minmax(0,1fr)}
+.studio-shell.ux-shell .cx-workspace .br-config{border-color:#dce5e7;border-radius:8px;overflow:hidden}
+.studio-shell.ux-shell .cx-workspace .br-config>summary{padding:14px 18px;background:#fff;border-bottom:1px solid #e6edef;font-size:13px;color:#344e59}
+.studio-shell.ux-shell .cx-workspace .panel-head{padding:15px 18px}.studio-shell.ux-shell .cx-workspace .panel-body{padding:18px}
+.studio-shell.ux-shell .cx-workspace .br-config .panel-head{background:#f8fafb}.studio-shell.ux-shell .cx-workspace .br-config .panel-head .badge{display:none}
+.studio-shell.ux-shell .cx-workspace .br-config-body{padding:0}
+.studio-shell.ux-shell .cx-workspace .build-input-panel .field{background:none;border:0;padding:0;border-radius:0}
+.studio-shell.ux-shell .cx-workspace .br-config .form-grid{gap:16px;grid-template-columns:minmax(0,1fr)}
+.cx-repository-pair{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(140px,.85fr);gap:12px;border-top:1px solid #edf1f3;padding-top:16px;min-width:0}
+.cx-repository-pair input{width:100%}.cx-workspace .repo-list{margin-top:20px;border-top:1px solid #e6edef;padding-top:16px}
+.studio-shell.ux-shell .cx-workspace .repo-row{background:#f8fafb;padding:12px;border-radius:6px;grid-template-columns:minmax(0,1.4fr) minmax(100px,.8fr)}
+.studio-shell.ux-shell .cx-workspace .repo-row input{width:100%}
+.studio-shell.ux-shell .cx-workspace .terminal{background:#172c36;color:#dce8ec;font-size:12px;border-radius:6px;line-height:1.85}
+.studio-shell.ux-shell .cx-workspace .build-terminal{max-height:480px}
+.studio-shell.ux-shell .cx-workspace .br-table th{background:#f4f7f8;color:#68808d;font-size:11px}
+.studio-shell.ux-shell .cx-workspace .br-table td{padding:14px 18px;font-size:12px}
+
+/* Deployment puts the selected service scope ahead of secondary instructions. */
+.cx-workspace .ux-deploy-setup{display:flex;flex-direction:column;gap:14px;margin-top:0}.cx-workspace .ux-deploy-input{width:100%;overflow:hidden}
+.cx-workspace .ux-deploy-input .form-grid{grid-template-columns:minmax(0,1.6fr) minmax(140px,.7fr) minmax(200px,1fr);gap:16px}
+.cx-workspace .ux-deploy-input .panel-head .badge{font-size:11px;background:#fff4e8;color:#96612b}
+.cx-deploy-help{width:100%;border:1px solid #dde5e8;background:#fff;border-radius:7px;padding:0 16px}
+.cx-deploy-help>summary{padding:12px 0;font-size:12px;cursor:pointer;color:#5a7380}
+.cx-workspace .ux-deploy-guide{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;border:0;padding:8px 0 16px}
+.cx-workspace .ux-deploy-guide>small,.cx-workspace .ux-deploy-guide>h2{display:none}.cx-workspace .ux-deploy-step{margin:0}.cx-workspace .ux-deploy-note{grid-column:1/-1;margin:0;font-size:11px}
+.studio-shell.ux-shell .cx-workspace .deployment-service-options{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;max-height:320px;overflow:auto;padding:3px;margin:14px -3px}
+.studio-shell.ux-shell .cx-workspace .deployment-service-option{border:1px solid #dce5e7;border-radius:6px;padding:12px 14px;min-width:0;background:#fbfcfd;align-items:flex-start}
+.studio-shell.ux-shell .cx-workspace .deployment-service-option:has(input:checked){border-color:#86b8aa;background:#edf7f2}
+.cx-workspace .deployment-service-option strong{font-size:12px;overflow-wrap:anywhere}.cx-workspace .deployment-service-option small{font-size:11px}
+.studio-shell.ux-shell .cx-workspace .deployment-values{background:#fafcfd;color:#2c4b60;font:13px/22px var(--mono);border:1px solid #dce5e7;min-height:440px;padding:18px;border-radius:6px}
+.studio-shell.ux-shell .cx-workspace .deployment-workspace{grid-template-columns:260px minmax(0,1fr);gap:18px}
+.studio-shell.ux-shell .cx-workspace .deployment-workspace.quick{grid-template-columns:1fr}
+.studio-shell.ux-shell .cx-workspace .deployment-services-panel{top:76px}
+
+/* Resource browser: bounded lists and a readable editor with line numbers. */
+.studio-shell.ux-shell .cx-workspace .cr-context{padding:14px 16px;border:1px solid #dce5e7;background:#fff;margin-bottom:16px;border-radius:8px;grid-template-columns:minmax(200px,1.2fr) auto minmax(170px,.8fr) auto;gap:12px}
+.studio-shell.ux-shell .cx-workspace .cr-workbench{grid-template-columns:190px 250px minmax(0,1fr);height:calc(100dvh - 310px);min-height:520px;margin:0;border-color:#dce5e7;border-radius:8px}
+.studio-shell.ux-shell .cx-workspace .cr-services,.studio-shell.ux-shell .cx-workspace .cr-resources{background:#f8fafb;border-color:#dfe7eb}
+.studio-shell.ux-shell .cx-workspace .cr-pane-title{padding:13px 14px;min-height:65px;background:#f8fafb;border-color:#dfe7eb;font-size:12px}
+.studio-shell.ux-shell .cx-workspace .cr-pane-title span{font-size:10px;color:#81929c}
+.studio-shell.ux-shell .cx-workspace .cr-scroll{max-height:none}
+.studio-shell.ux-shell .cx-workspace .cr-scroll button{border:0;margin:2px 6px;width:calc(100% - 12px);padding:11px 10px;min-height:60px;background:transparent;border-radius:5px;box-shadow:none;gap:5px}
+.studio-shell.ux-shell .cx-workspace .cr-scroll button.active{background:#e3f1eb;box-shadow:inset 2px 0 #258775;color:#205f50}
+.studio-shell.ux-shell .cx-workspace .cr-scroll button:hover{background:#edf3f4}
+.studio-shell.ux-shell .cx-workspace .cr-scroll button strong{font-size:12px;font-weight:500;width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.studio-shell.ux-shell .cx-workspace .cr-scroll button span{font-size:10px;color:#7a8c96}
+.studio-shell.ux-shell .cx-workspace .cr-group-label{padding:12px 15px 7px;background:transparent;font-size:10px;color:#80929b}
+.studio-shell.ux-shell .cx-workspace .cr-scroll button em{font-size:9px;background:#e6f2eb;color:#4c8465;padding:1px 5px}
+.studio-shell.ux-shell .cx-workspace .cr-editor{grid-column:auto;min-height:0;background:#fff}
+.studio-shell.ux-shell .cx-workspace .cr-editor-head{padding:14px 18px;min-height:65px;gap:8px;align-items:center}
+.studio-shell.ux-shell .cx-workspace .cr-editor-head>div:last-child{flex-wrap:wrap;gap:6px}
+.studio-shell.ux-shell .cx-workspace .cr-editor-head h2{font-size:14px;overflow-wrap:anywhere}.cx-workspace .cr-editor-head p{font-size:11px}
+.studio-shell.ux-shell .cx-workspace .cr-warning{background:#fff8e8;color:#94732b;font-size:11px;line-height:1.7;padding:9px 18px}
+.studio-shell.ux-shell .cx-workspace .cr-tabs{background:white;border-color:#dfe7eb;height:40px;align-items:center;padding:0 16px}
+.studio-shell.ux-shell .cx-workspace .cr-tabs button{height:40px;font-size:12px}
+.cx-code-surface{display:grid;grid-template-columns:42px minmax(0,1fr);flex:1;min-width:0;min-height:0;background:#fbfcfd;overflow:hidden}
+.cx-code-lines{font:11px/22px 'SFMono-Regular',Consolas,monospace;color:#99aab5;padding:18px 10px 18px 0;text-align:right;overflow:hidden;background:#f5f8fa;border-right:1px solid #e5ebef;margin:0;user-select:none}
+.studio-shell.ux-shell .cx-workspace .cr-yaml{min-height:0!important;height:100%;padding:18px 20px;font:13px/22px var(--mono);background:#fbfcfd;color:#2c4b60;outline-offset:-3px;white-space:pre}
+.studio-shell.ux-shell .cx-workspace .cr-dialog .cr-yaml{height:390px;border:1px solid #dce5e7;border-radius:5px}
+.studio-shell.ux-shell .cx-workspace .cr-workbench.cx-tree-hidden{grid-template-columns:minmax(0,1fr)}
+.cx-workspace .cx-tree-hidden>.cr-services,.cx-workspace .cx-tree-hidden>.cr-resources{display:none!important}
+.cx-resource-panes{display:none}
+
+/* Environment tables fit the working width; long values stay inspectable. */
+.studio-shell.ux-shell .cx-workspace .environment-summary{grid-template-columns:minmax(240px,1.3fr) repeat(3,minmax(110px,1fr));margin-bottom:16px;border-color:#dce5e7}
+.studio-shell.ux-shell .cx-workspace :is(.environment-version-card,.environment-summary-stat){padding:14px 20px;min-height:80px}
+.studio-shell.ux-shell .cx-workspace .environment-summary-stat strong{font-size:25px;line-height:1.3}
+.studio-shell.ux-shell .cx-workspace .environment-toolbar{padding:14px 18px;flex-wrap:wrap}
+.studio-shell.ux-shell .cx-workspace .environment-row{padding:14px 18px;font-size:12px;gap:16px}
+.studio-shell.ux-shell .cx-workspace .environment-row.head{font-size:11px;background:#f4f7f8;color:#69818d}
+.studio-shell.ux-shell .cx-workspace .environment-row.container-row{min-width:0;grid-template-columns:minmax(170px,1.2fr) minmax(140px,1fr) minmax(120px,1fr) minmax(120px,1fr) 50px 70px 95px minmax(130px,.8fr);gap:12px}
+.studio-shell.ux-shell .cx-workspace .environment-row.container-compact-row{min-width:0;grid-template-columns:minmax(150px,1.1fr) minmax(125px,.9fr) minmax(170px,1.3fr) 80px minmax(120px,.8fr) 220px;gap:14px}
+.studio-shell.ux-shell .cx-workspace .environment-table{overflow:auto}
+.studio-shell.ux-shell .cx-workspace .environment-actions{gap:7px;flex-wrap:wrap;justify-content:flex-end}
+.studio-shell.ux-shell .cx-workspace .environment-actions .button{font-size:11px;padding:5px 8px;min-height:28px}
+.studio-shell.ux-shell .cx-workspace .environment-row-name strong{font-size:13px}.studio-shell.ux-shell .cx-workspace .environment-cell-copy{font-size:11px}
+.studio-shell.ux-shell .cx-workspace .environment-row-name>.environment-kind-icon{display:grid;place-items:center;margin:0;padding:0;line-height:1;text-align:center}
+.studio-shell.ux-shell .cx-workspace .home-welcome{margin-bottom:20px}.studio-shell.ux-shell .cx-workspace .home-welcome h1{font-size:27px}
+.studio-shell.ux-shell .cx-workspace .home-metrics{margin-bottom:18px}.studio-shell.ux-shell .cx-workspace .home-shortcut{min-height:140px;padding:18px}.studio-shell.ux-shell .cx-workspace .home-shortcuts{margin-bottom:20px}
+@media(max-width:1250px){.cx-workspace .ux-build-workspace{grid-template-columns:1fr}.studio-shell.ux-shell .cx-workspace .cr-workbench{grid-template-columns:170px 220px minmax(0,1fr)}.studio-shell.ux-shell .cx-workspace .cr-editor-head{flex-direction:column;align-items:flex-start}.studio-shell.ux-shell .cx-workspace .environment-row.container-row{min-width:1050px}.studio-shell.ux-shell .cx-workspace .cr-context{grid-template-columns:minmax(0,1fr) auto}.cx-workspace .ux-deploy-input .form-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:1000px){.studio-shell.ux-shell .cx-workspace .environment-summary{grid-template-columns:repeat(3,minmax(0,1fr))}.studio-shell.ux-shell .cx-workspace .environment-version-card{grid-column:1/-1;border-right:0;border-bottom:1px solid #e1e9e3}.cx-workspace .ux-deploy-guide{grid-template-columns:1fr}.studio-shell.ux-shell .cx-workspace .deployment-workspace{grid-template-columns:1fr}.studio-shell.ux-shell .cx-workspace .deployment-services-panel{position:static}.cx-workspace .cx-compare .resource-grid{grid-template-columns:1fr}}
+@media(max-width:900px){.cx-resource-panes{display:flex;gap:4px;background:#edf2f4;padding:5px;border:1px solid #dce5e7;border-radius:6px;margin-bottom:10px}.cx-resource-panes button{flex:1;border:0;background:transparent;color:#647d88;padding:9px;border-radius:4px;font-size:12px;cursor:pointer}.cx-resource-panes button[aria-pressed=true]{background:white;color:#087e6c;box-shadow:0 1px 4px #233e4c10}.studio-shell.ux-shell .cx-workspace .cr-workbench{display:block;height:600px;min-height:0}.studio-shell.ux-shell .cx-workspace .cr-workbench>aside,.studio-shell.ux-shell .cx-workspace .cr-workbench>main{height:100%;display:none!important}.studio-shell.ux-shell .cx-workspace .cr-workbench[data-cx-pane=services]>.cr-services,.studio-shell.ux-shell .cx-workspace .cr-workbench[data-cx-pane=resources]>.cr-resources,.studio-shell.ux-shell .cx-workspace .cr-workbench[data-cx-pane=editor]>.cr-editor{display:flex!important}.cx-tree-toggle{display:none!important}.studio-shell.ux-shell .cx-workspace .cr-editor-head{flex-direction:row;align-items:center}.studio-shell.ux-shell .cx-workspace .deployment-service-options{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:600px){.studio-shell.ux-shell .variant-a-main.cx-workspace{padding:18px 14px 30px}.cx-workspace>.page-head{flex-wrap:wrap}.studio-shell.ux-shell .cx-workspace .environment-bar>div:first-child{min-width:0;max-width:none;width:100%;flex-basis:100%}.studio-shell.ux-shell .cx-workspace .environment-bar .environment-item{flex:1;min-width:110px}.cx-repository-pair{grid-template-columns:1fr}.studio-shell.ux-shell .cx-workspace .cr-context{grid-template-columns:1fr}.cx-workspace .ux-deploy-input .form-grid{grid-template-columns:1fr}.studio-shell.ux-shell .cx-workspace .deployment-service-options{grid-template-columns:1fr}.studio-shell.ux-shell .cx-workspace .environment-row.container-row{min-width:0;grid-template-columns:repeat(2,minmax(0,1fr))}.studio-shell.ux-shell .cx-workspace .environment-row.container-row>.environment-actions{grid-column:1/-1;justify-content:flex-start}.studio-shell.ux-shell .cx-workspace .environment-toolbar>input{width:100%}.studio-shell.ux-shell .cx-workspace .environment-summary-stat{padding:12px}.studio-shell.ux-shell .cx-workspace .environment-summary-stat strong{font-size:22px}.studio-shell.ux-shell .cx-workspace .cr-editor-head{flex-direction:column;align-items:flex-start}.studio-shell.ux-shell .cx-workspace .home-columns{grid-template-columns:1fr}.studio-shell.ux-shell .cx-workspace .home-shortcuts{grid-template-columns:1fr}.studio-shell.ux-shell .cx-workspace .repo-row{grid-template-columns:1fr}.ux-select-menu{font-size:13px}.ux-option{min-height:42px}}
+@media(min-width:601px) and (max-width:1250px){.studio-shell.ux-shell .cx-workspace .environment-row.container-compact-row{min-width:1000px}}
+@media(max-width:600px){.studio-shell.ux-shell .cx-workspace .environment-row.container-compact-row{min-width:0;grid-template-columns:repeat(2,minmax(0,1fr))}.studio-shell.ux-shell .cx-workspace .container-compact-row>.container-entry-list,.studio-shell.ux-shell .cx-workspace .container-compact-row>.environment-actions{grid-column:1/-1}.studio-shell.ux-shell .cx-workspace .container-compact-row>.environment-actions{justify-content:flex-start}.studio-shell.ux-shell .cx-workspace .container-compact-row.head{display:none}}
+
+/* Keep resource creation editable at short heights, with actions always reachable. */
+.studio-shell.ux-shell .cr-modal{padding:20px}
+.studio-shell.ux-shell .cr-dialog{height:min(780px,calc(100dvh - 40px));max-height:calc(100dvh - 40px);min-height:0;padding:0;overflow:hidden}
+.studio-shell.ux-shell .cr-dialog-head{flex:none;margin:0;padding:18px 22px;border-bottom:1px solid #dce5e7}
+.studio-shell.ux-shell .cr-dialog-head h2{font-size:18px}
+.studio-shell.ux-shell .cr-dialog-head button{width:32px;height:32px;display:grid;place-items:center;border-radius:5px;cursor:pointer}
+.studio-shell.ux-shell .cx-create-body{display:flex;flex:1;min-height:0;flex-direction:column;padding:18px 22px;overflow:auto;overscroll-behavior:contain;gap:14px}
+.studio-shell.ux-shell .cx-create-body .cr-create-context{flex:none;margin:0;min-width:0}
+.studio-shell.ux-shell .cx-create-body .cr-create-context label{min-width:0}
+.studio-shell.ux-shell .cr-dialog .cx-create-body .cr-yaml{height:auto;flex:1 0 240px;min-height:240px;border:1px solid #dce5e7;border-radius:6px;padding:14px;background:#f8fafb;color:#304c5b;font:13px/1.65 'Cascadia Code',Consolas,monospace}
+.studio-shell.ux-shell .cx-create-body .cr-create-diff{flex:none;max-height:180px;margin:0;border-radius:6px}
+.studio-shell.ux-shell .cr-dialog-actions{flex:none;margin:0;padding:14px 22px;border-top:1px solid #dce5e7;background:#fff}
+.studio-shell.ux-shell .container-detail-row{min-width:0;padding:0 18px 16px}
+.studio-shell.ux-shell .container-detail-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 24px;padding:18px}
+.studio-shell.ux-shell .container-detail-item{min-width:0;grid-template-columns:90px minmax(0,1fr) auto}
+@media(max-width:600px){.studio-shell.ux-shell .cr-modal{padding:10px}.studio-shell.ux-shell .cr-dialog{height:calc(100dvh - 20px);max-height:calc(100dvh - 20px)}.studio-shell.ux-shell :is(.cr-dialog-head,.cr-dialog-actions){padding:12px 14px}.studio-shell.ux-shell .cx-create-body{padding:14px}.studio-shell.ux-shell .cx-create-body .cr-create-context{grid-template-columns:1fr}.studio-shell.ux-shell .container-detail-grid{grid-template-columns:1fr;padding:14px}.studio-shell.ux-shell .container-detail-row{padding:0 12px 12px}}
+/* Prototype context belongs beside the breadcrumb, away from task actions. */
+#prototype-mode-note{display:none!important}
+.ux-prototype-note{display:inline-flex;align-items:center;flex:none;border:1px solid #dce5e2;border-radius:4px;padding:2px 7px;background:#f5f8f6;color:#73867d;font:10px/1.5 system-ui;letter-spacing:0;white-space:nowrap}
+.pr-eyebrow>.ux-prototype-note{margin-left:10px;vertical-align:middle}
+
+/* MR workflow: the full sequence remains visible; emphasize the active stage. */
+.studio-shell.ux-shell .nav-review .nav-flow-card.ux-process{padding:14px 16px;margin:0 0 12px;border:1px solid #dce5e2;border-radius:8px;background:#fff!important;min-width:0}
+.studio-shell.ux-shell .ux-process .nav-flow-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0;flex-wrap:wrap}
+.ux-process-copy{display:flex;align-items:center;gap:10px;flex-wrap:wrap;min-width:0;flex:1 1 280px}
+.studio-shell.ux-shell .ux-process-copy>strong{font-size:13px;font-weight:600;line-height:24px;color:#385d4b;white-space:nowrap}
+.studio-shell.ux-shell .ux-process-copy .nav-flow-status{font-family:inherit;font-size:12px;font-weight:500;line-height:22px;padding:1px 8px;border-radius:4px;background:#edf6f1;color:#28634e;white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere}
+.studio-shell.ux-shell .ux-process[data-ux-process-tone=warn] .nav-flow-status{background:#fff6e4;color:#885b12}
+.studio-shell.ux-shell .ux-process[data-ux-process-tone=error] .nav-flow-status{background:#fff0ef;color:#a94445}
+.studio-shell.ux-shell .ux-process[data-ux-process-tone=muted] .nav-flow-status{background:#f0f3f1;color:#63766e}
+.ux-process-actions{display:flex;align-items:center;flex-wrap:wrap;justify-content:flex-end;gap:12px;flex:0 1 auto}
+.studio-shell.ux-shell .ux-process-actions .nav-flow-sha{display:inline-flex;gap:5px;align-items:center;color:#63766e;font-size:11px;line-height:30px}
+.ux-process-actions .nav-flow-sha code{padding:2px 5px;border-radius:4px;background:#f3f6f4;font-size:11px;color:#526a60}
+.studio-shell.ux-shell .ux-process-actions>button{font-family:inherit;font-size:12px;line-height:1.4;margin:0;min-height:30px;padding:5px 9px;white-space:nowrap;cursor:pointer;border:1px solid #dbe5de;background:#fff;border-radius:5px;color:#466653}
+.studio-shell.ux-shell .ux-process-actions>button:hover{background:#f2f7f4;border-color:#b9cfc0}
+.studio-shell.ux-shell .ux-process .ux-process-hint{margin:2px 0 12px;color:#60756a;font-size:12px;line-height:1.6;overflow-wrap:anywhere}
+.studio-shell.ux-shell .nav-review .ux-process>.group-mr-flow{display:grid!important;grid-template-columns:repeat(8,minmax(0,1fr))!important;gap:0!important;margin:0;padding:0;overflow:visible;list-style:none}
+.studio-shell.ux-shell .nav-review .ux-process .group-mr-flow>li{display:flex!important;flex-direction:column;align-items:center;gap:0;position:relative;min-width:0;padding:7px 4px 6px!important;text-align:center;background:transparent;border-radius:6px}
+.studio-shell.ux-shell .nav-review .ux-process .group-mr-flow>li::before{display:block!important;content:"";position:absolute;left:calc(50% + 20px);right:calc(-50% + 20px);top:21px;height:1px;background:#d6e2da}
+.studio-shell.ux-shell .nav-review .ux-process .group-mr-flow>li:last-child::before{display:none!important}
+.studio-shell.ux-shell .nav-review .ux-process .group-mr-flow>li::after{display:none!important}
+.studio-shell.ux-shell .nav-review .ux-process .group-mr-dot{display:grid;place-items:center;flex:none;width:28px;height:28px;margin:0 0 7px;border:1px solid #d8e2db;border-radius:50%;background:#f6f9f7;color:#677b6e;font:500 12px/1 system-ui;position:relative;z-index:1}
+.ux-process .group-mr-dot svg{display:block;width:18px;height:18px}
+.studio-shell.ux-shell .nav-review .ux-process .group-mr-flow b{margin:0;font-family:inherit;font-size:12px;font-weight:500;line-height:1.5;color:#48665a;white-space:normal;overflow-wrap:anywhere}
+.studio-shell.ux-shell .nav-review .ux-process .group-mr-flow small{margin:3px 0 0;font-size:11px;line-height:1.5;font-weight:400;color:#63766e;white-space:normal}
+.studio-shell.ux-shell .nav-review .ux-process .group-mr-flow .done .group-mr-dot{border-color:#c5ddcf;background:#e5f1e9;color:#317659}
+.studio-shell.ux-shell .nav-review .ux-process .group-mr-flow .done b{color:#3c6351}
+.studio-shell.ux-shell .nav-review .ux-process .group-mr-flow .ux-process-current{background:#f0f7f3}
+.studio-shell.ux-shell .nav-review .ux-process .group-mr-flow .ux-process-current .group-mr-dot{border:2px solid #397f61;background:#fff;color:#28634e}
+.studio-shell.ux-shell .nav-review .ux-process .group-mr-flow .ux-process-current b{font-weight:650;color:#28634e}
+.studio-shell.ux-shell .nav-review .ux-process .group-mr-flow .ux-process-attention{background:#fff9ed}
+.studio-shell.ux-shell .nav-review .ux-process .group-mr-flow .ux-process-attention .group-mr-dot{border-color:#bd944d;background:#fff3d9;color:#885b12}
+.studio-shell.ux-shell .nav-review .ux-process .group-mr-flow .ux-process-attention :is(b,small){color:#885b12}
+.studio-shell.ux-shell .nav-review .ux-process[data-ux-process-tone=error] .group-mr-flow .ux-process-attention{background:#fff5f3}
+.studio-shell.ux-shell .nav-review .ux-process[data-ux-process-tone=error] .group-mr-flow .ux-process-attention .group-mr-dot{background:#fff0ef;border-color:#c66a68;color:#a94445}
+.studio-shell.ux-shell .nav-review .ux-process[data-ux-process-tone=error] .group-mr-flow .ux-process-attention :is(b,small){color:#a94445}
+.studio-shell.ux-shell .nav-review .ux-process .group-mr-flow .skipped .group-mr-dot{border-style:dashed;background:#fff;color:#6b7e71}
+.studio-shell.ux-shell .ux-process .nav-flow-records{margin:14px 0 0;border-top:1px solid #e1e8e3;padding-top:14px}
+.ux-process button:focus-visible{outline:2px solid #297965;outline-offset:3px}
+@media(min-width:601px) and (max-width:1199px){
+ .studio-shell.ux-shell .nav-review .ux-process>.group-mr-flow{grid-template-columns:repeat(4,minmax(0,1fr))!important;row-gap:12px!important}
+ .studio-shell.ux-shell .nav-review .ux-process .group-mr-flow>li:nth-child(4)::before{display:none!important}
+}
+@media(max-width:600px){
+ .studio-shell.ux-shell .nav-review .nav-flow-card.ux-process{padding:12px}
+ .ux-process-copy{flex-basis:100%}.ux-process-actions{justify-content:flex-start;gap:8px}
+ .studio-shell.ux-shell .ux-process .nav-flow-heading{gap:5px}
+ .studio-shell.ux-shell .ux-process .ux-process-hint{margin:8px 0 10px}
+ .studio-shell.ux-shell .nav-review .ux-process>.group-mr-flow{grid-template-columns:1fr!important}
+ .studio-shell.ux-shell .nav-review .ux-process .group-mr-flow>li{display:grid!important;grid-template-columns:28px minmax(0,1fr) auto;align-items:center;gap:10px;padding:6px 8px!important;min-height:40px;text-align:left}
+ .studio-shell.ux-shell .nav-review .ux-process .group-mr-dot{grid-column:1;grid-row:1;margin:0}
+ .studio-shell.ux-shell .nav-review .ux-process .group-mr-flow b{grid-column:2;grid-row:1}
+ .studio-shell.ux-shell .nav-review .ux-process .group-mr-flow small{grid-column:3;grid-row:1;margin:0}
+ .studio-shell.ux-shell .nav-review .ux-process .group-mr-flow>li::before{left:21px;right:auto;top:36px;bottom:-3px;width:1px;height:auto}
+}

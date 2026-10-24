@@ -24,14 +24,17 @@ async function setup(t,{records=[row('1'),row('2'),row('3','NO_PERMISSION'),row(
  t.after(async()=>{for(let i=0;i<20&&dom.window.eval('Object.values(mrWorkbench.cache).some(v=>v.loading)');i++)await flush();dom.window.close()});await flush();return {dom,d:dom.window.document,calls,records}
 }
 function select(d,...ids){for(const id of ids)d.querySelector('[data-group-mr-check="'+id+'"]').click()}
-test('详情顶部常驻一键审核，直接通过且不打开审核抽屉，失效状态禁用',async t=>{
+test('详情顶部一键审核后随处理状态切换，直接合入仍保留门禁与确认',async t=>{
  const {dom,d,calls,records}=await setup(t,{records:[row('1')]});d.querySelector('[data-mr-open="1"]').click();await flush();
  assert.equal(d.querySelector('.nav-flow-records'),null);
  const button=d.querySelector('.nav-review-top [data-group-mr-action="review"]');assert.ok(button);assert.equal(button.disabled,false);
  button.click();button.click();await flush();assert.equal(calls.length,1);assert.deepEqual(calls[0].data,{sha,decision:'pass',reason:'',category:''});assert.equal(d.querySelector('.mr-action-overlay'),null);
- assert.match(d.querySelector('[data-mr-review-feedback]').textContent,/1 条审核已保存/);assert.equal(d.querySelector('.nav-review-top [data-group-mr-action="review"]').disabled,true);
- records[0].phase='HUMAN';records[0].writePending='结果待核对';await dom.window.eval('loadGroupMr()');assert.equal(d.querySelector('.nav-review-top [data-group-mr-action="review"]').disabled,true);
- records[0].writePending='';records[0].phase='DONE';await dom.window.eval('loadGroupMr()');assert.equal(d.querySelector('.nav-review-top [data-group-mr-action="review"]').disabled,true);
+ assert.match(d.querySelector('[data-mr-review-feedback]').textContent,/1 条审核已保存/);assert.equal(d.querySelector('.nav-review-top [data-group-mr-action="review"]'),null);
+ assert.equal(d.querySelector('.nav-review-top [data-group-mr-action="merge"]').disabled,true);
+ records[0].running=false;await dom.window.eval('loadGroupMr()');assert.equal(d.querySelector('.nav-review-top [data-group-mr-action="merge"]').disabled,false);
+ records[0].phase='HUMAN';records[0].writePending='结果待核对';await dom.window.eval('loadGroupMr()');assert.equal(d.querySelector('.nav-review-top [data-group-mr-action="merge"]').disabled,true);
+ records[0].writePending='';records[0].phase='DONE';await dom.window.eval('loadGroupMr()');assert.equal(d.querySelector('.nav-review-top [data-group-mr-action="merge"]').disabled,true);assert.equal(d.querySelector('.nav-review-top [data-group-mr-action="merge"]').textContent,'已合入');
+ assert.equal(calls.length,1);
 });
 test('MR 标题打开真实链接，点击行仍可选详情，非法链接不呈现且操作表头左对齐',async t=>{
  const {dom,d}=await setup(t,{records:[row('1'),row('2'),{...row('3'),url:'javascript:alert(1)'},{...row('4','PI'),running:true}]})

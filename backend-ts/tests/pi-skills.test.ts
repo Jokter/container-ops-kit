@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {chmod,mkdir,mkdtemp,readFile,rm,writeFile} from 'node:fs/promises';
+import {chmod,mkdir,mkdtemp,readFile,realpath,rm,writeFile} from 'node:fs/promises';
 import {homedir,tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
@@ -73,7 +73,7 @@ test('实际进程启动注入项目包，保留工作目录及参数；禁用�
  else{await writeFile(binary,'#!'+process.execPath+'\nconsole.log(JSON.stringify({cwd:process.cwd(),args:process.argv.slice(2)}))\n');await chmod(binary,0o755);}
  const args=['--mode','rpc','--session',join(root,'会话 with spaces.jsonl')];
  const result=await runProcess([binary,...args],root,5000);assert.equal(result.exitCode,0);
- const output=JSON.parse(result.output);assert.equal(output.cwd,root);
+ const output=JSON.parse(result.output);assert.equal(output.cwd,await realpath(root));
  assert.deepEqual(output.args.slice(0,2),['--extension',await projectSkillPackage()]);
  assert.deepEqual(output.args.slice(-args.length),args);
  const disabled=await runProcess([binary,'--print','--no-skills','--no-tools'],root,5000);
