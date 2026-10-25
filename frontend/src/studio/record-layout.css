@@ -1,0 +1,66 @@
+/* Record content also appears in the overview; only the records page owns layout. */
+.studio-record-workspace .record-date,.studio-record-workspace .record-clock{display:block}
+.studio-record-workspace .record-clock{margin-top:3px;color:#7b8983;font-size:12px}
+.studio-record-workspace .record-name{font-weight:600}
+.studio-record-workspace .record-result-toggle:after{content:'展开 ▾'}
+.studio-record-workspace .studio-result[open] .record-result-toggle:after{content:'收起 ▴'}
+
+/* One layout definition for the records panel, independent of generic quality tables. */
+.studio-shell.ux-shell .studio-record-workspace .record-panel{padding:0;border:1px solid #dce5df;border-radius:8px;background:#fff;overflow:hidden}
+.studio-shell.ux-shell .studio-record-workspace .studio-record-tools{margin:0;padding:0 20px;gap:28px;border-bottom:1px solid #e5ebe7}
+.studio-shell.ux-shell .studio-record-workspace .studio-record-tools button{font-size:14px;padding:15px 0;line-height:1.5}
+.studio-shell.ux-shell .studio-record-workspace .studio-record-filters{display:grid;grid-template-columns:minmax(220px,1fr) 160px 140px;gap:12px;margin:0;padding:18px 20px;align-items:center}
+.studio-shell.ux-shell .studio-record-workspace .studio-record-filters :is(input,select){width:100%;min-width:0!important;max-width:none;font-family:inherit;font-size:13px;line-height:1.5;min-height:36px;margin:0}
+.studio-shell.ux-shell .studio-record-workspace [data-studio-reset-outcome]{grid-column:1/-1;justify-self:start}
+.studio-shell.ux-shell .studio-record-workspace .record-selection-bar{display:flex;align-items:center;gap:18px;flex-wrap:wrap;min-height:52px;padding:10px 20px;border-block:1px solid #e5ebe7;background:#fafcfb;font-size:13px;color:#607268}
+.studio-shell.ux-shell .studio-record-workspace .record-selection-bar .ax-select-all{display:inline-flex;align-items:center;gap:8px;margin:0;width:auto;white-space:nowrap;font-size:13px}
+.studio-shell.ux-shell .studio-record-workspace .record-selection-bar input{width:16px!important;min-width:16px!important;height:16px;flex:none;margin:0}
+.studio-shell.ux-shell .studio-record-workspace .record-selection-bar [data-cleanup-records]{margin-left:auto;font-size:13px;padding:6px 10px}
+.studio-shell.ux-shell .studio-record-workspace .record-count{font-variant-numeric:tabular-nums}
+.studio-shell.ux-shell .studio-record-workspace .qw-table-wrap{min-height:0;margin:0;overflow:auto}
+.studio-shell.ux-shell .studio-record-workspace .studio-record-table{table-layout:fixed;width:100%;min-width:780px;border-collapse:collapse;white-space:normal}
+.studio-shell.ux-shell .studio-record-workspace .studio-record-table th:nth-child(n){width:auto}
+.studio-shell.ux-shell .studio-record-workspace .record-col-check{width:40px}
+.studio-shell.ux-shell .studio-record-workspace .record-col-task{width:32%}
+.studio-shell.ux-shell .studio-record-workspace .record-col-result{width:auto}
+.studio-shell.ux-shell .studio-record-workspace .record-col-time{width:112px}
+.studio-shell.ux-shell .studio-record-workspace .record-col-actions{width:168px}
+.studio-shell.ux-shell .studio-record-workspace .studio-record-table :is(th,td){padding:16px 14px;max-width:none;vertical-align:top;font-size:14px;line-height:1.6;border:0;border-bottom:1px solid #e8ede9;text-align:left}
+.studio-shell.ux-shell .studio-record-workspace .studio-record-table th{padding-block:12px;font-size:14px;font-weight:600;background:#f4f7f5;color:#50665a;white-space:nowrap}
+.studio-shell.ux-shell .studio-record-workspace .studio-record-table .studio-record-check{padding:18px 10px;text-align:center}
+.studio-shell.ux-shell .studio-record-workspace .studio-record-table tbody tr:last-child td{border-bottom:0}
+.studio-shell.ux-shell .studio-record-workspace .studio-record-table tbody tr:hover{background:#f8fbf9}
+.studio-shell.ux-shell .studio-record-workspace .record-name{display:block;overflow-wrap:anywhere;color:#2e463a;font-size:14px;line-height:1.6}
+.studio-shell.ux-shell .studio-record-workspace .studio-record-table .qw-sub{font-size:12px;font-weight:400;line-height:1.6;white-space:normal;overflow-wrap:anywhere;margin-top:6px;color:#728279;max-width:none}
+.studio-shell.ux-shell .studio-record-workspace .record-time{font-size:13px!important;color:#50665a;font-variant-numeric:tabular-nums}
+.studio-shell.ux-shell .studio-record-workspace .record-date{white-space:normal;overflow-wrap:anywhere}
+.studio-shell.ux-shell .studio-record-workspace .studio-result{margin:7px 0 0}
+.studio-shell.ux-shell .studio-record-workspace .studio-result summary{display:block;cursor:pointer;list-style:none;font-size:14px;line-height:1.65;color:#4c6054;overflow:visible}
+.studio-shell.ux-shell .studio-record-workspace .studio-result summary::-webkit-details-marker{display:none}
+.studio-shell.ux-shell .studio-record-workspace .record-result-preview{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;overflow-wrap:anywhere;white-space:normal}
+.studio-shell.ux-shell .studio-record-workspace .record-result-toggle{display:block;margin-top:4px;font-size:12px;color:#137468}
+.studio-shell.ux-shell .studio-record-workspace .studio-result[open] .record-result-preview{display:none}
+.studio-shell.ux-shell .studio-record-workspace .studio-result pre{margin:8px 0 0;max-height:240px;white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px;background:#f4f7f5;color:#3f5548}
+.studio-shell.ux-shell .studio-record-workspace .record-action-grid{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 14px}
+.studio-shell.ux-shell .studio-record-workspace .record-action-grid>:is(button,a){flex:none;margin:0;padding:0;line-height:1.7;font-size:13px;font-weight:400;text-align:left;white-space:nowrap}
+.studio-shell.ux-shell .studio-record-workspace .record-action-grid>.studio-delete-record{order:1;color:#a34f46}
+.studio-shell.ux-shell .studio-record-workspace .record-action-grid>.studio-mr{order:2;flex-basis:100%}
+.studio-shell.ux-shell .studio-record-workspace .record-action-grid>.governance-mr{order:3;flex-basis:100%;margin:0}
+.studio-shell.ux-shell .studio-record-workspace .record-action-grid>.qw-muted{font-size:13px}
+@media(max-width:1000px){
+ .studio-shell.ux-shell .studio-record-workspace .studio-record-filters{grid-template-columns:minmax(180px,1fr) 140px 120px}
+}
+@media(max-width:600px){
+ .studio-shell.ux-shell .studio-record-workspace .studio-record-filters{grid-template-columns:1fr 1fr;padding:14px}
+ .studio-shell.ux-shell .studio-record-workspace #qw-task-search{grid-column:1/-1}
+ .studio-shell.ux-shell .studio-record-workspace .studio-record-tools{gap:18px;padding:0 14px;flex-wrap:wrap}
+ .studio-shell.ux-shell .studio-record-workspace .record-selection-bar{padding:12px 14px;gap:10px}
+ .studio-shell.ux-shell .studio-record-workspace .studio-record-table{min-width:0;display:block}
+ .studio-shell.ux-shell .studio-record-workspace colgroup{display:none}
+ .studio-shell.ux-shell .studio-record-workspace .studio-record-table tbody td{padding:0!important;border:0;font-size:14px}
+ .studio-shell.ux-shell .studio-record-workspace .studio-record-table td.ax-record-title{padding-right:28px!important}
+ .studio-shell.ux-shell .studio-record-workspace .studio-record-table td.ax-record-actions{padding-top:12px!important;border-top:1px solid #e5ebe7}
+ .studio-shell.ux-shell .studio-record-workspace .record-action-grid{width:100%;gap:10px 18px}
+ .studio-shell.ux-shell .studio-record-workspace .record-clock{display:inline;margin-left:10px}
+ .studio-shell.ux-shell .studio-record-workspace .record-date{display:inline}
+}
