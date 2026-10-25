@@ -261,6 +261,7 @@ import { enhancePortalRefinements } from './portal-refinements.js';
   document.addEventListener('keydown',e=>{if(e.defaultPrevented)return;if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();openCommand()}if(e.key==='Escape'&&focusMode&&!document.querySelector('.ux-command[open]')){focusMode=false;enhance()}});
   window.addEventListener('hashchange',()=>{navOpen=false;document.body.classList.remove('ux-nav-open');focusMode=false;enhance()});
   window.addEventListener('resize',()=>{if(navOpen&&window.innerWidth>700)setNavigation(false,false)});
+  document.addEventListener('studio-render-layout',enhance);
   function start(){addCommand();observer=new MutationObserver(enhance);enhance()}
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start);else start();
 })();

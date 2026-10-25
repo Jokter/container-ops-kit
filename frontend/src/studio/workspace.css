@@ -210,6 +210,6 @@
 .studio-shell.ux-shell .nav-review:has(>.nav-review-body[data-mr-scroll="code"]){height:auto;min-height:calc(100dvh - 132px)}
 .studio-shell.ux-shell .nav-review-body[data-mr-scroll="code"]{flex:none;min-height:0;overflow:visible}
 .studio-shell.ux-shell .nav-review-body[data-mr-scroll="code"]>.mr-code-section{flex:none}
-.studio-shell.ux-shell .nav-review-body[data-mr-scroll="code"] .mr-code-browser{flex:none;height:70vh;height:70dvh;min-height:520px;max-height:1200px}
+.studio-shell.ux-shell .nav-review-body[data-mr-scroll="code"] .mr-code-browser{flex:none;height:85vh;height:85dvh;min-height:640px;max-height:none}
 .ux-focus .studio-shell.ux-shell .nav-review:has(>.nav-review-body[data-mr-scroll="code"]){min-height:calc(100dvh - 70px)}
-@media(max-width:700px){.studio-shell.ux-shell .nav-review-body[data-mr-scroll="code"] .mr-code-browser{height:65vh;height:65dvh;min-height:360px;max-height:700px}}
+@media(max-width:700px){.studio-shell.ux-shell .nav-review-body[data-mr-scroll="code"] .mr-code-browser{height:75vh;height:75dvh;min-height:420px;max-height:none}}
