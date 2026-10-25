@@ -110,11 +110,6 @@
 .studio-shell.ux-shell :is(.ut-task-detail,.ut-task-workspace) :is(button,input,select){font-family:inherit}
 .studio-shell.ux-shell :is(.ut-task-repo,.ut-task-stage) strong{font-size:14px;font-weight:600}
 .studio-shell.ux-shell :is(.ut-task-repo,.ut-task-stage) span,.studio-shell.ux-shell .ut-task-detail-head p{font-size:13px;line-height:1.6}
-.studio-shell.ux-shell .studio-record-table :is(th,td){font-size:14px!important;line-height:1.6;vertical-align:middle;padding:14px 16px!important}
-.studio-shell.ux-shell .studio-record-table th{font-weight:600;color:#435f52}
-.studio-shell.ux-shell .studio-record-table .qw-sub{font-size:13px;line-height:1.6}
-.studio-shell.ux-shell .studio-record-table :is(button,a){font-size:13px;line-height:1.6}
-.studio-shell.ux-shell .studio-record-table td:last-child{white-space:normal}
 .studio-shell.ux-shell .ut-task-detail .ut-task-main-layout{grid-template-columns:minmax(0,1fr);gap:0}
 .studio-shell.ux-shell .ut-task-context{margin:0 24px 24px;padding:20px;background:#f7faf8;border:1px solid #dce6e1;border-radius:8px;min-width:0}
 .studio-shell.ux-shell .ut-task-context h3{font-size:15px;margin:0 0 16px;font-weight:600}
@@ -127,22 +122,3 @@
 @media(max-width:700px){.studio-shell.ux-shell .ut-task-context{margin:0 16px 16px;padding:16px}.studio-shell.ux-shell .ut-task-context .ut-task-meta{grid-template-columns:minmax(0,1fr)}.studio-shell.ux-shell .ut-task-detail-head{flex-wrap:wrap}}
 .studio-shell.ux-shell[data-ux-route="automation/auto-ut"] :is(.qw-table th,.qw-table td,.qw-fields label,.ut-version-card){font-family:inherit;font-size:14px;line-height:1.6}
 .studio-shell.ux-shell[data-ux-route="automation/auto-ut"] :is(button,input,select){font-family:inherit;font-size:13px}
-@media(max-width:600px){.studio-shell.ux-shell .ax-workspace .studio-record-table.ax-record-cards td{padding:0!important}.studio-shell.ux-shell .ax-workspace .studio-record-table.ax-record-cards td.ax-record-actions{padding-top:12px!important}}
-
-/* Reserve predictable utility columns; give the result the remaining width. */
-.studio-shell.ux-shell .studio-record-table{min-width:960px;table-layout:fixed}
-.studio-shell.ux-shell .studio-record-table th.record-task{width:26%}
-.studio-shell.ux-shell .studio-record-table th.record-result{width:auto}
-.studio-shell.ux-shell .studio-record-table th.record-time{width:176px}
-.studio-shell.ux-shell .studio-record-table th.record-actions{width:196px}
-.studio-shell.ux-shell .studio-record-table :is(th,td){vertical-align:top;padding:16px 12px!important}
-.studio-shell.ux-shell .studio-record-table .studio-record-check{width:44px;padding:18px 10px!important;text-align:center}
-.studio-shell.ux-shell .studio-record-table td.record-time{white-space:nowrap;color:#66786f;font-size:13px!important;font-variant-numeric:tabular-nums}
-.studio-shell.ux-shell .studio-record-table .qw-repo{overflow-wrap:anywhere}
-.studio-shell.ux-shell .studio-record-table .studio-result{margin-top:8px}
-.studio-shell.ux-shell .studio-record-table .record-action-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 12px;align-items:start}
-.studio-shell.ux-shell .studio-record-table .record-action-grid>:is(button,a){margin:0;padding:0;text-align:left;white-space:nowrap;line-height:1.6}
-.studio-shell.ux-shell .studio-record-table .record-action-grid>.studio-delete-record{grid-column:2;grid-row:1;color:#ad594e}
-.studio-shell.ux-shell .studio-record-table .record-action-grid>.studio-mr{grid-column:1;grid-row:2}
-.studio-shell.ux-shell .studio-record-table .record-action-grid>.governance-mr{grid-column:1/-1;margin:0}
-@media(max-width:600px){.studio-shell.ux-shell .ax-workspace .studio-record-table.ax-record-cards{min-width:0}.studio-shell.ux-shell .ax-workspace .studio-record-table.ax-record-cards td{padding:0!important}.studio-shell.ux-shell .ax-workspace .studio-record-table.ax-record-cards td.ax-record-actions{padding-top:12px!important}.studio-shell.ux-shell .studio-record-table .record-action-grid{width:100%;grid-template-columns:repeat(2,minmax(0,1fr))}}

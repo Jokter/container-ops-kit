@@ -77,12 +77,12 @@ export const enhanceAutomationRefinements = (() => {
         cell.classList.toggle('ax-record-actions', index === row.cells.length - 1);
       }));
       const selectAll = table.querySelector('[data-record-select-all]');
-      const filters = main.querySelector('.studio-record-filters');
+      const filters = main.querySelector('.record-selection-bar');
       if (selectAll && filters && !filters.querySelector('.ax-select-all')) {
         const label = make('label', 'ax-select-all');
-        selectAll.parentElement.append(document.createTextNode('选择'));
+        selectAll.parentElement.setAttribute('aria-label', '选择记录');
         label.append(selectAll, document.createTextNode('全选当前结果'));
-        filters.append(label);
+        filters.prepend(label);
       }
     });
   }
