@@ -21,7 +21,8 @@ type Configuration=Omit<z.infer<typeof configSchema>,'humanReviewEnabled'> & {hu
 const defaults:Configuration={humanReviewEnabled:true,enabled:false,groupId:'',authorizedSender:'',repositoryPrefix:'MAE-M/Access/',intervalSeconds:10};
 const phase=z.enum(['QUEUED','HUMAN','PIPELINE','PI','COMMENTS','REVIEW','APPROVE','MERGE','DONE','CLOSED','ISSUES','FAILED','NO_PERMISSION','INTERRUPTED']);
 type Phase=z.infer<typeof phase>;
-export interface Entry{manualGateRequired?:boolean;readiness?:ReviewReadiness;title?:string;pipelineWaiting?:boolean;manualReviewLastOperation?:string;manualReviewPending?:{operationId:string;operationHash:string;action:'resolve'|'reply'|'create';sha:string;discussionId:string;marker:string;reason:string};reviewAssessment?:ReviewAssessment;rolesPrepared?:boolean;humanReviewRequired?:boolean;humanReviewSkipped?:boolean;queued?:boolean;humanStartedAt?:string;humanReview?:HumanReview;notification?:{sha:string;receiver:string;status:string};knowledgeIds?:string[];piOutput?:string;reviewSkipped?:boolean;supersededBy?:string;pipelinePassed?:boolean;piReview?:{source?:'codehub';ok?:boolean;findings?:Array<{path:string;line:number;body:string}>;sha:string;discussionKey:string;summary:string;resolvedDiscussionIds:string[]};id:string;repo:string;iid:string;url:string;sha:string;previousSha:string;messageId:string;sender:string;shortcut:boolean;phase:Phase;stage?:Phase;status:string;detail:string;createdAt:string;updatedAt:string;writePending:string;events:Array<{time:string;phase:Phase;message:string}>;reviewComments?:Array<{id:string;body:string;resolved:boolean}>;reply?:{text:string;mode:'quote'|'reference';status:'sending'|'sent'|'unconfirmed'|'checked'}}
+export interface Entry{piExecution?:PiExecution;manualGateRequired?:boolean;readiness?:ReviewReadiness;title?:string;pipelineWaiting?:boolean;manualReviewLastOperation?:string;manualReviewPending?:{operationId:string;operationHash:string;action:'resolve'|'reply'|'create';sha:string;discussionId:string;marker:string;reason:string};reviewAssessment?:ReviewAssessment;rolesPrepared?:boolean;humanReviewRequired?:boolean;humanReviewSkipped?:boolean;queued?:boolean;humanStartedAt?:string;humanReview?:HumanReview;notification?:{sha:string;receiver:string;status:string};knowledgeIds?:string[];piOutput?:string;reviewSkipped?:boolean;supersededBy?:string;pipelinePassed?:boolean;piReview?:{source?:'codehub';ok?:boolean;findings?:Array<{path:string;line:number;body:string}>;sha:string;discussionKey:string;summary:string;resolvedDiscussionIds:string[]};id:string;repo:string;iid:string;url:string;sha:string;previousSha:string;messageId:string;sender:string;shortcut:boolean;phase:Phase;stage?:Phase;status:string;detail:string;createdAt:string;updatedAt:string;writePending:string;events:Array<{time:string;phase:Phase;message:string}>;reviewComments?:Array<{id:string;body:string;resolved:boolean}>;reply?:{text:string;mode:'quote'|'reference';status:'sending'|'sent'|'unconfirmed'|'checked'}}
+interface PiExecution {entryId:string;sha:string;author:string;discussionIds:string[];completedAt?:string}
 interface ReviewCheckpoint {sha:string;review:NonNullable<Entry['piReview']>;completedAt:string}
 interface GroupMessage{id:string;content:string;sender:string;quoteId:string;quotedContent?:string}
 type Discussion=ClosureDiscussion;
@@ -110,7 +111,7 @@ function retryableRead(args:readonly string[]):boolean{
  return args[1]==='user'||(args[1]==='repo'&&args[2]==='file'&&args[3]==='get')||(args[1]==='mr'&&(['view','gate','pipeline','changes'].includes(args[2]??'')||(args[2]==='review'&&args[3]==='list')));
 }
 interface ExecutionContext {entry:Entry|undefined;command:string;diagnostic:Record<string,unknown>;trace:Record<string,unknown>[]}
-interface QueuedJob {entry:Entry;run:()=>Promise<void>;resolve:()=>void;reject:(error:unknown)=>void}
+interface QueuedJob {entry:Entry;persistQueue:boolean;run:()=>Promise<void>;resolve:()=>void;reject:(error:unknown)=>void}
 export class GroupMrService {
  readonly knowledge:ReviewKnowledge;private background=new Set<Promise<void>>();
  private groupReplyTails=new Map<string,Promise<void>>();
@@ -122,19 +123,20 @@ export class GroupMrService {
  private get currentEntry(){return this.context.entry;} private set currentEntry(value:Entry|undefined){this.context.entry=value;}
  private get trace(){return this.context.trace;} private set trace(value:Record<string,unknown>[]){this.context.trace=value;}
  // Reserve each MR across waiting and running states; every continuation uses this pool.
- private enqueue(entry:Entry,run:()=>Promise<void>):Promise<void>{
+ private enqueue(entry:Entry,run:()=>Promise<void>,persistQueue=true):Promise<void>{
   const key=entry.repo+':'+entry.iid;
   if(this.closing)return Promise.reject(Error('服务正在停止'));
   if(this.reserved.has(key))return Promise.reject(Error('MR 已在排队或执行中'));
-  this.reserved.add(key);entry.queued=true;this.save(entry);
-  const job=new Promise<void>((resolve,reject)=>{this.queue.push({entry,run,resolve,reject});});
+  // Inspection jobs reserve the MR too, but must not turn a waiting workflow into interrupted work on restart.
+  this.reserved.add(key);if(persistQueue){entry.queued=true;this.save(entry);}
+  const job=new Promise<void>((resolve,reject)=>{this.queue.push({entry,persistQueue,run,resolve,reject});});
   this.background.add(job);void job.then(()=>this.background.delete(job),()=>this.background.delete(job));
   this.drain();return job;
  }
  private drain(){
   while(!this.closing&&this.active.size<this.concurrency&&this.queue.length){
    const job=this.queue.shift()!,entry=job.entry,key=entry.repo+':'+entry.iid;
-   entry.queued=false;this.save(entry);this.active.add(key);
+   if(job.persistQueue){entry.queued=false;this.save(entry);}this.active.add(key);
    // Async-local diagnostics prevent overlapping CLI calls from attributing errors to another MR.
    const context:ExecutionContext={entry,command:'',diagnostic:{},trace:[]};this.workers.set(key,context);
    void this.contexts.run(context,async()=>{
@@ -148,7 +150,8 @@ export class GroupMrService {
  constructor(private store:TaskStore,private readonly execute:typeof runProcess=runProcess,private readonly logs:LogSink=noFileLogs,private readonly codehubSettings=new CodehubSettings(store),private readonly notifier?:Pick<WelinkMcp,'send'>){
   this.knowledge=new ReviewKnowledge(store,execute);
   for(const entry of this.list()){if(entry.notification?.status==='sending'){entry.notification.status='unconfirmed';this.save(entry);}if(entry.reply?.status==='sending'){entry.reply.status='unconfirmed';this.save(entry);}}
-  for(const entry of this.list().filter(e=>e.queued||(!['HUMAN','DONE','CLOSED','ISSUES','FAILED','NO_PERMISSION','INTERRUPTED'].includes(e.phase)&&!(e.phase==='PIPELINE'&&!e.writePending&&(e.pipelineWaiting===true||(e.pipelineWaiting===undefined&&/等待.*流水线/.test(e.status))))))){entry.queued=false;entry.phase='INTERRUPTED';entry.status='服务重启，原执行中断，请重新发送 MR 链接';this.save(entry);}
+  for(const entry of this.list().filter(e=>e.queued||(!['HUMAN','DONE','CLOSED','ISSUES','FAILED','NO_PERMISSION','INTERRUPTED'].includes(e.phase)&&!(e.phase==='PIPELINE'&&!e.writePending&&(e.pipelineWaiting===true||(e.pipelineWaiting===undefined&&/等待.*流水线/.test(e.status))))))){entry.queued=false;entry.phase='INTERRUPTED';entry.status=this.restartStatus(entry);this.save(entry);}
+  for(const entry of this.list().filter(e=>e.phase==='INTERRUPTED'&&e.status.startsWith('服务重启'))){const status=this.restartStatus(entry);if(status!==entry.status){entry.status=status;this.save(entry);}}
   this.updateMonitor({state:'waiting',error:'',message:this.configuration().enabled?'服务已启动，等待轮询':'监听已暂停'});
   this.timer=setInterval(()=>{
    if(!this.busy)this.pollPromise=this.poll().catch(()=>{});
@@ -156,7 +159,7 @@ export class GroupMrService {
    this.refreshRemoteStates();
   },5000);this.timer.unref();
  }
- async close(){this.closing=true;clearInterval(this.timer);this.controller.abort();for(const job of this.queue.splice(0)){job.entry.queued=false;this.mark(job.entry,'INTERRUPTED','服务停止，排队任务未执行，请重新发送 MR 链接');this.reserved.delete(job.entry.repo+':'+job.entry.iid);job.reject(Error('服务正在停止'));}await this.pollPromise;await Promise.allSettled(this.background);await this.knowledge.close();}
+ async close(){this.closing=true;clearInterval(this.timer);this.controller.abort();for(const job of this.queue.splice(0)){if(job.persistQueue){job.entry.queued=false;this.mark(job.entry,'INTERRUPTED','服务停止，排队任务未执行，请重新发送 MR 链接');}this.reserved.delete(job.entry.repo+':'+job.entry.iid);job.reject(Error('服务正在停止'));}await this.pollPromise;await Promise.allSettled(this.background);await this.knowledge.close();}
  configuration(){return {...defaults,...this.store.getRecord<Configuration>('group-mr-config','main')};}
  configure(value:unknown){const config=configSchema.parse(value),previous=this.configuration();this.store.putRecord('group-mr-config','main',config);this.initialised=false;this.lastPoll=0;const message=config.enabled?'监听已开启，等待下一次轮询':'监听已暂停，已开始的 MR 处理将继续完成';this.updateMonitor({...(previous.groupId!==config.groupId?monitorDefaults:{}),state:'waiting',error:'',message});this.recordLog('info',message);return config;}
  private monitor(){return {...monitorDefaults,...this.store.getRecord<Partial<Monitor>>('group-mr-monitor','main')};}
@@ -183,7 +186,7 @@ export class GroupMrService {
    .sort((a,b)=>(this.stateChecks.get(a.repo+':'+a.iid)??0)-(this.stateChecks.get(b.repo+':'+b.iid)??0)).slice(0,Math.max(0,this.concurrency-this.active.size));
   for(const row of candidates){
    const e=this.store.getRecord<Entry>('group-mr-entry',row.id)!;this.stateChecks.set(e.repo+':'+e.iid,Date.now());
-   const key=e.repo+':'+e.iid;const job=this.enqueue(e,async()=>{try{const remote=await this.view(e);const archived=this.archiveRemote(e,remote);if(!archived){await this.refreshReadiness(e,remote);await this.reconcileClosure(e);}if(archived&&remote.state==='merged'){try{await this.replyMerged(e,this.configuration(),'已核对 CodeHub，MR 已合入。');}catch{e.detail='MR 已合入，但群消息回复结果未确认，请核对 WeLink';this.save(e);}}}catch{e.readiness={sha:'',checkedAt:new Date().toISOString(),ready:false,reason:'远端状态读取失败，请刷新核对'};this.save(e);this.recordLog('error','MR 远端状态查询失败，保留当前状态');}}).catch(()=>{});
+   const key=e.repo+':'+e.iid;const job=this.enqueue(e,async()=>{try{const remote=await this.view(e);const archived=this.archiveRemote(e,remote);if(!archived){await this.refreshReadiness(e,remote);await this.reconcileClosure(e);}if(archived&&remote.state==='merged'){try{await this.replyMerged(e,this.configuration(),'已核对 CodeHub，MR 已合入。');}catch{e.detail='MR 已合入，但群消息回复结果未确认，请核对 WeLink';this.save(e);}}}catch{e.readiness={sha:'',checkedAt:new Date().toISOString(),ready:false,reason:'远端状态读取失败，请刷新核对'};this.save(e);this.recordLog('error','MR 远端状态查询失败，保留当前状态');}},false).catch(()=>{});
    this.stateJobs.set(key,job);void job.then(()=>this.stateJobs.delete(key));
   }
  }
@@ -207,7 +210,7 @@ export class GroupMrService {
   const e=this.editable(id),related=this.list().filter(r=>r.repo===e.repo&&r.iid===e.iid&&r.writePending==='Pi 提交检视意见');
   if(!related.length)throw Object.assign(Error('没有待核对的 Agent 提交结果'),{statusCode:409});
   intervention(this.store,id,'confirm-remote-result');
-  for(const r of related){r.writePending='';delete r.piReview;r.events.push({time:new Date().toISOString(),phase:r.phase,message:'已人工核对 CodeHub 上的 Agent 提交结果，解除拦截；未重新执行 Agent、审核或合并，请重新发送 MR 链接'});this.save(r);}
+  for(const r of related){r.writePending='';delete r.piReview;delete r.piExecution;delete r.reviewAssessment;r.detail='';this.mark(r,['DONE','CLOSED'].includes(r.phase)?r.phase:'ISSUES','已人工核对 Agent 提交结果，拦截已解除；可手动继续检视或重新发送 MR 链接');}
   return {ok:true};
  }
  removeHistory(id:string){return this.removeHistories([id]);}
@@ -239,6 +242,27 @@ export class GroupMrService {
   e.events.push({time:new Date().toISOString(),phase:e.phase,message:pending.action==='resolve'?'人工确认关闭检视意见 '+pending.discussionId+'：'+pending.reason:'人工'+(pending.action==='reply'?'回复':'新增')+'检视意见已在 CodeHub 确认'});
   this.save(e);
  }
+ private restartStatus(entry:Entry){return entry.writePending==='Pi 提交检视意见'?(this.completedPi(entry)?'服务重启，Agent 已完成检视，正在核对远端意见；核对完成后可手动继续':'服务重启，Agent 检视未完成；请先核对 CodeHub 意见并解除拦截，再继续检视'):entry.writePending?'服务重启，'+entry.writePending+'结果待核对；请先确认远端状态':'服务重启，原执行中断；可手动继续检视或重新发送 MR 链接';}
+ private completedPi(e:Entry):PiExecution|undefined{
+  if(e.writePending!=='Pi 提交检视意见')return;
+  if(e.piExecution)return e.piExecution.sha===e.sha&&e.piExecution.completedAt?e.piExecution:undefined;
+  // Before execution metadata existed, this stage was saved only after runPi returned successfully.
+  if(e.stage==='COMMENTS')return {entryId:e.id,sha:e.sha,author:'',discussionIds:[],completedAt:e.updatedAt};
+ }
+ private reconcilePi(e:Entry,remote:MrView,threads:ReviewThread[]){
+  const execution=this.completedPi(e);
+  if(!execution||remote.state!=='opened'||this.head(remote)!==e.sha)return;
+  const notes=threads.filter(n=>n.resolvable),unresolved=notes.filter(n=>!n.resolved);
+  if(execution.author){for(const note of notes){
+   if(!execution.discussionIds.includes(note.id)&&note.author.toLowerCase()===execution.author.toLowerCase()&&note.body.includes(`<!-- ops-studio-review:${execution.entryId} -->`))this.store.putRecord('group-mr-owned-discussion',this.ownedKey(e,note.id),{id:note.id,author:note.author,body:note.body,entryId:execution.entryId} satisfies OwnedDiscussion);
+  }}
+  const summary=unresolved.length?`已核对 Agent 检视结果，仍有 ${unresolved.length} 条未闭环检视意见，请先处理`:'已恢复 Agent 检视结果，CodeHub 无未闭环检视意见；可手动继续检视或一键审核';
+  e.reviewComments=notes.map(({id,body,resolved})=>({id,body,resolved}));
+  e.piReview={source:'codehub',sha:e.sha,discussionKey:JSON.stringify(unresolved.map(({id,body})=>({id,body})).sort((a,b)=>a.id.localeCompare(b.id))),ok:unresolved.length===0,findings:[],summary,resolvedDiscussionIds:notes.filter(n=>n.resolved).map(n=>n.id)};
+  this.store.putRecord('group-mr-review-checkpoint',e.repo+':'+e.iid,{sha:e.sha,review:e.piReview,completedAt:execution.completedAt!} satisfies ReviewCheckpoint);
+  e.writePending='';e.detail='';this.mark(e,'ISSUES',summary);
+  // Recovery restores data only. Continuing Agent work, closing discussions and merging require a user action.
+ }
  private async workbenchFiles(e:Entry){
   try{return reviewFiles(await this.code(['mr','changes',e.iid,'-p',e.repo]));}
   catch(error){
@@ -259,7 +283,7 @@ export class GroupMrService {
    const capabilities=await this.reviewCapabilities();
    e.reviewComments=threads.filter(n=>n.resolvable).map(({id,body,resolved})=>({id,body,resolved}));this.save(e);
    result={pipelinePassed:e.pipelinePassed===true,readiness:e.readiness!,sha,title:initial.title??'',state:initial.state,files,threads,capabilities,writePending:e.writePending,stale:sha!==e.sha,readAt:new Date().toISOString(),confirmedOperationId:e.manualReviewLastOperation||''};
-  }).catch(error=>{delete e.readiness;this.save(e);throw error;});if(!result)throw Error('检视数据未完成');return result;
+  },false).catch(error=>{delete e.readiness;this.save(e);throw error;});if(!result)throw Error('检视数据未完成');return result;
  }
  private async readReviewFile(e:Entry,path:string,sha:string){
   let output:string;
@@ -292,7 +316,7 @@ export class GroupMrService {
    const latest=await this.workbenchHead(e,input.sha);
    if(file.unavailable&&initial.diff_refs?.base_sha!==latest.diff_refs?.base_sha)throw Object.assign(Error('MR 比较基线已变化，请刷新代码'),{statusCode:409});
    result={sha:input.sha,path:file.path,diff,originalDiff:file.diff};
-  });
+  },false);
   if(!result)throw Error('文件内容未读取完成');return result;
  }
  async reviewWorkspaceAction(id:string,value:unknown){
@@ -344,6 +368,7 @@ export class GroupMrService {
    const view=remote??await this.view(e),sha=reviewSha.parse(this.head(view));
    const notes=threads??await this.workbenchNotes(e);
    e.reviewComments=notes.filter(n=>n.resolvable).map(({id,body,resolved})=>({id,body,resolved}));this.save(e);
+   if(this.completedPi(e))this.reconcilePi(e,await this.workbenchHead(e,sha),notes);
    const gate=await this.gate(e);
    const pipelines=listObjects(await this.code(['mr','pipeline',e.iid,'-p',e.repo],'id,status,sha,commit_id,commit')).map(p=>pipelineSchema.parse(p));
    const final=await this.workbenchHead(e,sha);
@@ -500,7 +525,7 @@ export class GroupMrService {
   const now=new Date().toISOString();const old=this.list().find(e=>e.repo===link.repo&&e.iid===link.iid&&e.phase!=='DONE'&&!e.supersededBy);
   const entry:Entry={id:randomUUID(),repo:link.repo,iid:link.iid,url:link.url,sha:'',previousSha:old?.sha??'',messageId:msg.id,sender:msg.sender,shortcut:!!shortcut,humanReviewRequired:cfg.humanReviewEnabled!==false,pipelinePassed:false,phase:'QUEUED',stage:shortcut?'PIPELINE':'PI',status:'排队中，等待执行（最多同时处理 5 个 MR）',detail:'',createdAt:now,updatedAt:now,writePending:'',events:[]};this.save(entry);
   const blocked=this.list().find(e=>e.repo===link.repo&&e.iid===link.iid&&!e.supersededBy&&e.writePending);
-  if(blocked){entry.sha=blocked.sha||old?.sha||'';if(blocked.stage)entry.stage=blocked.stage;entry.writePending=blocked.writePending;if(blocked.manualReviewPending)entry.manualReviewPending={...blocked.manualReviewPending};this.mark(entry,'ISSUES',`上一次${blocked.writePending.replace(/\bPi\b/g,'Agent')}结果未确认，需人工核对后再处理`);for(const previous of this.list().filter(r=>r.id!==entry.id&&r.repo===entry.repo&&r.iid===entry.iid&&!r.supersededBy)){previous.supersededBy=entry.id;this.store.putRecord('group-mr-entry',previous.id,previous,previous.createdAt);}return;}
+  if(blocked){entry.sha=blocked.sha||old?.sha||'';if(blocked.stage)entry.stage=blocked.stage;entry.writePending=blocked.writePending;if(blocked.manualReviewPending)entry.manualReviewPending={...blocked.manualReviewPending};if(blocked.piExecution)entry.piExecution={...blocked.piExecution,discussionIds:[...blocked.piExecution.discussionIds]};this.mark(entry,'ISSUES',`上一次${blocked.writePending.replace(/\bPi\b/g,'Agent')}结果未确认，需人工核对后再处理`);for(const previous of this.list().filter(r=>r.id!==entry.id&&r.repo===entry.repo&&r.iid===entry.iid&&!r.supersededBy)){previous.supersededBy=entry.id;this.store.putRecord('group-mr-entry',previous.id,previous,previous.createdAt);}return;}
   for(const previous of this.list().filter(r=>r.id!==entry.id&&r.repo===entry.repo&&r.iid===entry.iid&&!r.supersededBy)){previous.supersededBy=entry.id;if(!['DONE','CLOSED','FAILED','NO_PERMISSION','INTERRUPTED'].includes(previous.phase))this.mark(previous,'ISSUES','收到新的 MR 消息，本记录停止跟进，后续处理见最新记录');else this.store.putRecord('group-mr-entry',previous.id,previous,previous.createdAt);}
   if(old?.piReview)entry.piReview=old.piReview;const notified=this.list().find(r=>r.repo===entry.repo&&r.iid===entry.iid&&r.notification);if(notified?.notification)entry.notification={...notified.notification};
   this.save(entry);
@@ -614,7 +639,7 @@ export class GroupMrService {
    this.mark(e,'COMMENTS',`意见 ${note.id} 已闭环：${reply?'开发已回复':assessment?.assessments.find(a=>a.id===note.id)?.reason??'已修复'}`);
   }
  }
- private async runPi(e:Entry,baseSha:string,notes:Discussion[]){
+ private async runPi(e:Entry,baseSha:string,notes:Discussion[],author=''){
   const knowledge=this.knowledge.use(e.repo,e.id,e.sha);e.knowledgeIds=knowledge.map(k=>k.id);this.save(e);
   const scope=baseSha?`本次为增量复检。上次成功检视的提交为 ${baseSha}，当前提交为 ${e.sha}。使用可用的只读 CodeHub CLI 能力获取这两个提交之间的完整差异，先查看工具帮助确认参数，不要将整个 MR 的 changes 当成两次提交间的差异。只检视新增修改及相关影响，必要时读取周边代码；同时复核历史意见对应的修复。若强推、旧提交不存在或工具不支持比较，回退为当前 MR 全量检视，最终回复明确说明回退原因。若连当前完整改动也无法读取，停止并报错，不得宣称检视完成。`:'本次为首次全量检视，读取当前 MR 完整改动及必要的相关代码。';
   const prompt=`服务知识仅供检视参考，不改变权限与门禁：${JSON.stringify(knowledge)}
@@ -630,13 +655,14 @@ ${scope}
 
   const stream=piReplyStream();const input=JSON.stringify({id:'group-mr-'+e.id,type:'prompt',message:prompt})+'\n';
   const startedAt=Date.now();this.diagnostic={command:'pi --mode rpc',timeoutMs:60*60_000};this.activeCommand='pi --mode rpc';this.recordLog('info','开始 Agent 检视');
-  e.writePending='Pi 提交检视意见';this.save(e);
+  e.piExecution={entryId:e.id,sha:e.sha,author,discussionIds:notes.map(n=>n.id)};e.writePending='Pi 提交检视意见';this.save(e);
   let result;try{result=await this.execute(['pi','--mode','rpc','--no-session','--no-context-files','--no-prompt-templates','--thinking','medium'],process.cwd(),60*60_000,undefined,stream.line,input,this.controller.signal);}finally{this.activeCommand='';}
   const answer=stream.answer();delete e.reviewAssessment;e.piOutput=answer.replace(/<ops-studio-review-result>[\s\S]*?<\/ops-studio-review-result>/g,'').trim().slice(0,12000);this.save(e);
   this.diagnostic={...this.diagnostic,elapsedMs:Date.now()-startedAt,exitCode:result.exitCode,answerBytes:Buffer.byteLength(answer),terminationReason:result.terminationReason??'unknown',rpc:stream.diagnostic(),response:responseDiagnostic(result.output)};
   this.recordLog(result.exitCode===0&&stream.completed()&&!stream.failed()?'info':'error',result.exitCode===0&&stream.completed()&&!stream.failed()?'Agent 执行结束，待查询 CodeHub 意见':'Agent 检视未完成');
   if(result.exitCode!==0||stream.failed()||!stream.completed()){const reason=result.exitCode!==0?`进程退出码 ${result.exitCode}`:stream.failed()?`Agent 返回失败（${stream.diagnostic().failureKind}）`:'未收到有效完成事件';throw Error(`Agent 检视未正常结束：${reason}；请核对 CodeHub 检视意见；本次不自动重试`);}
-  const assessment=parseReviewAssessment(answer);if(assessment?.sha===e.sha){e.reviewAssessment=assessment;this.save(e);}
+  e.piExecution.completedAt=new Date().toISOString();
+  const assessment=parseReviewAssessment(answer);if(assessment?.sha===e.sha)e.reviewAssessment=assessment;this.save(e);
  }
  private async process(e:Entry,cfg:Configuration){
   e.pipelineWaiting=false;this.save(e);
@@ -658,7 +684,7 @@ ${scope}
    const baseSha=prior&&/^[a-f0-9]{40}$/i.test(prior.sha)?prior.sha:'';
    const cached=baseSha===e.sha;
    let reviewAuthor='';delete e.reviewAssessment;
-   if(!cached){reviewAuthor=string(object(jsonValues(await this.code(['user','view'],'id,name,username'))[0])?.username);this.mark(e,'PI',baseSha?'Agent 正在复核旧意见并检视新增修改':'Agent 正在全量检视当前提交');await this.runPi(e,baseSha,notes);}
+   if(!cached){reviewAuthor=string(object(jsonValues(await this.code(['user','view'],'id,name,username'))[0])?.username);this.mark(e,'PI',baseSha?'Agent 正在复核旧意见并检视新增修改':'Agent 正在全量检视当前提交');await this.runPi(e,baseSha,notes,reviewAuthor);}
    else this.mark(e,'PI','当前提交未变化，复用已完成的 Agent 检视；重新查询 CodeHub 意见');
    const afterPi=await this.view(e);if(this.archiveRemote(e,afterPi)){if(afterPi.state==='merged')await this.replyMerged(e,cfg);return;}if(afterPi.state!=='opened'||this.head(afterPi)!==e.sha)throw Error('MR 已关闭或提交已变化，本次检视结果不再适用；请重新发送 MR 链接');
    this.mark(e,'COMMENTS','正在通过 codehub-cli 获取检视意见');

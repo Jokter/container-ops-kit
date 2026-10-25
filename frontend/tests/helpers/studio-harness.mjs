@@ -61,7 +61,7 @@ export async function createStudio({route='home/tools',beforeParse,enhanced=true
   const [html,api] = await Promise.all([studioPage({enhanced}),mock?fixtureScript():Promise.resolve('')]);
   const errors=[],virtualConsole=new VirtualConsole();
   virtualConsole.on('jsdomError',error=>{if(!error.message.includes('Not implemented'))errors.push(error.message)});
-  const dom=new JSDOM(html,{url:'http://studio.test/#/'+route,runScripts:'dangerously',virtualConsole,beforeParse(w){
+  const dom=new JSDOM(html,{url:'http://studio.test/#/'+route,runScripts:'dangerously',pretendToBeVisual:true,virtualConsole,beforeParse(w){
     w.Response=Response;w.Headers=Headers;w.Request=Request;w.TextEncoder=TextEncoder;w.TextDecoder=TextDecoder;w.scrollTo=()=>{};
     w.matchMedia=()=>({matches:false,addEventListener(){},removeEventListener(){}});
     w.HTMLElement.prototype.scrollIntoView=function(){};

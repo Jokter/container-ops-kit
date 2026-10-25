@@ -30,9 +30,9 @@ test('pagination limits select-all to page, crosses page in continuous review, r
  click(d,'[data-mrw-focus]');for(let i=0;i<20&&!d.querySelector('.nav-list');i++)await flush();assert.equal(d.querySelector('[data-group-mr-record]').dataset.groupMrRecord,'11');assert.match(d.querySelector('.mr-pagination').textContent,/2 \/ 4/)
  input(dom,'#group-mr-search','Repo36');assert.equal(d.querySelectorAll('[data-group-mr-record]').length,1);assert.match(d.querySelector('.mr-pagination').textContent,/1 \/ 1/)
 })
-test('incoming MR does not reorder the list until explicit refresh; backend retry replaces existing row in place',async t=>{
- const {dom,d,records}=await setup(t);records.unshift(row(100));await dom.window.eval('loadGroupMr()');assert.equal(d.querySelector('[data-group-mr-record]').dataset.groupMrRecord,'1');assert.match(d.querySelector('.mr-new-banner').textContent,/1 条新 MR/)
- click(d,'[data-mrw-refresh]');await flush();assert.equal(d.querySelector('[data-group-mr-record]').dataset.groupMrRecord,'100')
+test('incoming MR joins automatically without reordering existing rows; explicit refresh can restore newest-first order',async t=>{
+ const {dom,d,records}=await setup(t);records.unshift(row(100));await dom.window.eval('loadGroupMr()');assert.equal(d.querySelector('[data-group-mr-record]').dataset.groupMrRecord,'1');assert.equal(dom.window.eval('mrRows().length'),37);assert.equal(dom.window.eval('mrRows().at(-1).id'),'100');assert.equal(d.querySelector('.mr-new-banner'),null)
+ click(d,'[data-group-mr-refresh]');await flush();assert.equal(d.querySelector('[data-group-mr-record]').dataset.groupMrRecord,'100')
 })
 test('diff is escaped, files switch, reply draft survives polling and MR switches, closure posts fingerprint',async t=>{
  const {dom,d,writes}=await setup(t);click(d,'.nav-enter[data-mr-open="1"]');await flush();assert.ok(d.querySelector('.mr-code-browser'));assert.equal(d.querySelector('.mr-diff-pane script'),null);assert.match(d.querySelector('.mr-diff-pane').textContent,/<script>/)
