@@ -104,3 +104,34 @@
  .ax-select-all{margin-left:0;width:100%;padding:5px 0}
  .studio-shell.ux-shell .ax-workspace .studio-setting-section{padding:17px}
 }
+
+/* UT and records use readable UI text and stable column alignment. */
+.studio-shell.ux-shell[data-ux-route="automation/auto-ut"],.studio-shell.ux-shell[data-ux-route="automation/tasks"]{font-family:"Segoe UI","Microsoft YaHei","PingFang SC",sans-serif;font-size:14px;line-height:1.6}
+.studio-shell.ux-shell :is(.ut-task-detail,.ut-task-workspace) :is(button,input,select){font-family:inherit}
+.studio-shell.ux-shell :is(.ut-task-repo,.ut-task-stage) strong{font-size:14px;font-weight:600}
+.studio-shell.ux-shell :is(.ut-task-repo,.ut-task-stage) span,.studio-shell.ux-shell .ut-task-detail-head p{font-size:13px;line-height:1.6}
+.studio-shell.ux-shell .studio-record-table :is(th,td){font-size:14px!important;line-height:1.6;vertical-align:middle;padding:14px 16px!important}
+.studio-shell.ux-shell .studio-record-table th{font-weight:600;color:#435f52}
+.studio-shell.ux-shell .studio-record-table .qw-sub{font-size:13px;line-height:1.6}
+.studio-shell.ux-shell .studio-record-table :is(button,a){font-size:13px;line-height:1.6}
+.studio-shell.ux-shell .studio-record-table td:last-child{white-space:normal}
+.studio-shell.ux-shell .studio-record-table td:last-child>:is(button,a){display:inline-flex;align-items:center;margin:4px 12px 4px 0;white-space:nowrap}
+.studio-shell.ux-shell .studio-record-table th:last-child{width:180px}
+.studio-shell.ux-shell .ut-task-detail .ut-task-main-layout{grid-template-columns:minmax(0,1fr);gap:0}
+.studio-shell.ux-shell .ut-task-context{margin:0 24px 24px;padding:20px;background:#f7faf8;border:1px solid #dce6e1;border-radius:8px;min-width:0}
+.studio-shell.ux-shell .ut-task-context h3{font-size:15px;margin:0 0 16px;font-weight:600}
+.studio-shell.ux-shell .ut-task-context .ut-task-meta{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px 32px;background:transparent;padding:0;font-size:13px}
+.studio-shell.ux-shell .ut-task-context .ut-task-meta span{min-width:0}
+.studio-shell.ux-shell .ut-task-context .ut-task-meta b{font-size:14px;font-weight:400;max-width:none;white-space:normal;overflow-wrap:anywhere;line-height:1.7;margin-top:6px;color:#354b42}
+.studio-shell.ux-shell .ut-task-detail-head{gap:16px;align-items:start}
+.studio-shell.ux-shell .ut-task-detail-head>.button{flex:none;font-size:13px}
+.studio-shell.ux-shell .ut-task-detail-head h2{font-size:20px;font-weight:600;overflow-wrap:anywhere}
+@media(max-width:700px){.studio-shell.ux-shell .ut-task-context{margin:0 16px 16px;padding:16px}.studio-shell.ux-shell .ut-task-context .ut-task-meta{grid-template-columns:minmax(0,1fr)}.studio-shell.ux-shell .ut-task-detail-head{flex-wrap:wrap}}
+.studio-shell.ux-shell[data-ux-route="automation/auto-ut"] :is(.qw-table th,.qw-table td,.qw-fields label,.ut-version-card){font-family:inherit;font-size:14px;line-height:1.6}
+.studio-shell.ux-shell[data-ux-route="automation/auto-ut"] :is(button,input,select){font-family:inherit;font-size:13px}
+.studio-shell.ux-shell .studio-record-selectable th:nth-child(1){width:44px}
+.studio-shell.ux-shell .studio-record-selectable th:nth-child(2){width:24%}
+.studio-shell.ux-shell .studio-record-selectable th:nth-child(3){width:auto}
+.studio-shell.ux-shell .studio-record-selectable th:nth-child(4){width:150px}
+.studio-shell.ux-shell .studio-record-selectable th:nth-child(5){width:180px}
+@media(max-width:600px){.studio-shell.ux-shell .ax-workspace .studio-record-table.ax-record-cards td{padding:0!important}.studio-shell.ux-shell .ax-workspace .studio-record-table.ax-record-cards td.ax-record-actions{padding-top:12px!important}}

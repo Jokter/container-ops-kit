@@ -153,7 +153,7 @@ import { enhancePortalRefinements } from './portal-refinements.js';
     if(key==='automation/schedules'||key==='automation/tasks'){
       for(const cell of main.querySelectorAll('.qw-table tbody tr>td:last-child')){
         if(cell.querySelector('.ux-row-more'))continue;
-        const actions=[...cell.querySelectorAll('[data-schedule-toggle],[data-schedule-delete],.studio-delete-record')];if(!actions.length)continue;
+        const actions=[...cell.querySelectorAll('[data-schedule-toggle],[data-schedule-delete],.studio-delete-record')];if(actions.length<2)continue;
         const more=make('details','ux-row-more'),summary=make('summary','','更多');more.append(summary);actions[0].before(more);actions.forEach(action=>more.append(action));
       }
       return;

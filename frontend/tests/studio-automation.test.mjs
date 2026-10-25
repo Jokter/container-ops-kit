@@ -58,21 +58,8 @@ test('studio record cards retain selection, action confirmation and accessible m
   await click('[data-record-select-all]');
   assert.equal(find('[data-cleanup-records]').disabled, true);
 
-  await click('.ux-row-more summary');
-  assert.equal(find('.ux-row-more[open] summary').getAttribute('aria-expanded'), 'true');
-  await click('.page-head h1');
-  assert.equal(d.querySelector('.ux-row-more[open]'), null);
-  await click('.ux-row-more summary');
-  const menu = find('.ux-row-more[open]');
-  menu.querySelector('button').focus();
-  d.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
-  await wait();
-  assert.equal(menu.open, false);
-  assert.equal(d.activeElement, menu.querySelector('summary'));
-  assert.equal(menu.querySelector('summary').getAttribute('aria-expanded'), 'false');
-
-  await click('.ux-row-more summary');
-  await click('.ux-row-more[open] [data-delete-record]');
+  assert.equal(d.querySelector('.ux-row-more'), null);
+  await click('[data-delete-record]');
   assert.ok(find('.studio-confirm-dialog'));
   assert.equal(writes(requests).length, 0, 'Moving a delete action does not skip its original confirmation');
   await click('[data-studio-cancel]');
@@ -134,20 +121,16 @@ test('studio quality preparation summary reflects live inputs without changing t
   assert.equal(writes(requests).length, 1);
 });
 
-test('studio UT task overflow retains original delete confirmation and drawer focus on Escape', async t => {
+test('studio UT task exposes delete directly and retains original confirmation', async t => {
   const { w, d, requests, find, click, wait } = await setup(t, 'automation/tasks');
+  let top=320;
+  w.scrollTo=(x,y)=>{top=y};
+  w.eval("navUi.scroll.set('#/automation/tasks',320)");
   await click('[data-governance-detail]');
+  assert.equal(top,0,'Opening a task starts at the top instead of restoring the records offset');
   const header = find('.ut-task-detail-head');
-  await click('.ut-task-more summary');
-  const menu = find('.ut-task-more[open]');
-  menu.querySelector('button').focus();
-  d.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
-  await wait();
-  assert.equal(menu.open, false);
-  assert.equal(d.activeElement, menu.querySelector('summary'));
-  assert.ok(header.isConnected, 'Dismissing the menu does not dismiss the task detail');
-  await click('.ut-task-more summary');
-  await click('.ut-task-more [data-auto-ut-delete]');
+  assert.equal(d.querySelector('.ut-task-more'), null);
+  await click('.ut-task-detail-head [data-auto-ut-delete]');
   assert.ok(find('.studio-confirm-dialog'));
   assert.equal(writes(requests).length, 0);
   await click('[data-studio-cancel]');
