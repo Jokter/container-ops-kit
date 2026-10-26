@@ -21,7 +21,17 @@ export function parseMr(output:string):MrView{
 export function mrIid(m:MrView):string {const url=m.mr_url||m.web_url;const number=m.iid||url?.match(/merge_requests\/(\d+)/)?.[1]||(m.mr_url?m.id:undefined);if(!number)throw Error('CodeHub 返回缺少 MR IID');return number;}
 export function listObjects(output:string):unknown[]{if(output.trim()==='null')return [];const values=jsonValues(output);for(const value of values){if(Array.isArray(value))return value;if(value&&typeof value==='object'){const obj=value as Record<string,unknown>;for(const key of ['items','data','merge_requests','pipelines'])if(Array.isArray(obj[key]))return obj[key];}}throw Error('CodeHub 列表返回格式不正确，不能确认远端状态。');}
 export function roleMembers(m:MrView,role:'reviewers'|'approvers'|'assignees'){return (role==='reviewers'?m.approval_merge_request_reviewers:role==='approvers'?m.approval_merge_request_approvers:m.merge_request_assignee_list)??[];}
-export function pendingMembers(m:MrView,role:'reviewers'|'approvers'|'assignees'){return roleMembers(m,role).filter(p=>p.username&&p.approved!==true&&p.has_approved!==true&&p.reviewed!==true&&!['approved','passed','reviewed'].includes(String(p.state||p.status))).map(p=>p.username!);}
+function memberState(person:z.infer<typeof member>){return String(person.state||person.status||'').trim().toLowerCase();}
+export function roleMemberCompleted(person:z.infer<typeof member>|undefined,role:'reviewers'|'approvers'|'assignees'):boolean{
+ if(!person)return false;
+ const state=memberState(person);
+ // CodeHub's passed means another person completed the review, not this member.
+ if(['optional','required','reject','false','passed'].includes(state))return false;
+ if(state==='true')return role==='reviewers';
+ if(state==='approve')return role==='approvers';
+ return person.approved===true||person.has_approved===true||person.reviewed===true||['approved','reviewed'].includes(state);
+}
+export function pendingMembers(m:MrView,role:'reviewers'|'approvers'|'assignees'){return roleMembers(m,role).filter(p=>p.username&&!roleMemberCompleted(p,role)&&memberState(p)!=='passed').map(p=>p.username!);}
 export function issueTitle(m:MrView,ticket:string){return m.e2e_issues?.find(i=>[i.id,i.issue_num,i.issue_id,i.number].some(n=>String(n)===ticket))?.title;}
 export function safeMrUrl(value:string){const url=new URL(value);if(!['https:','http:'].includes(url.protocol)||url.username||url.password||!url.pathname.match(/\/merge_requests\/\d+/))throw Error('MR 地址无效');return value;}
 

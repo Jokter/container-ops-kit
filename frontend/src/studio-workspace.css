@@ -248,7 +248,7 @@
 .group-mr-workspace .mr-file-tools{padding:12px 14px;flex:none;border-bottom:1px solid var(--line,#dfe4ea);text-align:right}
 .group-mr-workspace .mr-file-tools>div{display:flex;justify-content:space-between;font-size:12px;color:#7d889b;margin-bottom:10px}
 .group-mr-workspace .mr-file-tools input{width:100%;box-sizing:border-box;padding:8px;border:1px solid var(--line,#dfe4ea);border-radius:5px;margin-bottom:8px;background:var(--surface,#fff);color:inherit;font-size:12px}
-.group-mr-workspace .mr-file-scroll{min-height:0;flex:1;overflow-y:scroll;overflow-x:hidden;overscroll-behavior:contain;scrollbar-gutter:stable;padding:4px 0}
+.group-mr-workspace .mr-file-scroll{min-height:0;flex:1;overflow-y:scroll;overflow-x:hidden;overscroll-behavior:contain auto;scrollbar-gutter:stable;padding:4px 0}
 .group-mr-workspace .mr-file-scroll::-webkit-scrollbar,.group-mr-workspace .mr-diff-scroll::-webkit-scrollbar{width:9px;height:9px}
 .group-mr-workspace .mr-file-scroll::-webkit-scrollbar-thumb,.group-mr-workspace .mr-diff-scroll::-webkit-scrollbar-thumb{background:#b9c5d6;border:2px solid transparent;background-clip:padding-box;border-radius:8px}
 .group-mr-workspace .mr-folder-toggle{display:flex;align-items:center;gap:7px;width:100%;border:0;padding:9px 12px;background:#f1f5fa;text-align:left;color:#7b889b;cursor:pointer;font-size:11px}
@@ -262,7 +262,7 @@
 .group-mr-workspace .mr-diff-pane{min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden}
 .group-mr-workspace .mr-diff-pane>header{flex:none;padding:12px;font-size:12px;font-weight:600;border-bottom:1px solid var(--line,#dfe4ea);overflow-wrap:anywhere}
 .group-mr-workspace .mr-diff-pane>header small{display:block;font-weight:400;margin-top:5px}
-.group-mr-workspace .mr-diff-scroll{flex:1;overflow:auto;min-height:0;overscroll-behavior:contain;scrollbar-gutter:stable}
+.group-mr-workspace .mr-diff-scroll{flex:1;overflow:auto;min-height:0;overscroll-behavior:contain auto;scrollbar-gutter:stable}
 .group-mr-workspace .mr-diff-scroll table{border-collapse:collapse;width:100%;font:12px/1.65 ui-monospace,SFMono-Regular,Consolas,monospace}
 .group-mr-workspace .mr-diff-scroll td{padding:1px 8px;white-space:pre;border:0;vertical-align:top}
 .group-mr-workspace .mr-diff-scroll td:nth-child(-n+2){width:42px;text-align:right;color:#788492;border-right:1px solid #e8ecf0;user-select:none}

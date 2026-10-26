@@ -14,6 +14,26 @@ test('MR response diagnostics keep nested shapes and statuses without credential
  assert.equal(responseDiagnostic('<html>private-password</html>').format,'html');assert.doesNotMatch(JSON.stringify(responseDiagnostic('Authorization: Bearer private-token')),/private-token|Bearer/);
 });
 
+test('MR response diagnostics retain only fixed reviewer status values',()=>{
+ for(const state of ['true','approve','optional','required','approved','reviewed','passed','reject']){
+  assert.deepEqual(responseDiagnostic(JSON.stringify({state,status:state})).values,[{state,status:state}]);
+ }
+ const value=responseDiagnostic(JSON.stringify({state:'private-review-status',status:'private-user-status',username:'approved',body:'optional',token:'true',authorization:{state:'approve'},credentials:{status:'reviewed'},private_key:'passed'}));
+ assert.deepEqual(value.values,[{state:'string',status:'string',username:'string',body:'string',token:'[REDACTED]',authorization:'[REDACTED]',credentials:'[REDACTED]',private_key:'[REDACTED]'}]);
+ assert.doesNotMatch(JSON.stringify(value),/private-review-status|private-user-status/);
+});
+
+test('MR response diagnostics retain only allowlisted boolean gate results',()=>{
+ const flags=['ci_state_passed','conflict_passed','approval_reviewers_required_passed','approval_approvers_required_passed','merge_gate_passed'];
+ for(const passed of [true,false]){
+  const gate=Object.fromEntries(flags.map(key=>[key,passed]));
+  assert.deepEqual(responseDiagnostic(JSON.stringify({gate})).values,[{gate}]);
+ }
+ const value=responseDiagnostic(JSON.stringify({ci_state_passed:'true',merge_gate_passed:'private-gate-value',approved:true,reviewed:false,passed:true,password:true,secret:false,token:{merge_gate_passed:true}}));
+ assert.deepEqual(value.values,[{ci_state_passed:'string',merge_gate_passed:'string',approved:'boolean',reviewed:'boolean',passed:'boolean',password:'[REDACTED]',secret:'[REDACTED]',token:'[REDACTED]'}]);
+ assert.doesNotMatch(JSON.stringify(value),/private-gate-value/);
+});
+
 test('list parse failure writes a dedicated error file with MR context and precise command',async()=>{
  const root=mkdtempSync(join(tmpdir(),'mr-errors-')),store=new TaskStore(':memory:');const service=new GroupMrService(store,async args=>{
   let value:unknown={};if(args[1]==='mr'&&args[2]==='view')value={iid:444,state:'opened',sha:'a'.repeat(40)};
