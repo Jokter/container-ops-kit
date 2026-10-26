@@ -147,3 +147,13 @@ test('CodeHub 1.3.7 path metadata is accepted without weakening path or truncati
 test('context expansion accepts the CLI path field end to end',async()=>{
  const f=fixture('path-field');try{const result=await f.service.reviewFileContext(f.e.id,{sha,path:'src/a.ts'});assert.match(result.diff,/\+new/);assert.equal(f.writes.length,0);}finally{await f.shutdown();}
 });
+test('expired position is retained and unresolved history can close against refreshed head without renewing review',async()=>{
+ const parsed=reviewThreads(JSON.stringify([{id:'old',resolved:false,notes:[{body:'fix',resolvable:true,is_outdated:true,original_position:{new_path:'src/a.ts',new_line:319,head_sha:sha}}]}]));
+ assert.equal(parsed[0]!.outdated,true);assert.equal(parsed[0]!.line,319);assert.equal(parsed[0]!.resolvable,true);
+ const f=fixture();try{
+  f.setHead();const fingerprint=reviewThreads(JSON.stringify(f.notes()))[0]!.fingerprint;
+  await f.service.reviewWorkspaceAction(f.e.id,{action:'resolve',sha:other,operationId:randomUUID(),discussionId:'thread',fingerprint,confirmed:true,reason:'已核对当前代码修复'});
+  assert.equal(f.writes.length,1);assert.equal(f.writes[0]![3],'resolve');assert.equal(f.store.getRecord<Entry>('group-mr-entry',f.e.id)!.sha,sha);
+  await assert.rejects(f.service.reviewWorkspaceAction(f.e.id,{action:'create',sha:other,operationId:randomUUID(),path:'src/a.ts',line:2,body:'new'}),/提交已变化/);
+ }finally{await f.shutdown();}
+});

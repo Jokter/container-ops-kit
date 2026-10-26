@@ -323,7 +323,8 @@ export class GroupMrService {
   const input=reviewAction.parse(value),e=this.workbenchEntry(id),operationKey=e.repo+':'+e.iid+':'+input.operationId,operationHash=createHash('sha256').update(JSON.stringify(input)).digest('hex');
   const previous=this.store.getRecord<{entryId:string;hash:string;status:string}>('group-mr-review-operation',operationKey);
   if(previous){if(previous.entryId!==id||previous.hash!==operationHash)throw Object.assign(Error('同一操作编号内容已变化，请刷新核对'),{statusCode:409});if(previous.status==='confirmed')return {ok:true};throw Object.assign(Error('该操作结果待核对，请刷新；不会重复写入'),{statusCode:409});}
-  if(e.writePending||e.sha!==input.sha)throw Object.assign(Error('存在待核对写操作或提交已变化，请刷新检视数据'),{statusCode:409});
+  // Closing a discussion uses the refreshed remote SHA and fingerprint below, without renewing the old review.
+  if(e.writePending||(input.action!=='resolve'&&e.sha!==input.sha))throw Object.assign(Error('存在待核对写操作或提交已变化，请刷新检视数据'),{statusCode:409});
   await this.enqueue(e,async()=>{
    await this.workbenchHead(e,input.sha,true);
    let threads=await this.workbenchNotes(e);

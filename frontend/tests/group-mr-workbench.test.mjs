@@ -4,9 +4,9 @@ import {readFile} from 'node:fs/promises'
 import {JSDOM} from 'jsdom'
 const html=await readFile(new URL('../../index.html',import.meta.url),'utf8'),sha='a'.repeat(40),flush=()=>new Promise(r=>setTimeout(r,40))
 const row=id=>({id:String(id),repo:'MAE-M/Access/Repo'+id,iid:String(id),sha,phase:'ISSUES',status:'待修改',sender:'developer',events:[],reviewComments:[],writePending:'',pipelinePassed:true,readiness:{sha,checkedAt:new Date().toISOString(),ready:false,reason:'仍有未关闭的检视意见'},updatedAt:'2026-10-22T10:00:00Z'})
-async function setup(t,{unsupported=false,failWrite=false,failReloadAfterClose=false,fileCount=0,extraThreads=[],contextFixture=false,failContext=false,staleReview=false}={}){
+async function setup(t,{unsupported=false,failWrite=false,failReloadAfterClose=false,fileCount=0,extraThreads=[],contextFixture=false,failContext=false,staleReview=false,staleEntry=false}={}){
  const records=Array.from({length:36},(_,i)=>row(i+1)),writes=[],fileReads=[];let closed=false,replies=[],reviewAttempted=false
- const snapshot=()=>({sha,title:'修复边界 <script>标题</script>',state:'opened',files:[{path:'src/a.ts',oldPath:'src/a.ts',status:'modified',diff:'@@ -1,3 +1,3 @@\n old\n-deleted\n+<script>alert(1)</script>\n tail',unavailable:false},{path:'src/large.bin',status:'added',diff:'',unavailable:true,binary:true},...Array.from({length:fileCount},(_,i)=>({path:'src/group'+Math.floor(i/16)+'/file'+i+'.ts',oldPath:'src/group'+Math.floor(i/16)+'/file'+i+'.ts',diff:'@@ -1 +1 @@\n-old\n+new',status:'modified'}))],threads:[{id:'thread',body:'修复边界问题',author:'reviewer',resolved:closed,resolvable:true,path:'src/a.ts',line:2,headSha:sha,fingerprint:'f'.repeat(64),notes:[{id:'1',body:'修复边界问题',author:'reviewer'},...replies]},...extraThreads],capabilities:{reply:!unsupported,create:!unsupported,reason:unsupported?'CLI 不支持':''},writePending:'',readAt:'2026-10-22T10:00:00Z'})
+ const snapshot=()=>({sha,stale:staleEntry,title:'修复边界 <script>标题</script>',state:'opened',files:[{path:'src/a.ts',oldPath:'src/a.ts',status:'modified',diff:'@@ -1,3 +1,3 @@\n old\n-deleted\n+<script>alert(1)</script>\n tail',unavailable:false},{path:'src/large.bin',status:'added',diff:'',unavailable:true,binary:true},...Array.from({length:fileCount},(_,i)=>({path:'src/group'+Math.floor(i/16)+'/file'+i+'.ts',oldPath:'src/group'+Math.floor(i/16)+'/file'+i+'.ts',diff:'@@ -1 +1 @@\n-old\n+new',status:'modified'}))],threads:[{id:'thread',body:'修复边界问题',author:'reviewer',resolved:closed,resolvable:true,path:'src/a.ts',line:2,headSha:sha,fingerprint:'f'.repeat(64),notes:[{id:'1',body:'修复边界问题',author:'reviewer'},...replies]},...extraThreads],capabilities:{reply:!unsupported,create:!unsupported,reason:unsupported?'CLI 不支持':''},writePending:'',readAt:'2026-10-22T10:00:00Z'})
  const workspace=()=>{const value=snapshot();if(staleReview&&!reviewAttempted)value.threads=[];value.readiness={sha,checkedAt:new Date().toISOString(),ready:value.threads.every(n=>n.resolved),reason: value.threads.some(n=>!n.resolved)?'仍有未关闭的检视意见':''};if(staleReview&&reviewAttempted){value.sha='b'.repeat(40);value.stale=true;value.threads.push({id:'latest',body:'远端新增检视意见',resolved:false,resolvable:true,notes:[]});}if(contextFixture){value.sha=records[0].sha;value.files[0].diff='@@ -31,3 +31,3 @@\n line31\n-old32\n+new32\n line33\n@@ -71 +71 @@\n-old71\n+new71';value.threads[0].line=32;}return value;};
  const expanded='@@ -1,80 +1,80 @@\n'+Array.from({length:80},(_,i)=>i===31?'-old32\n+new32':i===70?'-old71\n+new71':' line'+(i+1)).join('\n');
  const response=(data,ok=true)=>({ok,status:ok?200:409,json:async()=>data})
@@ -257,4 +257,14 @@ test('failed quick review refreshes latest remote discussions without replaying 
 
 test('MR detail shows the remote title as escaped text',async t=>{
  const {d}=await setup(t);click(d,'.nav-enter[data-mr-open="1"]');await flush();assert.equal(d.querySelector('.mr-detail-title').textContent,'修复边界 <script>标题</script>');assert.equal(d.querySelector('.mr-detail-title script'),null);
+});
+test('expired opinions remain visible outside current diff and can close after refreshed head changes',async t=>{
+ const {dom,d,writes,records}=await setup(t,{staleEntry:true,extraThreads:[{id:'expired',path:'src/a.ts',line:319,headSha:'c'.repeat(40),outdated:true,body:'过期但未关闭的问题',resolved:false,resolvable:true,fingerprint:'e'.repeat(64),notes:[]}]});
+ records[0].sha='b'.repeat(40);await dom.window.eval('loadGroupMr()');click(d,'.nav-enter[data-mr-open="1"]');await flush();
+ assert.match(d.querySelector('.mr-history-notes').textContent,/过期但未关闭的问题/);
+ assert.ok(!d.querySelector('.mr-diff-scroll').textContent.includes('过期但未关闭的问题'));
+ assert.equal(d.querySelector('[data-mrw-resolve="expired"]').disabled,false);
+ click(d,'[data-mrw-resolve="expired"]');input(dom,'[data-mrw-draft="expired"]','已核对最新提交');
+ d.querySelector('[data-mrw-form="resolve"]').dispatchEvent(new dom.window.Event('submit',{bubbles:true,cancelable:true}));await flush();await flush();
+ assert.equal(writes.length,1);assert.equal(writes[0].sha,sha);assert.equal(writes[0].discussionId,'expired');assert.equal(writes[0].fingerprint,'e'.repeat(64));assert.equal(records[0].sha,'b'.repeat(40));
 });
