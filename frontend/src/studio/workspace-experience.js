@@ -13,7 +13,7 @@ import { enhancePortalRefinements } from './portal-refinements.js';
     ['container/resources','环境管理','容器运维','版本、构建环境与容器环境'],
     ['automation','自动化概览','自动化','执行情况与治理入口'],
     ['automation/tools','自动化工具','自动化','UT 治理、MR 检视与质量检查'],
-    ['automation/group-mr','群组 MR 检视','自动化','代码差异、意见、人工审核与合入'],
+    ['automation/group-mr','MR 检视','自动化','手动提交或群监听，查看代码、意见并审核合入'],
     ['automation/auto-ut','UT 治理','自动化','质量报告、治理仓库与执行'],
     ['automation/quality','质量检查','自动化','查询范围、检查结果与日志'],
     ['automation/tasks','执行记录','自动化','任务详情、执行输出与 MR'],
