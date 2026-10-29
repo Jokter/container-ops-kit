@@ -33,7 +33,7 @@ test('工具卡片独立开关，设置留在侧栏，键盘可以进入 MR 页�
  doc.querySelector('[data-automation-capability="group-mr"]').dispatchEvent(new dom.window.KeyboardEvent('keydown',{key:'Enter',bubbles:true}));await flush()
  assert.equal(dom.window.location.hash,'#/automation/group-mr');assert.equal(doc.querySelectorAll('.group-mr-overview>.panel').length,5)
  assert.deepEqual([...doc.querySelectorAll('.group-mr-overview>.panel>span')].slice(-2).map(x=>x.textContent),['今日已合并','全部已合并'])
- assert.deepEqual([...doc.querySelectorAll('.group-mr-table th')].map(x=>x.textContent),['','MR','触发消息','当前阶段','当前情况 / 待办','更新时间','操作'])
+ assert.deepEqual([...doc.querySelectorAll('.group-mr-table th')].map(x=>x.textContent),['','MR','触发来源','当前阶段','当前情况 / 待办','更新时间','操作'])
  assert.ok(doc.querySelector('[data-group-mr-config]'));assert.equal(doc.querySelector('#group-mr-form'),null)
 })
 test('开关写入期间禁止重复请求，失败恢复原状态',async t=>{
