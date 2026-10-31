@@ -112,13 +112,24 @@ if(p.endsWith('/results')){const task=stores['/api/build-tasks'].find(t=>t.id===
 if(p==='/api/quality/jobs'&&method==='POST'){const j={...clone(qualityJob),input:body,parts:qualityParts(body),createdAt:now(),id:'quality-'+Date.now()};stores[p].unshift(j);return ok(j)}
 if(p==='/api/deployment-tasks'&&method==='POST'){const t={...body,id:deliveryId(),createdAt:now(),module:'gateway-service',namespace:body.namespace||'demo',revision:1,status:body.mode==='QUICK'?'SUCCEEDED':'AWAITING_REVIEW',events:[event('读取产物与目标环境配置'),event(body.mode==='QUICK'?'模拟快速部署成功':'已生成配置，等待审阅',2,body.mode==='QUICK'?'SUCCEEDED':'AWAITING_REVIEW')],services:Object.fromEntries((body.services||[]).map(service=>[service,{service,stage:body.mode==='QUICK'?'SUCCEEDED':'ANALYZED',values:'replicas: 2\nimage:\n  repository: mock.local/gateway\n  tag: 27.10\nservice:\n  port: 8080\n',replaceItems:[{location:'values.yaml',key:'image.tag',oldValue:'27.09',newValue:'27.10'}],unresolvedImages:[],errors:[]}]))};stores[p].unshift(t);return ok(t)}
 
-if(p==='/api/automation/group-mr'){pending.forEach(workspace);return ok({config,pending,history,metrics:{pending:pending.length,issues:pending.filter(r=>r.phase==='ISSUES').length,mergedToday:history.length},monitor:{lastPollAt:now(),lastSuccessAt:now(),running:false,state:'idle',readCount:30,newCount:24,matchedCount:24,filteredCount:6,message:'模拟监听已连接，等待新消息',logs:[{time:now(),level:'info',message:'模拟读取完成：24 条 MR 已加入检视列表'}]}})}
+if(['/api/automation/group-mr','/api/automation/group-mr/status'].includes(p)){pending.forEach(workspace);return ok({config,pending,history,metrics:{pending:pending.length,issues:pending.filter(r=>r.phase==='ISSUES').length,mergedToday:history.length},monitor:{lastPollAt:now(),lastSuccessAt:now(),running:false,state:'idle',readCount:30,newCount:24,matchedCount:24,filteredCount:6,message:'模拟监听已连接，等待新消息',logs:[{time:now(),level:'info',message:'模拟读取完成：24 条 MR 已加入检视列表'}]}})}
 if(p.endsWith('/group-mr/config')){config={...config,...body};return ok(config)}
 if(p.endsWith('/group-mr/records/delete')){for(const id of body.ids||[]){for(const list of [pending,history]){const at=list.findIndex(r=>r.id===id);if(at>=0)list.splice(at,1)}}return ok({deleted:body.ids?.length||0})}
 const mr=p.match(/\/group-mr\/records\/([^/]+)\/([^/]+)$/);if(mr){const r=[...pending,...history].find(r=>r.id===decodeURIComponent(mr[1]));if(!r)return fail('模拟 MR 不存在',404);const action=mr[2],w=workspace(r);if(body.sha&&body.sha!==r.sha)return fail('MR 提交已变化，请刷新后核对');
 if(action.startsWith('acknowledge-')){r.writePending='';r.phase='HUMAN';return ok(r)}
 if(action==='file-context'){const f=w.files.find(f=>f.path===url.searchParams.get('path'))||w.files[0];return ok({sha:r.sha,path:f.path,originalDiff:f.diff,diff:f.diff+'\n // 模拟完整文件上下文\n // additional context'})}
 if(action==='workspace'){if(method==='GET')return ok(w);const thread=w.threads.find(t=>t.id===body.discussionId||t.id===body.threadId||t.id===body.id);if(body.action==='resolve'){if(!body.confirmed)return fail('需要确认关闭意见');if(thread)thread.resolved=true;else return fail('意见不存在')}else if(body.action==='reply'){if(!thread)return fail('意见不存在');thread.notes.push({id:'note-'+Date.now(),body:body.body,author:'demo-owner'})}else{w.threads.push({id:'new-'+Date.now(),body:body.body,author:'demo-owner',resolved:false,resolvable:true,path:body.path,line:body.line,headSha:r.sha,fingerprint:'d'.repeat(64),notes:[{id:'new-note',body:body.body,author:'demo-owner'}]})}workspaces[r.id].confirmedOperationId=body.operationId;return ok({ok:true})}
+if(action==='review-jobs'){
+if(r.running||r.queued||['queued','checking','running'].includes(r.reviewJob?.status))return fail('当前正在执行或排队');
+const job=r.reviewJob={id:'job-'+r.id,sha:r.sha,status:'queued'};r.status='审核任务已提交，等待核验';r.queued=true;
+setTimeout(()=>{
+if(!pending.includes(r)||r.sha!==job.sha)return;
+r.queued=false;const current=workspace(r);
+if(!current.readiness.ready){job.status='failed';job.error=current.readiness.reason;r.status=job.error;return;}
+r.humanReview={...body,sha:r.sha,at:now()};r.phase='REVIEW';r.status='人工审核已通过，后台继续核对门禁与合入';r.running=true;job.status='running';knowledge.reviews.push({id:'review-'+Date.now(),repo:r.repo,iid:r.iid,sha:r.sha,...body});
+setTimeout(()=>{if(!pending.includes(r)||r.sha!==job.sha)return;r.running=false;r.updatedAt=now();const latest=workspace(r);if(!latest.readiness.ready){r.phase='ISSUES';r.status=latest.readiness.reason;job.status='failed';job.error=r.status;return;}r.phase='DONE';r.status='检视、审核与合并已完成';r.mergedAt=now();job.status='completed';r.events.push({time:now(),phase:'DONE',message:r.status});pending.splice(pending.indexOf(r),1);history.unshift(r)},350);
+},50);
+return ok(r,202)}
 if(action==='human-review'){
 if(r.running||r.queued)return fail('当前正在执行或排队');
 if(!w.readiness.ready)return fail('存在未关闭意见或流水线未通过');

@@ -19,7 +19,7 @@ async function setup(t,{running=false,failRefresh=false}={}){
     return response({message:'不应自动继续或重复提交'},false)
    }
    if(url.endsWith('/workspace')){reads.push(url);if(failRefresh&&reads.length>1)return response({message:'远端读取失败'},false);return response({sha,state:'opened',files:[{path:'src/a.ts',diff:'@@ -1 +1 @@\n-before\n+after',status:'modified'}],threads,capabilities:{reply:true,create:true},writePending:record.workspaceWritePending??record.writePending,readiness:record.readiness,pipelinePassed:true,readAt:'2026-10-25T01:00:00Z'})}
-   if(url==='/api/automation/group-mr')return response({config:{enabled:false},pending:[record],history:[],monitor:{},metrics:{pending:1}})
+   if(['/api/automation/group-mr','/api/automation/group-mr/status'].includes(url))return response({config:{enabled:false},pending:[record],history:[],monitor:{},metrics:{pending:1}})
    if(url==='/api/automation/knowledge')return response({items:[],reviews:[]})
    if(url.startsWith('/api/automation/effectiveness'))return response({total:0,stages:{},reviews:0,merged:0,anomalies:0,rejected:0})
    return response([])

@@ -29,15 +29,15 @@ test('production MR discussion reply/resolve and review continue the original au
   assert.match(s.find('.mr-inline-note').textContent,/已补充异常路径断言/);
   await s.click('[data-mrw-resolve="thread-1"]');await s.input('[data-mrw-draft="thread-1"]','已核对当前提交');await submit(s,'[data-mrw-form]');
   const resolve=writes(s,'/workspace')[1];assert.equal(resolve.body.action,'resolve');assert.equal(resolve.body.confirmed,true);assert.equal(resolve.body.sha,'a'.repeat(40));assert.ok(resolve.body.operationId);assert.ok(s.d.querySelector('.mr-inline-note.resolved'));
-  await s.click('.nav-review-top [data-group-mr-action="review"]');await s.wait(100);
-  assert.equal(writes(s,'/human-review').length,1);assert.equal(writes(s,'/human-review')[0].body.decision,'pass');
+  await s.click('.nav-review-top [data-group-mr-action="review"]');await s.wait(100);await s.w.eval('loadGroupMr()');
+  assert.equal(writes(s,'/review-jobs').length,1);assert.equal(writes(s,'/review-jobs')[0].body.decision,'pass');
   assert.equal(s.find('.nav-review-top [data-group-mr-action="merge"]').disabled,true);
   assert.match(s.find('.nav-review-top [data-group-mr-action="merge"]').textContent,/合入处理中/);
   assert.equal(s.d.querySelector('.nav-review-top [data-group-mr-action="review"]'),null);
   await s.wait(450);await s.click('[data-mr-records]');await s.click('[data-mr-refresh-records]');await s.wait(100);
   assert.equal(s.find('.nav-review-top [data-group-mr-action="merge"]').textContent,'已合入');
   assert.equal(s.find('.nav-review-top [data-group-mr-action="merge"]').disabled,true);
-  assert.match(s.find('[data-mr-review-feedback]').textContent,/1 条已合入/);
+  assert.match(s.find('[data-mr-review-feedback]').textContent,/已合入/);
   assert.equal(writes(s,'/merge').length,0,'The existing backend workflow merges; the UI must not issue an extra merge');
   await s.click('[data-mrw-focus]');assert.equal(s.d.querySelector('[data-group-mr-record="1"]'),null);
   await s.click('[data-group-mr-tab="history"]');assert.ok(s.find('[data-group-mr-record="1"]'));
@@ -71,7 +71,7 @@ test('production MR remote SHA change prevents stale drafts from being submitted
   const s=await createStudio({route:'automation/group-mr',beforeParse(w){const fetch=w.fetch;w.fetch=async(url,options={})=>{
     if(String(url).endsWith('/workspace')&&options.method==='POST')attempts++;
     const response=await fetch(url,options);
-    if(changed&&String(url)==='/api/automation/group-mr'){
+    if(changed&&['/api/automation/group-mr','/api/automation/group-mr/status'].includes(String(url))){
       const data=await response.json();data.pending.find(r=>r.id==='1').sha='b'.repeat(40);return new Response(JSON.stringify(data));
     }
     return response;
@@ -84,15 +84,15 @@ test('production MR remote SHA change prevents stale drafts from being submitted
 
 test('production MR list replaces one-click review with processing and moves automatic completion into history',async t=>{
   const s=await createStudio({route:'automation/group-mr',beforeParse(w){
-    const timeout=w.setTimeout.bind(w);w.setTimeout=(fn,delay,...args)=>timeout(fn,delay===10000?100:delay,...args);
+    const timeout=w.setTimeout.bind(w);w.setTimeout=(fn,delay,...args)=>timeout(fn,[3000,10000].includes(delay)?100:delay,...args);
   }});t.after(s.close);
-  const review=s.find('[data-group-mr-record="2"] [data-group-mr-action="review"]');review.click();review.click();await s.wait(130);
-  assert.equal(writes(s,'/human-review').length,1);
+  const review=s.find('[data-group-mr-record="2"] [data-group-mr-action="review"]');review.click();review.click();await s.wait(130);await s.w.eval('loadGroupMr()');
+  assert.equal(writes(s,'/review-jobs').length,1);
   assert.equal(s.d.querySelector('[data-group-mr-record="2"] [data-group-mr-action="review"]'),null);
   assert.match(s.find('[data-group-mr-record="2"]').textContent,/后台继续核对门禁与合入/);
   await s.wait(550);
   assert.equal(s.d.querySelector('[data-group-mr-record="2"]'),null);
-  assert.match(s.find('[data-mr-review-feedback]').textContent,/1 条已合入/);
+  assert.match(s.find('[data-mr-review-feedback]').textContent,/已合入/);
   await s.click('[data-group-mr-tab="history"]');assert.match(s.find('[data-group-mr-record="2"]').textContent,/检视、审核与合并已完成/);
   assert.equal(writes(s,'/merge').length,0);assert.deepEqual(s.errors,[]);
 });
@@ -108,33 +108,34 @@ test('production MR already reviewed list and detail expose confirmed merge with
   const confirm=s.find('[data-mr-panel-submit]');confirm.click();confirm.click();await s.wait(100);
   assert.equal(writes(s,'/merge').length,1);assert.deepEqual(JSON.parse(JSON.stringify(writes(s,'/merge')[0].body)),{sha:'a'.repeat(40),confirmed:true});
   await s.click('[data-mr-panel-results]');assert.ok(s.find('[data-group-mr-record="3"]'));assert.equal(s.find('[data-group-mr-tab="history"]').getAttribute('aria-pressed'),'true');
-  assert.equal(writes(s,'/human-review').length,0);assert.deepEqual(s.errors,[]);
+  assert.equal(writes(s,'/review-jobs').length,0);assert.deepEqual(s.errors,[]);
 });
 
-test('production MR acknowledged review stays non-repeatable when the following status read fails',async t=>{
+test('production MR accepted review job stays non-repeatable when the following status read fails',async t=>{
   let reviewed=false;
   const s=await createStudio({route:'automation/group-mr',beforeParse(w){const fetch=w.fetch;w.fetch=async(url,options={})=>{
-    if(reviewed&&String(url)==='/api/automation/group-mr')return new Response(JSON.stringify({message:'状态服务暂不可用'}),{status:503});
+    if(reviewed&&['/api/automation/group-mr','/api/automation/group-mr/status'].includes(String(url)))return new Response(JSON.stringify({message:'状态服务暂不可用'}),{status:503});
     const response=await fetch(url,options);
-    if(String(url).endsWith('/human-review')&&options.method==='POST'&&response.ok)reviewed=true;
+    if(String(url).endsWith('/review-jobs')&&options.method==='POST'&&response.ok)reviewed=true;
     return response;
   }}});t.after(s.close);
   await s.click('.nav-enter[data-mr-open="2"]');await s.click('.nav-review-top [data-group-mr-action="review"]');await s.wait(120);
-  assert.equal(writes(s,'/human-review').length,1);assert.match(s.d.body.textContent,/状态服务暂不可用/);
-  assert.equal(s.d.querySelector('.nav-review-top [data-group-mr-action="review"]'),null);
-  assert.equal(s.find('.nav-review-top [data-group-mr-action="merge"]').disabled,true);
-  await s.click('[data-mrw-focus]');assert.equal(s.d.querySelector('[data-group-mr-record="2"] [data-group-mr-action="review"]'),null);
-  await s.wait(450);assert.equal(writes(s,'/human-review').length,1);assert.equal(writes(s,'/merge').length,0);assert.deepEqual(s.errors,[]);
+  assert.equal(writes(s,'/review-jobs').length,1);assert.match(s.d.body.textContent,/状态服务暂不可用/);
+  assert.equal(s.find('.nav-review-top [data-group-mr-action="review"]').disabled,true);
+  assert.equal(s.d.querySelector('.nav-review-top [data-group-mr-action="merge"]'),null);
+  assert.match(s.find('[data-mr-review-feedback]').textContent,/已提交|已受理/);
+  await s.click('[data-mrw-focus]');assert.equal(s.d.querySelector('[data-group-mr-record="2"] [data-group-mr-action="review"]:not(:disabled)'),null);
+  await s.wait(450);assert.equal(writes(s,'/review-jobs').length,1);assert.equal(writes(s,'/merge').length,0);assert.deepEqual(s.errors,[]);
 });
 
 test('production MR unconfirmed review does not claim approval or automatically submit another write',async t=>{
   let attempts=0;
   const s=await createStudio({route:'automation/group-mr',beforeParse(w){const fetch=w.fetch;w.fetch=async(url,options={})=>{
-    if(String(url).endsWith('/human-review')&&options.method==='POST'){attempts++;return new Response(JSON.stringify({message:'审核写入结果未确认，请人工核对'}),{status:503});}
+    if(String(url).endsWith('/review-jobs')&&options.method==='POST'){attempts++;return new Response(JSON.stringify({message:'审核写入结果未确认，请人工核对'}),{status:503});}
     return fetch(url,options);
   }}});t.after(s.close);
   await s.click('.nav-enter[data-mr-open="2"]');await s.click('.nav-review-top [data-group-mr-action="review"]');await s.wait(120);
-  assert.equal(attempts,1);assert.match(s.find('[data-mr-review-feedback]').textContent,/0 条审核已保存.*1 条未完成/);
+  assert.equal(attempts,1);assert.match(s.find('[data-mr-review-feedback]').textContent,/结果未确认|结果待核对|结果不明/);
   assert.equal(s.d.querySelector('.nav-review-top [data-group-mr-action="merge"]'),null);
   await s.click('[data-mrw-focus]');assert.equal(s.find('[data-group-mr-record="2"] .nav-task-primary').dataset.groupMrAction,'review');
   await s.wait(450);assert.equal(attempts,1);assert.equal(writes(s,'/merge').length,0);assert.deepEqual(s.errors,[]);
@@ -144,7 +145,7 @@ test('production MR direct merge remains disabled when current readiness, writes
   for(const scenario of ['pipeline','writePending','sha']){
     const s=await createStudio({route:'automation/group-mr',beforeParse(w){const fetch=w.fetch;w.fetch=async(url,options={})=>{
       const response=await fetch(url,options);const path=String(url);
-      if(path==='/api/automation/group-mr'){
+      if(['/api/automation/group-mr','/api/automation/group-mr/status'].includes(path)){
         const data=await response.json(),r=data.pending.find(r=>r.id==='3');
         if(scenario==='pipeline'){r.pipelinePassed=false;r.readiness.ready=false;r.readiness.reason='当前提交流水线尚未通过';}
         if(scenario==='writePending')r.writePending='合并';

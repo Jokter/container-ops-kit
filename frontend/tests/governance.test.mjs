@@ -88,7 +88,7 @@ test('概览只统计已合入 UT，MR 去重且排除外部合入，待处理�
  const mr=(id,iid,extra={})=>({id,iid,repo:'MAE-M/Access/Demo',url:'https://codehub-y.huawei.com/MAE-M/Access/Demo/merge_requests/'+iid,createdAt:now,updatedAt:now,phase:'DONE',status:'已完成',events:[{phase:'DONE',message:'检视、审核与合并已完成'}],...extra});
  const history=[mr('first','1',{piReview:{source:'codehub'}}),mr('retry','1',{piReview:{source:'codehub'},reviewComments:[{id:'others-comment',body:'其他人的意见'}]}),mr('shortcut','99',{shortcut:true}),mr('external','100',{events:[{phase:'DONE',message:'MR 已合并'}]})];
  const pending=[mr('human','3',{phase:'HUMAN',createdAt:old,events:[],status:'等待人工审核'}),mr('superseded','3',{phase:'FAILED',supersededBy:'human',events:[]})];
- const dom=new JSDOM(html,{url:'http://localhost/#/automation',runScripts:'dangerously',beforeParse(w){w.scrollTo=()=>{};w.fetch=async url=>({ok:true,status:200,json:async()=>url==='/api/auto-ut/tasks'?tasks:url.startsWith('/api/auto-ut/governance')?{metrics:{},records:tasks}:url==='/api/automation/group-mr'?{pending,history,config:{},monitor:{},metrics:{}}:[]});}});
+ const dom=new JSDOM(html,{url:'http://localhost/#/automation',runScripts:'dangerously',beforeParse(w){w.scrollTo=()=>{};w.fetch=async url=>({ok:true,status:200,json:async()=>url==='/api/auto-ut/tasks'?tasks:url.startsWith('/api/auto-ut/governance')?{metrics:{},records:tasks}:['/api/automation/group-mr','/api/automation/group-mr/status'].includes(url)?{pending,history,config:{},monitor:{},metrics:{}}:[]});}});
  try{await pause();const d=dom.window.document,metric=key=>d.querySelector('[data-overview-outcome="'+key+'"] strong').textContent;
   assert.equal(metric('fixed'),'1');assert.equal(metric('added'),'1');assert.equal(metric('processed'),'2');assert.equal(metric('merged'),'2');assert.equal(metric('waiting'),'2');assert.equal(metric('comments'),'暂无数据');
   assert.match(d.querySelector('.overview-pending').textContent,/1 个 UT 任务/);
@@ -107,7 +107,7 @@ test('远端已合并或已关闭的 MR 即使残留待核对操作也不进入�
  const mr=(id,phase,writePending='')=>({id,iid:id,repo:'MAE-M/FMEMate/FMEMateService',url:'https://codehub-y.huawei.com/MAE-M/FMEMate/FMEMateService/merge_requests/'+id,phase,writePending,status:phase==='DONE'?'已确认远端 MR 已合入':phase==='CLOSED'?'已确认远端 MR 已关闭':'需要处理',createdAt:now,updatedAt:now,events:[]});
  const history=[mr('1706','DONE','Pi 提交检视意见'),mr('1717','CLOSED','群消息回复')];
  const pending=[mr('1718','INTERRUPTED','Pi 提交检视意见'),mr('1719','HUMAN')];
- const dom=new JSDOM(html,{url:'http://localhost/#/automation',runScripts:'dangerously',beforeParse(w){w.scrollTo=()=>{};w.fetch=async url=>({ok:true,status:200,json:async()=>url==='/api/automation/group-mr'?{pending,history,config:{},monitor:{},metrics:{}}:url.startsWith('/api/auto-ut/governance')?{metrics:{},records:[]}:[]});}});
+ const dom=new JSDOM(html,{url:'http://localhost/#/automation',runScripts:'dangerously',beforeParse(w){w.scrollTo=()=>{};w.fetch=async url=>({ok:true,status:200,json:async()=>['/api/automation/group-mr','/api/automation/group-mr/status'].includes(url)?{pending,history,config:{},monitor:{},metrics:{}}:url.startsWith('/api/auto-ut/governance')?{metrics:{},records:[]}:[]});}});
  try{
   await pause();const d=dom.window.document;
   const ids=()=>[...d.querySelectorAll('.review-todos [data-review-open]')].map(el=>el.dataset.reviewOpen);

@@ -4,17 +4,17 @@ import {createStudio} from './helpers/studio-harness.mjs';
 
 function clock(w){
   const timers=new Map(),timeout=w.setTimeout.bind(w),clear=w.clearTimeout.bind(w);let sequence=100000,visibility='visible';
-  w.setTimeout=(fn,delay,...args)=>{if(delay===10000){const id=++sequence;timers.set(id,()=>fn(...args));return id}return timeout(fn,delay,...args)};
+  w.setTimeout=(fn,delay,...args)=>{if(delay===10000||delay===3000){const id=++sequence;timers.set(id,()=>fn(...args));return id}return timeout(fn,delay,...args)};
   w.clearTimeout=id=>{if(!timers.delete(id))clear(id)};
   Object.defineProperty(w.document,'visibilityState',{configurable:true,get:()=>visibility});
   return {take(){const id=w.eval('groupMrUi.poll'),fn=timers.get(id);assert.ok(fn,'MR auto-refresh must be scheduled');timers.delete(id);return fn},visibility(value){visibility=value;w.document.dispatchEvent(new w.Event('visibilitychange'))}};
 }
-const reads=s=>s.requests.filter(r=>r.path==='/api/automation/group-mr').length;
+const reads=s=>s.requests.filter(r=>['/api/automation/group-mr','/api/automation/group-mr/status'].includes(r.path)).length;
 
 test('MR polling includes new rows and changed states without resetting pagination, selection or filters even when listener is paused',async t=>{
   let timer,changed=false;
   const s=await createStudio({route:'automation/group-mr',beforeParse(w){timer=clock(w);const fetch=w.fetch;w.fetch=async(url,options)=>{
-    const response=await fetch(url,options);if(String(url)!=='/api/automation/group-mr')return response;
+    const response=await fetch(url,options);if(!['/api/automation/group-mr','/api/automation/group-mr/status'].includes(String(url)))return response;
     const data=await response.json();data.config.enabled=false;
     if(changed){data.pending.find(r=>r.id==='21').status='远端意见已更新';data.pending.unshift({...data.pending[0],id:'new-mr',iid:'999',status:'新接收的 MR'});}
     return new Response(JSON.stringify(data));
@@ -39,7 +39,7 @@ test('MR polling pauses in hidden tabs and other pages then refreshes immediatel
 test('MR automatic and manual refresh share one read; failed reads retry on the next poll',async t=>{
   let timer,hold=false,release,fail=false,attempts=0;
   const s=await createStudio({route:'automation/group-mr',beforeParse(w){timer=clock(w);const fetch=w.fetch;w.fetch=async(url,options)=>{
-    if(String(url)==='/api/automation/group-mr'){attempts++;if(hold)await new Promise(resolve=>release=resolve);if(fail)return new Response(JSON.stringify({message:'模拟状态读取失败'}),{status:503});}return fetch(url,options);
+    if(['/api/automation/group-mr','/api/automation/group-mr/status'].includes(String(url))){attempts++;if(hold)await new Promise(resolve=>release=resolve);if(fail)return new Response(JSON.stringify({message:'模拟状态读取失败'}),{status:503});}return fetch(url,options);
   }}});t.after(s.close);
   const initial=attempts;hold=true;timer.take()();await s.wait();const manual=s.w.eval('loadGroupMr()');const another=s.w.eval('loadGroupMr()');assert.equal(attempts,initial+1);
   hold=false;release();await Promise.all([manual,another]);assert.equal(attempts,initial+1);

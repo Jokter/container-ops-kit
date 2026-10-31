@@ -7,7 +7,7 @@ import {effectivenessRoutes} from '../src/modules/automation/effectiveness.js';
 test('metrics deduplicate retries and UT archive, keep empty samples null, and include a whole repeated stage',async()=>{
  const store=new TaskStore(':memory:'),service=new GroupMrService(store),app=Fastify();effectivenessRoutes(app,store,service);
  try{let response=await app.inject('/api/automation/effectiveness?days=30');assert.equal(response.json().waitMedianMs,null);assert.equal(response.json().total,0);
- const now=new Date().toISOString(),start=new Date(Date.now()-60000).toISOString(),middle=new Date(Date.now()-30000).toISOString();
+ const timestamp=Date.now(),now=new Date(timestamp).toISOString(),start=new Date(timestamp-60000).toISOString(),middle=new Date(timestamp-30000).toISOString();
  const row:Entry={id:'old',repo:'Demo',iid:'1',url:'',sha:'a'.repeat(40),previousSha:'',messageId:'',sender:'',shortcut:false,phase:'FAILED',status:'',detail:'',createdAt:start,updatedAt:start,writePending:'',events:[{time:start,phase:'PI',message:''},{time:middle,phase:'PI',message:''},{time:now,phase:'FAILED',message:''}]};
  store.putRecord('group-mr-entry','old',row);store.putRecord('group-mr-entry','new',{...row,id:'new',phase:'DONE',createdAt:now,updatedAt:now,events:[]});
  for(const domain of ['auto-ut-task','auto-ut-governance'])store.putRecord(domain,'ut1',{id:'ut1',createdAt:now});

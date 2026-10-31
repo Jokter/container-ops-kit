@@ -829,14 +829,14 @@ for(const phase of ['NO_PERMISSION','INTERRUPTED','FAILED','ISSUES','HUMAN'] as 
  }finally{await service.close();store.close();}
 });
 
-test('background state checks rotate beyond five MRs and ignore deleted and terminal entries',async t=>{
+test('background state checks reserve a manual slot and rotate past four MRs, ignoring deleted and terminal entries',async t=>{
  t.mock.timers.enable({apis:['setInterval','Date'],now:Date.parse('2026-09-28T12:00:00Z')});
  const store=new TaskStore(':memory:'),checked:string[]=[];
  const service=new GroupMrService(store,async args=>{assert.equal(args[2],'view');checked.push(args[3]!);return{exitCode:0,output:'{"iid":1,"state":"opened"}'};});
  try{
   for(let i=1;i<=9;i++){const id=String(i);store.putRecord('group-mr-entry',id,{id,repo:'MAE-M/Access/Demo',iid:id,url:'',sha:'',previousSha:'',messageId:id,sender:'developer',shortcut:false,phase:i===9?'DONE':'NO_PERMISSION',status:'',detail:'',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),writePending:'',events:[]});}
   service.removeHistory('8');
-  t.mock.timers.tick(5000);await settle(service);assert.equal(checked.length,5);
+  t.mock.timers.tick(5000);await settle(service);assert.equal(checked.length,4);
   t.mock.timers.tick(5000);await settle(service);assert.equal(checked.length,7);assert.equal(new Set(checked).size,7);assert.ok(!checked.includes('8')&&!checked.includes('9'));
  }finally{await service.close();store.close();}
 });
