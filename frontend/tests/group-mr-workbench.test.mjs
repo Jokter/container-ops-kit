@@ -11,10 +11,10 @@ async function setup(t,{unsupported=false,failWrite=false,failReloadAfterClose=f
  const expanded='@@ -1,80 +1,80 @@\n'+Array.from({length:80},(_,i)=>i===31?'-old32\n+new32':i===70?'-old71\n+new71':' line'+(i+1)).join('\n');
  const response=(data,ok=true)=>({ok,status:ok?200:409,json:async()=>data})
  const dom=new JSDOM(html,{runScripts:'dangerously',url:'http://localhost/#/automation/group-mr',beforeParse(w){w.scrollTo=()=>{};const timeout=w.setTimeout.bind(w);w.setTimeout=(fn,delay,...args)=>delay>500?0:timeout(fn,delay,...args);w.fetch=async(url,options)=>{
-  if(url.endsWith('/human-review')&&staleReview){reviewAttempted=true;writes.push(JSON.parse(options.body));return response({message:'MR 提交已变化，请刷新代码与意见后核对最新提交'},false);}
+  if(['/human-review','/review-jobs'].some(tail=>url.endsWith(tail))&&staleReview){reviewAttempted=true;writes.push(JSON.parse(options.body));return response({message:'MR 提交已变化，请刷新代码与意见后核对最新提交'},false);}
   if(url.includes('/file-context?')){fileReads.push(url);const q=new URL(url,'http://localhost').searchParams;return failContext?response({message:'完整文件读取失败'},false):response({sha:q.get('sha'),path:q.get('path'),originalDiff:workspace().files[0].diff,diff:expanded});}
   if(url.endsWith('/workspace')){if(options?.method==='POST'){const data=JSON.parse(options.body);writes.push(data);if(failWrite)return response({message:'写入结果待核对'},false);if(data.action==='resolve')closed=true;else replies.push({id:'2',body:data.body,author:'owner'});return response({ok:true})}if(closed&&failReloadAfterClose)return response({message:'刷新失败'},false);return response(workspace())}
-  if(url==='/api/automation/group-mr')return response({config:{enabled:false},pending:records,history:[],monitor:{},metrics:{pending:records.length}})
+  if(['/api/automation/group-mr','/api/automation/group-mr/status'].includes(url))return response({config:{enabled:false},pending:records,history:[],monitor:{},metrics:{pending:records.length}})
   if(url==='/api/automation/knowledge')return response({items:[],reviews:[]})
   if(url.startsWith('/api/automation/effectiveness'))return response({total:0,stages:{},reviews:0,merged:0,anomalies:0,rejected:0})
   return response([])
@@ -100,7 +100,7 @@ test('list actions open opinions or records directly; picker and browser history
 test('a changed commit disables inline closure and preserves the old draft without writing',async t=>{
  const {dom,d,records,writes}=await setup(t);click(d,'.nav-enter[data-mr-open="1"]');await flush();click(d,'[data-mrw-resolve="thread"]');input(dom,'[data-mrw-draft="thread"]','核对旧提交')
  records[0].sha='b'.repeat(40);await dom.window.eval('loadGroupMr()');dom.window.eval('render(false)')
- assert.equal(d.querySelector('[data-mrw-resolve="thread"]').disabled,true);assert.equal(d.querySelector('.mr-inline-note [data-mrw-form]'),null);assert.match(d.querySelector('[role="alert"]').textContent,/提交已变化/)
+ assert.equal(d.querySelector('[data-mrw-resolve="thread"]').disabled,true);assert.equal(d.querySelector('.mr-inline-note [data-mrw-form]'),null);assert.match(d.querySelector('.mr-code-section [role="alert"]').textContent,/提交已变化/)
  click(d,'[data-mrw-next="1"]');await flush();click(d,'[data-mrw-next="-1"]');assert.equal(dom.window.eval('mrDraft("1").thread.body'),'核对旧提交');assert.equal(writes.length,0)
 })
 
@@ -268,3 +268,20 @@ test('expired opinions remain visible outside current diff and can close after r
  d.querySelector('[data-mrw-form="resolve"]').dispatchEvent(new dom.window.Event('submit',{bubbles:true,cancelable:true}));await flush();await flush();
  assert.equal(writes.length,1);assert.equal(writes[0].sha,sha);assert.equal(writes[0].discussionId,'expired');assert.equal(writes[0].fingerprint,'e'.repeat(64));assert.equal(records[0].sha,'b'.repeat(40));
 });
+
+
+test('same-SHA discussion changes keep an existing closure draft disabled after local status refresh',async t=>{
+ const thread={id:'changing',path:'src/a.ts',line:2,headSha:sha,body:'核对线程最新回复',resolved:false,resolvable:true,fingerprint:'before-reply',notes:[]}
+ const {dom,d,writes}=await setup(t,{extraThreads:[thread]})
+ click(d,'.nav-enter[data-mr-open="1"]');await flush();click(d,'[data-mrw-resolve="changing"]');input(dom,'[data-mrw-draft="changing"]','已检查旧线程内容')
+ thread.fingerprint='after-reply';thread.body='远端新增了待确认回复'
+ await dom.window.eval('mrLoad("1")')
+ const form=()=>d.querySelector('[data-mrw-form="resolve"][data-mrw-key="changing"]')
+ assert.ok(form());assert.equal(form().querySelector('button[type="submit"]').disabled,true)
+ assert.match(form().textContent,/讨论已更新/)
+ await dom.window.eval('loadGroupMr()')
+ assert.equal(form().querySelector('button[type="submit"]').disabled,true)
+ form().dispatchEvent(new dom.window.Event('submit',{bubbles:true,cancelable:true}));await flush()
+ assert.equal(writes.length,0)
+ assert.equal(d.querySelector('[data-mrw-draft="changing"]').value,'已检查旧线程内容')
+})

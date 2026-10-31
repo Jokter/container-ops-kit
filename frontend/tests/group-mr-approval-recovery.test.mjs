@@ -30,7 +30,7 @@ async function setup(t,{pending='检视',stale=true,running=false,failAck=false,
     if(failReload&&reads.filter(v=>v.endsWith('/workspace')).length>1)return response({message:'远端读取失败'},false)
     return response({sha:head,stale,state:'opened',files:[{path:'src/a.ts',diff:'@@ -1 +1 @@\n-before\n+after',status:'modified'}],threads,capabilities:{reply:true,create:true},writePending:record.workspaceWritePending??record.writePending,readiness:record.readiness,pipelinePassed:true,readAt:'2026-10-26T08:00:00Z'})
    }
-   if(url==='/api/automation/group-mr'){reads.push(url);return response({config:{enabled:false},pending:[record],history:[],monitor:{},metrics:{pending:1}})}
+   if(['/api/automation/group-mr','/api/automation/group-mr/status'].includes(url)){reads.push(url);return response({config:{enabled:false},pending:[record],history:[],monitor:{},metrics:{pending:1}})}
    if(url==='/api/automation/knowledge')return response({items:[],reviews:[]})
    if(url.startsWith('/api/automation/effectiveness'))return response({total:0,stages:{},reviews:0,merged:0,anomalies:0,rejected:0})
    return response([])
@@ -42,8 +42,9 @@ async function setup(t,{pending='检视',stale=true,running=false,failAck=false,
 }
 
 for(const pending of ['检视','审核'])test(pending+' recovery is available in code, opinions and processing records with accurate blocked text',async t=>{
- const {d,writes}=await setup(t,{pending})
- assert.ok(d.querySelector('.mr-code-section [data-group-mr-action="ack-approval"]'))
+ const {dom,d,writes}=await setup(t,{pending})
+ await dom.window.eval('loadGroupMr()')
+ assert.equal(d.querySelector('.mr-code-section [data-group-mr-action="ack-approval"]').disabled,false)
  assert.equal(d.querySelector('[data-mrw-resolve="history"]').disabled,true)
  assert.match(d.querySelector('.mr-code-section').textContent,/先核对并解除上次操作的拦截/)
  assert.doesNotMatch(d.querySelector('.mr-code-section').textContent,/仍可关闭历史意见|重新发送该 MR 链接完成检视/)
@@ -114,10 +115,10 @@ test('failed workspace reload after acknowledgement keeps writes unavailable',as
 
 test('read-only remote reconciliation refreshes the record instead of leaving a stale approval blocker',async t=>{
  const {dom,d,record,writes,reads}=await setup(t,{stale:false})
- const count=reads.filter(v=>v==='/api/automation/group-mr').length
+ const count=reads.filter(v=>['/api/automation/group-mr','/api/automation/group-mr/status'].includes(v)).length
  record.writePending=''
  await dom.window.eval('mrLoad("pending-approval")');await flush()
- assert.ok(reads.filter(v=>v==='/api/automation/group-mr').length>count)
+ assert.ok(reads.filter(v=>['/api/automation/group-mr','/api/automation/group-mr/status'].includes(v)).length>count)
  assert.equal(dom.window.eval('mrSelected().writePending'),'')
  assert.equal(d.querySelector('[data-mrw-resolve="history"]').disabled,false)
  assert.equal(writes.length,0)
@@ -134,10 +135,11 @@ test('a record refresh preserves a different pending operation after workspace r
 })
 
 for(const [pending,existing] of [['Pi 提交检视意见','ack-pi'],['群消息回复','ack'],['合并',null]])test('approval acknowledgement does not replace existing recovery for '+pending,async t=>{
- const {d,writes}=await setup(t,{pending})
+ const {dom,d,writes}=await setup(t,{pending})
  d.querySelector('[data-mr-records]').click()
+ await dom.window.eval('loadGroupMr()')
  assert.equal(d.querySelector('[data-group-mr-action="ack-approval"]'),null)
- if(existing)assert.ok(d.querySelector('[data-group-mr-action="'+existing+'"]'))
+ if(existing)assert.equal(d.querySelector('[data-group-mr-action="'+existing+'"]').disabled,false)
  assert.equal(writes.length,0)
 })
 

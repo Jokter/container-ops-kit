@@ -18,7 +18,7 @@ async function fixture(t,{config:overrides={},submit,records=[]}={}){
     const entry={id:'manual-1',source:'manual',notificationReceiver:config.authorizedSender,repo:'MAE-M/FMEMate/FMEMateService',iid:'1756',url,phase:'PI',running:true,events:[],status:'Agent 正在检视'};records.push(entry);return response({entryId:entry.id,duplicate:false});
    }
    if(path==='/api/automation/group-mr/config'&&options?.method==='PUT'){const body=JSON.parse(options.body);writes.push({path,body});Object.assign(config,body);return response({...config});}
-   if(path==='/api/automation/group-mr')return response({config:{...config},pending:records,history:[],metrics:{pending:records.length,issues:0,mergedToday:0},monitor:{}});
+   if(['/api/automation/group-mr','/api/automation/group-mr/status'].includes(path))return response({config:{...config},pending:records,history:[],metrics:{pending:records.length,issues:0,mergedToday:0},monitor:{}});
    if(path==='/api/automation/knowledge')return response({items:[],reviews:[]});
    if(path.startsWith('/api/automation/effectiveness'))return response({total:0,stages:{},reviews:0,merged:0,anomalies:0,rejected:0});
    return response([]);

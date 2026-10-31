@@ -13,7 +13,7 @@ async function fixture(t,{route='tools',save,records=[],history=[]}={}){
   if(url==='/api/automation/group-mr/config'&&options?.method==='PUT'){const body=JSON.parse(options.body);writes.push(body);if(save)return save(body);Object.assign(config,body);return response({...config})}
   if(url.endsWith('/workspace'))return response({sha:records.find(r=>url.includes('/'+r.id+'/'))?.sha||'a'.repeat(40),state:'opened',files:[],threads:records.find(r=>url.includes('/'+r.id+'/'))?.reviewComments||[],capabilities:{},readAt:'2026-10-22T10:00:00Z'});
   if(url.startsWith('/api/automation/group-mr/records/')){writes.push({url,...options});if(url.endsWith('/delete')){const ids=JSON.parse(options.body).ids;for(const list of [history,records])for(let i=list.length-1;i>=0;i--)if(ids.includes(list[i].id))list.splice(i,1);}else for(const r of history){r.writePending='';if(r.reply)r.reply.status='checked';}return response({ok:true})}
-  if(url==='/api/automation/group-mr')return response(snapshot())
+  if(['/api/automation/group-mr','/api/automation/group-mr/status'].includes(url))return response(snapshot())
   if(url==='/api/automation/knowledge')return response({items:[],reviews:[]})
   if(url.startsWith('/api/automation/effectiveness'))return response({total:0,stages:{},reviews:0,merged:0,anomalies:0,rejected:0})
   return response([])
